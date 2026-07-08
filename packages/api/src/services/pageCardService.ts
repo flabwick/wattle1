@@ -50,7 +50,7 @@ export async function addNewCardToPage(
   });
   const pageCard = await prisma.pageCard.create({
     data: {
-      pageId,
+      page: { connect: { id: pageId } },
       order: (bottom._max.order ?? -1) + 1,
       card: { create: { title, content } },
     },
