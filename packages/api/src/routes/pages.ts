@@ -1,0 +1,55 @@
+import { Router } from "express";
+import * as pageService from "../services/pageService.js";
+import * as pageCardService from "../services/pageCardService.js";
+
+export const pagesRouter = Router();
+
+// GET /api/pages — the full stack, bottom to top, each with its Cards.
+pagesRouter.get("/", async (_req, res) => {
+  res.json(await pageService.listPages());
+});
+
+pagesRouter.post("/", async (req, res) => {
+  const { order } = req.body ?? {};
+  res.status(201).json(await pageService.createPage(typeof order === "number" ? order : undefined));
+});
+
+pagesRouter.delete("/:id", async (req, res) => {
+  await pageService.deletePage(req.params.id);
+  res.status(204).end();
+});
+
+// PUT /api/pages/reorder  { orderedIds: string[] }  (bottom-to-top)
+pagesRouter.put("/reorder", async (req, res) => {
+  const { orderedIds } = req.body ?? {};
+  if (!Array.isArray(orderedIds)) {
+    return res.status(400).json({ error: "orderedIds must be an array of Page ids" });
+  }
+  await pageService.reorderPages(orderedIds);
+  res.status(204).end();
+});
+
+// POST /api/pages/:pageId/cards  { cardId } | { title, content } — open existing vs. create new.
+pagesRouter.post("/:pageId/cards", async (req, res) => {
+  const { pageId } = req.params;
+  const { cardId, title, content } = req.body ?? {};
+
+  if (typeof cardId === "string") {
+    return res.status(201).json(await pageCardService.addExistingCardToPage(pageId, cardId));
+  }
+  if (typeof title === "string" && typeof content === "string") {
+    return res.status(201).json(await pageCardService.addNewCardToPage(pageId, title, content));
+  }
+  res.status(400).json({ error: "Provide either { cardId } or { title, content }" });
+});
+
+// PUT /api/pages/:pageId/cards/reorder  { orderedIds: string[] }  (top-to-bottom as displayed)
+pagesRouter.put("/:pageId/cards/reorder", async (req, res) => {
+  const { pageId } = req.params;
+  const { orderedIds } = req.body ?? {};
+  if (!Array.isArray(orderedIds)) {
+    return res.status(400).json({ error: "orderedIds must be an array of PageCard ids" });
+  }
+  await pageCardService.reorderPageCards(pageId, orderedIds);
+  res.status(204).end();
+});

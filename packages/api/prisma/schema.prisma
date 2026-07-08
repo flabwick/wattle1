@@ -1,0 +1,54 @@
+// Wattle data model — see spec1.md Part 2 (Pages/Cards) and Part 4 (stable IDs +
+// last-modified timestamps "even though MVP doesn't need conflict resolution yet",
+// so a future sync/offline layer doesn't require a schema rewrite).
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A Card in the vault — the flat, searchable list from spec1.md Part 3 "Vault".
+model Card {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pageCards PageCard[]
+}
+
+/// A Page — one slot in the vertical stack. `order` is ascending bottom (0) to top.
+model Page {
+  id        String   @id @default(cuid())
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pageCards PageCard[]
+}
+
+/// A Card's placement within a Page, including any unsaved draft edits.
+model PageCard {
+  id        String   @id @default(cuid())
+  pageId    String
+  cardId    String
+  order     Int
+
+  draftTitle   String?
+  draftContent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([cardId])
+}

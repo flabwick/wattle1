@@ -1,0 +1,21 @@
+{
+  "name": "wattle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pages + Cards workspace that merges chat and file system, per spec1.md",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @wattle/api\" \"npm run dev -w @wattle/web\"",
+    "dev:api": "npm run dev -w @wattle/api",
+    "dev:web": "npm run dev -w @wattle/web",
+    "build": "npm run build -w @wattle/shared && npm run build -w @wattle/api && npm run build -w @wattle/web",
+    "db:migrate": "npm run db:migrate -w @wattle/api",
+    "db:studio": "npm run db:studio -w @wattle/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}
