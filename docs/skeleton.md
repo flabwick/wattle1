@@ -1,7 +1,7 @@
 # Skeleton — What's Been Built
 
 This documents the project skeleton scaffolded from [spec1.md](./spec1.md). The
-original CRUD + Generation Rule skeleton (this doc) has since been built on by four
+original CRUD + Generation Rule skeleton (this doc) has since been built on by five
 further steps — read those for the detail, this doc gives the overall shape and stays
 current on status:
 
@@ -19,8 +19,14 @@ current on status:
   "Olive Styling: Refined Neo-Brutalism" spec encoded as `tokens.css` color/border/
   shadow/type values, applied through the Step 3 primitives layer (`VaultView.tsx` and
   `PageStack.tsx` now compose `Button`/`InputField` too, closing the last gap).
+- [step5-dock-driven-interaction.md](./step5-dock-driven-interaction.md) — every
+  action moved off the Card/Page onto the Dock (icon-only, single consistent row);
+  Pages are full-screen with up/down navigation instead of a scrolling stack; the
+  Vault lives in the Dock as an IDE-style file list; Card editing opens via
+  double-click/long-press and closes on click-outside; and a new `Card.savedToVault`
+  flag gives the Vault a real staging relationship to what's on a Page.
 
-As of Step 4, the foundation described by these steps is complete: adding a new card
+As of Step 5, the foundation described by these steps is complete: adding a new card
 type, operation, model provider, parser, prompt template, locale, or metadata field
 should each be achievable by adding new files/registry entries rather than editing core
 files (one caveat: see step3's "Deviations" on client-side Operation stand-ins), and
@@ -68,15 +74,17 @@ Following spec1.md Part 4 ("Separate the Brain from the Face"):
 - `Card` — the vault's atomic unit: `id`, `title`, `content` (markdown), `metadata`
   (Step 3: a JSON string holding a versioned `CardMetadataV1` payload — see
   `packages/shared/src/registries/cardMetadata.ts` and step3's doc for why it's a
-  `String` column rather than Prisma's `Json` scalar), timestamps.
+  `String` column rather than Prisma's `Json` scalar), `savedToVault` (Step 5: `Boolean
+  @default(true)` — whether this Card is an independent, Vault-searchable entity yet,
+  or still page-local scratch content; see step5's doc §8), timestamps.
 - `Page` — a stack slot: `id`, `order` (ascending bottom→top), timestamps.
 - `PageCard` — join between a Page and a Card, since a Card can be opened into a Page
   and edited there without committing changes to the vault copy until explicitly
   saved. Holds `order` (position within the page) plus nullable `draftTitle` /
   `draftContent` for unsaved inline edits. This is how "Save a Card back to the vault"
   (spec1.md Part 3) is implemented: edits inside a Page write to the `PageCard`
-  draft fields; `POST /page-cards/:id/save` copies them onto the underlying `Card`
-  and clears the draft.
+  draft fields; `POST /page-cards/:id/save` copies them onto the underlying `Card`,
+  clears the draft, and (Step 5) sets `Card.savedToVault = true`.
 
 ## The Generation Rule (`packages/api/src/services/generationService.ts`)
 
@@ -102,7 +110,7 @@ this environment).
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/cards?q=` | Vault list + search |
+| `GET /api/cards?q=` | Vault list + search (Step 5: only `savedToVault: true` Cards) |
 | `POST/PATCH/DELETE /api/cards/:id` | Vault Card CRUD |
 | `GET /api/pages` | Full stack, bottom→top, each with its Cards |
 | `POST/DELETE /api/pages/:id`, `PUT /api/pages/reorder` | Page CRUD + reorder |
@@ -122,56 +130,77 @@ this environment).
   Initializes `cardTypeRegistry` and registers id-only `Operation` stand-ins in the
   browser's `operationRegistry` (the real, Prisma-backed `Operation`s only exist
   server-side — see step3's doc for why).
-- `components/Vault/VaultView.tsx` — search box, create-new-Card form, list with
-  Open/Delete actions; also reachable as an extension panel toggled from the Dock
-  footer, not only as a standalone view. Composes the `Button`/`InputField`
-  primitives (Step 4 — previously its own hand-rolled `<button>`/`<input>` CSS).
-- `components/PageStack/PageStack.tsx` — renders Pages top-to-bottom (highest
-  `order` first, matching "top = most kept"), each with its Cards and an "+ Card" /
-  "Delete Page" header. Its per-Page action buttons compose `Button` (Step 4); the
-  dashed "+ New Page" button stays bespoke (see step4's doc for why).
-- `components/Card/Card.tsx` — a single Card's tap target inside a Page; shows an
-  "unsaved" badge when draft fields are set. Composes the `CardShell`/`Badge`
-  primitives (Step 3) rather than its own box-model CSS.
+- `components/Vault/VaultView.tsx` — Step 5: a compact IDE-file-list (search bar +
+  "new file" icon button in a toolbar, then flat filename rows — no bordered cards, no
+  content preview), reachable only as an extension panel toggled from the Dock (the
+  old standalone Pages/Vault tab is gone). "New file" creates a blank Card directly on
+  the current Page and closes the panel, rather than showing a title/content form.
+  Composes `Button`/`InputField`/`Icon`.
+- `components/PageStack/PageStack.tsx` — Step 5: renders exactly one full-screen
+  Page's Cards at a time (no title, no bordered "folio" box) — which Page, and
+  navigating between them, lives in `components/PageNav/PageNav.tsx` + `App.tsx` now.
+- `components/PageNav/PageNav.tsx` — Step 5, new: two arrows (up/down) rendered as a
+  normal flex row between the Page content and the Dock, not a `position: fixed`
+  overlay — see step5's doc §4 for why that's what makes it never overlap the Dock
+  regardless of the Dock's own height. Pages are only ever added at the bottom: once
+  there's nothing below the current Page, the down arrow's icon itself becomes `+`.
+- `components/Card/Card.tsx` — a single Card's tap target inside a Page. Step 5: no
+  more Edit button or "unsaved" Badge on the Card itself — double-click (desktop) or
+  long-press (touch, manual `onTouchStart`/`onTouchEnd` timer since there's no native
+  long-press event) opens the same inline editor the Dock's Edit action does, closing
+  again via a click-outside `pointerdown` listener rather than an explicit Done
+  button. Also gained a small fold caret (collapse/expand `.card__preview`, left of
+  the title). Composes `CardShell`/`Icon`/`InputField`.
 - `components/Dock/Dock.tsx` — sticky footer, state-dependent per spec1.md Part 2:
-  nothing selected → prompt text; a Card selected → title/Edit/Save/Generate/Remove/
-  Delete; tapping the title (or Edit) switches to an inline title+textarea editor.
-  Since Step 3, that button list is *derived* — `cardTypeRegistry.get("note").supportsOperations`
-  resolved against `operationRegistry.list()` — rather than hardcoded JSX, and it
-  shows a live incremental preview (`useGeneration`) while a generation streams in,
-  styled (Step 4) as a "retro terminal" readout per styling.md. Composes the
-  `Button`/`InputField` primitives, plus `VaultView` itself as a toggleable panel.
-- `components/primitives/` — Step 3: `Button`, `CardShell`, `Badge`, `InputField`,
-  each styled purely from `styles/tokens.css` variables. Step 4 re-themed all four to
-  [styling.md](./styling.md)'s "Refined Neo-Brutalism" (bold borders, solid offset
-  shadows, warm parchment/terracotta palette) without changing any component's props.
-  See its own `README.md` and [step4-design-system.md](./step4-design-system.md).
+  nothing selected → just the Vault toggle; a Page selected (no Card) → Add Card/
+  Delete Page; a Card selected → Edit/Save/Generate/Remove/Delete. Step 5: always
+  exactly one row (`.dock__row`) — no title text in any state, and the Vault toggle is
+  the first button in that same row rather than a header row of its own, so the Dock
+  is a genuinely consistent height regardless of what's selected (only the Vault panel
+  or a live generation preview, both temporary, ever grow it). The Save action's icon
+  is `+` while there's something to commit and a disabled tick once saved — see
+  step5's doc §8 for the Vault-staging flag that feeds into when that's true. The Card
+  action list is still *derived* from `cardTypeRegistry`/`operationRegistry` (Step 3),
+  and shows a live incremental preview (`useGeneration`) styled as a "retro terminal"
+  readout (Step 4) while a generation streams in.
+- `components/primitives/` — Step 3: `Button`, `CardShell`, `Badge`, `InputField`.
+  Step 4 re-themed all four to styling.md's "Refined Neo-Brutalism." Step 5 added
+  `Icon` (a line-icon set every button now shows instead of text — see step5's doc
+  §2) and changed `CardShell` from a real `<button>` to a `<div role="button">` (a
+  real `<button>` can't legally nest another `<button>`, which Card.tsx's Edit-era
+  layout needed at the time and later gestures still benefit from). See its own
+  `README.md`, [step4-design-system.md](./step4-design-system.md), and
+  [step5-dock-driven-interaction.md](./step5-dock-driven-interaction.md).
 - `i18n/` — Step 3: `en.json` (every user-facing string) + `t()`/`useTranslation()`
   (flat key lookup, no full i18n library). See its own `README.md`.
 - `hooks/usePages.ts`, `hooks/useVault.ts` — data fetching + optimistic-ish mutators
   (mutate local state, call the API, then refetch) per spec1.md Part 4's guidance to
   use optimistic UI rather than blocking on every round-trip. Current implementation
   refetches after each mutation rather than doing full local reconciliation — good
-  enough for MVP, worth revisiting if it feels laggy.
+  enough for MVP, worth revisiting if it feels laggy. Step 5: `usePages`' `addPage` now
+  takes an optional explicit `order` (so a new Page can be placed at the bottom of the
+  stack, not just appended on top) and returns the new Page's id.
 - `hooks/useGeneration.ts` — Step 3: opens an `EventSource` against
   `GET /api/generate/stream/:pageCardId` for a live text preview. Read-only on the
   server side, so `App.tsx`'s `handleGenerate` still calls the original, persisting
   `POST /api/generate` afterwards — see step3's doc for the resulting "generates
   twice" tradeoff and why it exists.
 - `api/client.ts` — the only module that calls `fetch`; every other frontend module
-  deals purely in `@wattle/shared` types. Unchanged by Step 3 (streaming goes through
-  `EventSource` in `useGeneration.ts` instead, since it isn't a JSON request/response
-  call this client's `request()` helper shape fits).
-- `styles/tokens.css` — spacing scale, `--touch-target-min: 44px`, type scale, border
-  width/shadow tokens, and light/dark color roles (spec1.md Part 4 "Design System From
-  the Start"; Step 4 layers [styling.md](./styling.md)'s neo-brutalist color/border/
-  shadow/type values on top), consumed by every component's CSS (now entirely via
-  `components/primitives/`, as of Step 4) instead of hardcoded pixel values.
-- `App.tsx` — top-level Pages/Vault tab switcher, wires selection state, the Dock's
-  callbacks, and the two hooks together. This tab switcher isn't in spec1.md; it's
-  the minimal nav needed to reach the Vault view on a single-column mobile layout,
-  and is the one structural decision here that isn't a direct translation of the
-  spec.
+  deals purely in `@wattle/shared` types. Step 5: `createPage` takes the same optional
+  explicit `order` `usePages.addPage` does.
+- `styles/tokens.css` — spacing scale, `--touch-target-min: 44px` (Step 5 added
+  `--touch-target-sm`/`--icon-size-sm` for the Dock/PageNav's denser buttons), type
+  scale, border width/shadow tokens, and light/dark color roles (spec1.md Part 4
+  "Design System From the Start"; Step 4 layers styling.md's neo-brutalist color/
+  border/shadow/type values on top), consumed by every component's CSS instead of
+  hardcoded pixel values.
+- `App.tsx` — Step 5: no more top-level Pages/Vault tab switcher (that was never in
+  spec1.md to begin with — see step4-era history). `PageStack` is the only thing in
+  `.app__main`; `PageNav` and `Dock` sit below it as normal flex siblings. Owns
+  `currentPageId` (which Page `PageNav` is looking at), `selectedPageCardId`, and
+  `isEditing`, with `selectPageCard`/`requestEditPageCard` as the two ways selection
+  changes (plain tap vs. double-click/long-press "select and edit in one action") —
+  see step5's doc §7 for why those are two different functions rather than one.
 
 ## What's genuinely done vs. stubbed
 

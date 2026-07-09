@@ -19,10 +19,11 @@ palette, and a humanist-sans/warm-serif type pairing, all expressed as tokens so
 
 | Primitive | For | Variants / props |
 |---|---|---|
-| `Button` | Any clickable action | `variant`: `"default"` (bordered, surface fill) / `"primary"` (terracotta fill) / `"danger"` (oxblood text) |
-| `CardShell` | A tappable card-like container | `selected` (accent border + accent-colored shadow) |
+| `Button` | Any clickable action | `variant`: `"default"` (bordered, surface fill) / `"primary"` (terracotta fill) / `"danger"` (oxblood text). `iconOnly` squares it up to `--touch-target-min`/`--touch-target-sm` instead of text padding (Step 5). |
+| `CardShell` | A tappable card-like container | `selected` (accent border + accent-colored shadow). A `<div role="button">`, not a real `<button>` (Step 5 — Card.tsx nests real buttons/gesture handlers inside it, and a `<button>` can't legally nest another). |
 | `Badge` | A small inline label ("archive stamp": bordered, uppercase, mono) | — |
 | `InputField` | A text input or textarea | `multiline` switches `<input>` → `<textarea>` |
+| `Icon` | A line icon in place of a text label (Step 5) | `name`: one of the fixed set in `Icon.tsx` (`edit`, `generate`, `remove`, `delete`, `done`, `plus`, `file`, `vault`, `close`, `search`, `up`, `down`) — add a new one there, don't inline an `<svg>` at a call site. `spin` for the in-progress generate icon. |
 
 Each ships its own `.css` file (e.g. `Button.tsx` / `Button.css`) — same one-file-per-
 component convention as everywhere else in `packages/web/src/components/`.
@@ -40,11 +41,14 @@ using it updates.
 4 (their raw `<button>`/`<input>` elements now compose `Button`/`InputField` too). Each
 component's own `.css` file is slimmed to only the layout rules specific to it — e.g.
 `Dock.css` keeps `.dock__row`'s flex layout but no longer duplicates button box-styling,
-since `Button.css` owns that now. The one deliberate exception is `PageStack.css`'s
-`.page-stack__add` (the dashed "+ New Page" button): it's the only dashed, full-width
-"add a slot" affordance in the app, so it stays bespoke rather than becoming a one-off
-`Button` variant nothing else would use — see [docs/step4-design-system.md](../../../../../docs/step4-design-system.md)
-for that judgment call.
+since `Button.css` owns that now.
+
+Step 5 replaced every visible text label app-wide with an `Icon` (see
+[docs/step5-dock-driven-interaction.md](../../../../../docs/step5-dock-driven-interaction.md)
+§2) and reworked navigation enough that the one deliberate hand-rolled exception noted
+here previously (`PageStack.css`'s dashed "+ New Page" button) no longer exists — Page
+creation is now a `Button`/`Icon` in `components/PageNav/PageNav.tsx` like everything
+else. There is no bespoke, non-primitive button left in the app as of Step 5.
 
 ## Adding a new primitive
 
