@@ -27,5 +27,9 @@
   "vault.searchPlaceholder": "Search title or text…",
   "vault.create": "New Card",
   "vault.delete": "Delete",
-  "vault.empty": "No Cards match."
+  "vault.empty": "No Cards match.",
+
+  "cardStack.previous": "Previous alternate",
+  "cardStack.next": "Next alternate",
+  "cardStack.addAlternate": "Add alternate"
 }
