@@ -1,21 +1,20 @@
 import { useMemo, useState } from "react";
 import { Dock } from "./components/Dock/Dock.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
-import { VaultView } from "./components/Vault/VaultView.js";
 import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
-
-type Tab = "pages" | "vault";
+import { useGeneration } from "./hooks/useGeneration.js";
+import { t } from "./i18n/index.js";
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("pages");
   const [selectedPageCardId, setSelectedPageCardId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
   const { pages, addPage, removePage, createCardInPage, openCardIntoPage, generate, refresh } =
     usePages();
   const vault = useVault();
+  const generation = useGeneration();
 
   const selectedPageCard = useMemo(
     () =>
@@ -32,6 +31,12 @@ export function App() {
     if (!selectedPageCard) return;
     setGenerating(true);
     try {
+      // Stream a live preview first (Step 3) — this is read-only and never persists
+      // anything (see docs/step2-model-providers.md), so the actual save below is
+      // unchanged from before this hook existed. Best-effort: if streaming fails for
+      // any reason, still fall through to the real (persisting) generate call so
+      // Generate keeps working exactly as it did pre-Step-3.
+      await generation.start(selectedPageCard.id).catch(() => {});
       await generate(selectedPageCard.id);
     } finally {
       setGenerating(false);
@@ -58,66 +63,43 @@ export function App() {
     await refresh();
   }
 
-  async function handleChangeDraft(draft: { title?: string; content?: string }) {
-    if (!selectedPageCard) return;
-    await api.updatePageCardDraft(selectedPageCard.id, draft);
+  async function handleChangeDraft(
+    pageCardId: string,
+    draft: { title?: string; content?: string },
+  ) {
+    await api.updatePageCardDraft(pageCardId, draft);
     await refresh();
   }
 
   return (
     <div className="app">
-      <nav className="app__tabs">
-        <button
-          type="button"
-          className={tab === "pages" ? "app__tab app__tab--active" : "app__tab"}
-          onClick={() => setTab("pages")}
-        >
-          Pages
-        </button>
-        <button
-          type="button"
-          className={tab === "vault" ? "app__tab app__tab--active" : "app__tab"}
-          onClick={() => setTab("vault")}
-        >
-          Vault
-        </button>
-      </nav>
-
       <main className="app__main">
-        {tab === "pages" ? (
-          <PageStack
-            pages={pages}
-            selectedPageCardId={selectedPageCardId}
-            onSelectPageCard={setSelectedPageCardId}
-            onAddPage={addPage}
-            onRemovePage={removePage}
-            onCreateCardInPage={(pageId) => createCardInPage(pageId, "Untitled", "")}
-          />
-        ) : (
-          <VaultView
-            cards={vault.cards}
-            query={vault.query}
-            onQueryChange={vault.setQuery}
-            onCreateCard={vault.createCard}
-            onDeleteCard={vault.deleteCard}
-            onOpenIntoTopPage={
-              topPageId ? (cardId) => openCardIntoPage(topPageId, cardId) : null
-            }
-          />
-        )}
+        <PageStack
+          pages={pages}
+          selectedPageCardId={selectedPageCardId}
+          onSelectPageCard={setSelectedPageCardId}
+          onAddPage={addPage}
+          onRemovePage={removePage}
+          onCreateCardInPage={(pageId) => createCardInPage(pageId, t("common.untitled"), "")}
+          onChangeDraft={handleChangeDraft}
+        />
       </main>
 
-      {tab === "pages" && (
-        <Dock
-          selected={selectedPageCard}
-          generating={generating}
-          onChangeDraft={handleChangeDraft}
-          onSave={handleSave}
-          onRemoveFromPage={handleRemoveFromPage}
-          onDeleteEntirely={handleDeleteEntirely}
-          onGenerate={handleGenerate}
-        />
-      )}
+      <Dock
+        selected={selectedPageCard}
+        generating={generating}
+        streamingText={generating ? generation.text : ""}
+        onSave={handleSave}
+        onRemoveFromPage={handleRemoveFromPage}
+        onDeleteEntirely={handleDeleteEntirely}
+        onGenerate={handleGenerate}
+        vaultCards={vault.cards}
+        vaultQuery={vault.query}
+        onVaultQueryChange={vault.setQuery}
+        onCreateVaultCard={vault.createCard}
+        onDeleteVaultCard={vault.deleteCard}
+        onAddVaultCardToPage={topPageId ? (cardId) => openCardIntoPage(topPageId, cardId) : null}
+      />
     </div>
   );
 }

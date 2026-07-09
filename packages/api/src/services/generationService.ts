@@ -1,5 +1,9 @@
-import type { GenerationContextEntry, GenerateResponse } from "@wattle/shared";
+import type { Chunk, GenerationContextEntry, GenerateResponse } from "@wattle/shared";
+import { defaultMetadata, modelProviderRegistry } from "@wattle/shared";
+import { promptTemplateRegistry } from "@wattle/prompt-engine";
 import { prisma } from "../db.js";
+import { activeProviderId } from "../providers/init.js";
+import { serializeCard } from "./cardService.js";
 
 /**
  * The Generation Rule (spec1.md Part 2 "Generation Rule (Context Visibility)" and
@@ -46,20 +50,30 @@ export async function assembleContext(
   return entries;
 }
 
+/** Render a context via the shared "generate-from-context" prompt template. */
+function buildPrompt(context: GenerationContextEntry[]): string {
+  return promptTemplateRegistry.get("generate-from-context").render(context);
+}
+
 /**
- * TODO: replace with a real model call (e.g. the Anthropic Messages API using
- * ANTHROPIC_API_KEY from the environment). Kept as a pure function of the assembled
- * context so swapping in a real provider doesn't touch any route or context-assembly
- * code above it.
+ * Stream a model generation for an already-assembled context, via whichever
+ * ModelProvider is active (see providers/init.ts — MODEL_PROVIDER env var). Exposed
+ * separately from callModel so the streaming route can forward chunks as they arrive
+ * instead of waiting for the full response.
  */
+export function streamModel(context: GenerationContextEntry[]): AsyncIterable<Chunk> {
+  const prompt = buildPrompt(context);
+  const provider = modelProviderRegistry.get(activeProviderId());
+  return provider.generate(prompt);
+}
+
+/** Non-streaming: consume the provider's chunks fully and concatenate the text. */
 async function callModel(context: GenerationContextEntry[]): Promise<string> {
-  const summary = context.map((c) => `- ${c.title}`).join("\n") || "(no context above)";
-  return [
-    "_Stub response — wire up a real model call in generationService.ts._",
-    "",
-    `Context received (${context.length} card${context.length === 1 ? "" : "s"}):`,
-    summary,
-  ].join("\n");
+  let text = "";
+  for await (const chunk of streamModel(context)) {
+    text += chunk.text;
+  }
+  return text;
 }
 
 /** Generate from a Card: assemble context, call the model, append the result below it. */
@@ -79,22 +93,22 @@ export async function generateFromCard(pageCardId: string): Promise<GenerateResp
 
   const created = await prisma.pageCard.create({
     data: {
-      pageId: trigger.pageId,
+      page: { connect: { id: trigger.pageId } },
       order: trigger.order + 1,
-      card: { create: { title: "Generated response", content: responseText } },
+      card: {
+        create: {
+          title: "Generated response",
+          content: responseText,
+          metadata: JSON.stringify(defaultMetadata()),
+        },
+      },
     },
     include: { card: true },
   });
 
   return {
     context,
-    card: {
-      id: created.card.id,
-      title: created.card.title,
-      content: created.card.content,
-      createdAt: created.card.createdAt.toISOString(),
-      updatedAt: created.card.updatedAt.toISOString(),
-    },
+    card: serializeCard(created.card),
     pageCard: {
       id: created.id,
       pageId: created.pageId,

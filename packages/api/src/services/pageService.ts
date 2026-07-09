@@ -1,5 +1,6 @@
 import type { Page, PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { prisma } from "../db.js";
+import { serializeCard } from "./cardService.js";
 
 function serializePage(page: { id: string; order: number; createdAt: Date; updatedAt: Date }): Page {
   return {
@@ -19,7 +20,7 @@ function serializePageCard(pc: {
   draftContent: string | null;
   createdAt: Date;
   updatedAt: Date;
-  card: { id: string; title: string; content: string; createdAt: Date; updatedAt: Date };
+  card: { id: string; title: string; content: string; metadata: string; createdAt: Date; updatedAt: Date };
 }): PageCardWithCard {
   return {
     id: pc.id,
@@ -30,13 +31,7 @@ function serializePageCard(pc: {
     draftContent: pc.draftContent,
     createdAt: pc.createdAt.toISOString(),
     updatedAt: pc.updatedAt.toISOString(),
-    card: {
-      id: pc.card.id,
-      title: pc.card.title,
-      content: pc.card.content,
-      createdAt: pc.card.createdAt.toISOString(),
-      updatedAt: pc.card.updatedAt.toISOString(),
-    },
+    card: serializeCard(pc.card),
   };
 }
 

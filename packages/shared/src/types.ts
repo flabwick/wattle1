@@ -4,11 +4,15 @@
  * (spec1.md Part 4: "Separate the Brain from the Face").
  */
 
+import type { CardMetadataV1 } from "./registries/cardMetadata.js";
+
 /** A Card as it lives in the vault — the single source of truth for its saved content. */
 export interface Card {
   id: string;
   title: string;
   content: string; // markdown
+  /** Versioned, extensible per-Card data — see registries/cardMetadata.ts. */
+  metadata: CardMetadataV1;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
 }
@@ -16,11 +20,15 @@ export interface Card {
 export interface CreateCardInput {
   title: string;
   content: string;
+  /** Raw, unvalidated — the API validates against CardMetadataV1 before persisting. */
+  metadata?: unknown;
 }
 
 export interface UpdateCardInput {
   title?: string;
   content?: string;
+  /** Raw, unvalidated. Omit to leave the Card's existing metadata untouched. */
+  metadata?: unknown;
 }
 
 /** A Page — an ordered stack slot. `order` is ascending from bottom (0) to top. */

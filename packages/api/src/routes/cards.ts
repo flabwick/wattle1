@@ -1,5 +1,7 @@
 import { Router } from "express";
+import type { Card } from "@wattle/shared";
 import * as cardService from "../services/cardService.js";
+import { runOperation } from "../operations/run.js";
 
 export const cardsRouter = Router();
 
@@ -23,12 +25,14 @@ cardsRouter.post("/", async (req, res) => {
   res.status(201).json(await cardService.createCard({ title, content }));
 });
 
+// Direct vault edit — wraps the "card.rename" Operation. Distinct from the "card.edit"
+// Operation used by PATCH /api/page-cards/:id, which edits an in-page draft instead.
 cardsRouter.patch("/:id", async (req, res) => {
-  const { title, content } = req.body ?? {};
-  res.json(await cardService.updateCard(req.params.id, { title, content }));
+  const payload = { ...(req.body ?? {}), id: req.params.id };
+  res.json(await runOperation<Card>("card.rename", payload));
 });
 
 cardsRouter.delete("/:id", async (req, res) => {
-  await cardService.deleteCard(req.params.id);
+  await runOperation<void>("card.delete", { id: req.params.id });
   res.status(204).end();
 });

@@ -1,20 +1,23 @@
 import { Router } from "express";
+import type { PageCard } from "@wattle/shared";
 import * as pageCardService from "../services/pageCardService.js";
+import { runOperation } from "../operations/run.js";
 
 // Mounted at /api/page-cards — operations on a single Card-within-a-Page (the Dock's
 // edit/save/remove/delete actions from spec1.md Part 3 "The Dock").
 export const pageCardsRouter = Router();
 
 // PATCH /api/page-cards/:id  { title?, content? } — inline edit, stored as a draft
-// until explicitly saved back to the vault.
+// until explicitly saved back to the vault. Wraps the "card.edit" Operation.
 pageCardsRouter.patch("/:id", async (req, res) => {
-  const { title, content } = req.body ?? {};
-  res.json(await pageCardService.updateDraft(req.params.id, { title, content }));
+  const payload = { ...(req.body ?? {}), id: req.params.id };
+  res.json(await runOperation<PageCard>("card.edit", payload));
 });
 
-// POST /api/page-cards/:id/save — persist draft edits to the vault Card.
+// POST /api/page-cards/:id/save — persist draft edits to the vault Card. Wraps the
+// "card.save" Operation.
 pageCardsRouter.post("/:id/save", async (req, res) => {
-  res.json(await pageCardService.saveToVault(req.params.id));
+  res.json(await runOperation<PageCard>("card.save", { id: req.params.id }));
 });
 
 // DELETE /api/page-cards/:id — remove from this Page only; vault Card is untouched.

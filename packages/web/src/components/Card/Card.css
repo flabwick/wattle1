@@ -1,20 +1,5 @@
-.card {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-2);
-  min-height: var(--touch-target-min);
-  cursor: pointer;
-}
-
-.card--selected {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
-}
+/* Box styling (background/border/radius/selection) now lives in
+   components/primitives/CardShell.css — this file only has Card-specific layout. */
 
 .card__header {
   display: flex;
@@ -24,14 +9,17 @@
   margin-bottom: var(--space-1);
 }
 
-.card__title {
-  font-weight: 600;
-  font-size: var(--font-size-md);
+.card__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
-.card__badge {
-  font-size: var(--font-size-sm);
-  color: var(--color-accent);
+.card__title {
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
 }
 
 .card__preview {
@@ -43,4 +31,43 @@
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+/* Inline editing — box styling (border/shadow/bg) for the *card itself* comes from
+   CardShell.css's .card-shell/.card-shell--editing. The title/content inputs below
+   strip InputField.css's own bordered-box look (border, background, padding) so they
+   render flush with the card instead of a form field floating inside a form field —
+   same type, size, and position as the static .card__title/.card__preview they
+   replace, so entering/leaving edit mode doesn't shift or re-box anything. */
+.input-field.card__title-input {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: auto;
+  box-shadow: none;
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
+}
+
+.input-field.card__content-input {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 4.5em;
+  box-shadow: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.input-field.card__title-input:focus,
+.input-field.card__content-input:focus {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.card__row {
+  display: flex;
+  gap: var(--space-2);
 }

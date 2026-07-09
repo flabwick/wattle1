@@ -1,5 +1,7 @@
 import type { PageCard, PageCardWithCard } from "@wattle/shared";
+import { defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
+import { serializeCard } from "./cardService.js";
 
 function serialize(pc: {
   id: string;
@@ -52,19 +54,13 @@ export async function addNewCardToPage(
     data: {
       page: { connect: { id: pageId } },
       order: (bottom._max.order ?? -1) + 1,
-      card: { create: { title, content } },
+      card: { create: { title, content, metadata: JSON.stringify(defaultMetadata()) } },
     },
     include: { card: true },
   });
   return {
     ...serialize(pageCard),
-    card: {
-      id: pageCard.card.id,
-      title: pageCard.card.title,
-      content: pageCard.card.content,
-      createdAt: pageCard.card.createdAt.toISOString(),
-      updatedAt: pageCard.card.updatedAt.toISOString(),
-    },
+    card: serializeCard(pageCard.card),
   };
 }
 

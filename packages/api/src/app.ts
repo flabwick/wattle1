@@ -1,6 +1,7 @@
 import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import "express-async-errors";
+import { ZodError } from "zod";
 import { cardsRouter } from "./routes/cards.js";
 import { generateRouter } from "./routes/generate.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
@@ -20,6 +21,9 @@ export function createApp() {
   app.use("/api/generate", generateRouter);
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+    if (err instanceof ZodError) {
+      return res.status(400).json({ error: err.issues.map((i) => i.message).join(", ") });
+    }
     console.error(err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Internal error" });
   };

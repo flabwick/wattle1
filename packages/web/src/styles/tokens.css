@@ -2,6 +2,11 @@
  * Design tokens (spec1.md Part 4 "Design System From the Start"): a small shared
  * vocabulary components reference instead of hardcoded pixel values, so the visual
  * language transfers cleanly to a future React Native port.
+ *
+ * Color/border/shadow/type values implement docs/styling.md ("Olive Styling: Refined
+ * Neo-Brutalism") — see docs/step4-design-system.md for how each token maps back to
+ * that spec's sections. Nothing in components/ should hardcode a color, border width,
+ * shadow, or font stack that isn't one of these variables.
  */
 :root {
   /* Spacing scale */
@@ -24,39 +29,90 @@
   --font-size-xl: 1.75rem;
   --line-height-tight: 1.25;
   --line-height-base: 1.5;
+  --font-weight-bold: 600;
+
+  /* styling.md §4: a humanist/geometric sans for UI text, paired with a warm serif
+     for headlines/labels, and monospace reserved for "retro terminal" readouts. */
   --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-family-heading: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", serif;
   --font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Radius */
+  /* styling.md §4: "tracking is slightly increased" — applied to the all-caps
+     "bespoke label / archive stamp" text (Badge, Page's section label). */
+  --tracking-wide: 0.04em;
+
+  /* Radius — styling.md §5: "rounded corners are medium" */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
 
-  /* Color roles — light */
-  --color-bg: #f7f7f5;
-  --color-surface: #ffffff;
-  --color-surface-raised: #ffffff;
-  --color-border: #e2e2e0;
-  --color-text: #1a1a1a;
-  --color-text-muted: #6b6b6b;
-  --color-accent: #3b5bfd;
-  --color-accent-text: #ffffff;
-  --color-danger: #d13b3b;
+  /* Border widths — styling.md §5: thin rules for dividers, "2px warm charcoal or
+     espresso" for card/button edges. Two widths, one semantic pair (border/border-strong
+     color roles below) rather than one width doing both jobs. */
+  --border-width-thin: 1px;
+  --border-width-bold: 2px;
+
+  /* Color roles — light: styling.md §2 "warm parchment, raw linen, soft oak, cream" */
+  --color-bg: #f1e8d6;
+  --color-surface: #faf3e4;
+  --color-surface-raised: #fff8ea;
+  --color-border: #d8c9ab;
+  --color-border-strong: #2e2117;
+  --color-text: #241a12;
+  --color-text-muted: #7a6a55;
+
+  /* Heritage brights — styling.md §2 "amber, oxblood/terracotta, deep aubergine,
+     muted teal", used per §2's usage rule: one dominant accent per screen (accent),
+     the others reserved for secondary/tertiary emphasis rather than mixed freely. */
+  --color-accent: #bb4d28;
+  --color-accent-text: #fff6e8;
+  --color-accent-secondary: #3f6f63;
+  --color-accent-secondary-text: #fff6e8;
+  --color-accent-tertiary: #5c3a52;
+  --color-accent-tertiary-text: #fff6e8;
+  --color-highlight: #b9812a;
+  --color-highlight-text: #2e2117;
+  --color-danger: #8a3327;
+  --color-danger-text: #fff6e8;
+
+  /* Shadows — styling.md §8: "structural outlines and warm, material-aware shadows
+     rather than heavy blur" — solid offsets, no blur radius. */
+  --color-shadow: #2e2117;
+  --shadow-card: 3px 3px 0 var(--color-shadow);
+  --shadow-button: 2px 2px 0 var(--color-shadow);
+  --shadow-button-pressed: 0 0 0 var(--color-shadow);
+
+  /* Retro terminal — styling.md §2 "dark walnut or deep peat backgrounds with amber,
+     warm green, or cream monospace text". Deliberately constant across light/dark
+     app theme: a terminal readout is a screen-within-a-screen, not a themed surface. */
+  --color-terminal-bg: #241c14;
+  --color-terminal-text: #d9a441;
+  --color-terminal-border: #4a3a26;
 
   --dock-height: 64px;
-  --shadow-dock: 0 -1px 0 var(--color-border);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #0b0b0c;
-    --color-surface: #161617;
-    --color-surface-raised: #1e1e20;
-    --color-border: #2c2c2e;
-    --color-text: #f2f2f0;
-    --color-text-muted: #9a9a9a;
-    --color-accent: #7b93ff;
-    --color-accent-text: #0b0b0c;
-    --color-danger: #ff6b6b;
+    --color-bg: #1c1712;
+    --color-surface: #241d17;
+    --color-surface-raised: #2c2319;
+    --color-border: #4a3c2c;
+    --color-border-strong: #f0e4c8;
+    --color-text: #f2e6cf;
+    --color-text-muted: #ab9b82;
+
+    --color-accent: #e08a4a;
+    --color-accent-text: #201810;
+    --color-accent-secondary: #74a99c;
+    --color-accent-secondary-text: #14201d;
+    --color-accent-tertiary: #a97ea0;
+    --color-accent-tertiary-text: #201018;
+    --color-highlight: #d9a441;
+    --color-highlight-text: #201810;
+    --color-danger: #d9614a;
+    --color-danger-text: #201810;
+
+    --color-shadow: #0e0b08;
   }
 }

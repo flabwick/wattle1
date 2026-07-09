@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as pageService from "../services/pageService.js";
 import * as pageCardService from "../services/pageCardService.js";
+import { runOperation } from "../operations/run.js";
 
 export const pagesRouter = Router();
 
@@ -43,13 +44,10 @@ pagesRouter.post("/:pageId/cards", async (req, res) => {
   res.status(400).json({ error: "Provide either { cardId } or { title, content }" });
 });
 
-// PUT /api/pages/:pageId/cards/reorder  { orderedIds: string[] }  (top-to-bottom as displayed)
+// PUT /api/pages/:pageId/cards/reorder  { orderedIds: string[] }  (top-to-bottom as
+// displayed). Wraps the "card.reorder" Operation.
 pagesRouter.put("/:pageId/cards/reorder", async (req, res) => {
   const { pageId } = req.params;
-  const { orderedIds } = req.body ?? {};
-  if (!Array.isArray(orderedIds)) {
-    return res.status(400).json({ error: "orderedIds must be an array of PageCard ids" });
-  }
-  await pageCardService.reorderPageCards(pageId, orderedIds);
+  await runOperation<void>("card.reorder", { pageId, orderedIds: req.body?.orderedIds });
   res.status(204).end();
 });

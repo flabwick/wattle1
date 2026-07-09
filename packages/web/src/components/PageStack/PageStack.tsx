@@ -1,5 +1,7 @@
 import type { PageWithCards } from "@wattle/shared";
 import { CardView } from "../Card/Card.js";
+import { Button } from "../primitives/index.js";
+import { t } from "../../i18n/index.js";
 import "./PageStack.css";
 
 interface PageStackProps {
@@ -9,6 +11,7 @@ interface PageStackProps {
   onAddPage: () => void;
   onRemovePage: (pageId: string) => void;
   onCreateCardInPage: (pageId: string) => void;
+  onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
 }
 
 /**
@@ -23,31 +26,32 @@ export function PageStack({
   onAddPage,
   onRemovePage,
   onCreateCardInPage,
+  onChangeDraft,
 }: PageStackProps) {
   const topDown = [...pages].sort((a, b) => b.order - a.order);
 
   return (
     <div className="page-stack">
       <button type="button" className="page-stack__add" onClick={onAddPage}>
-        + New Page
+        {t("pageStack.addPage")}
       </button>
 
       {topDown.map((page) => (
         <section key={page.id} className="page">
           <header className="page__header">
-            <span className="page__label">Page</span>
+            <span className="page__label">{t("pageStack.pageLabel")}</span>
             <div className="page__actions">
-              <button type="button" onClick={() => onCreateCardInPage(page.id)}>
-                + Card
-              </button>
-              <button type="button" onClick={() => onRemovePage(page.id)} className="page__danger">
-                Delete Page
-              </button>
+              <Button onClick={() => onCreateCardInPage(page.id)}>
+                {t("pageStack.addCard")}
+              </Button>
+              <Button variant="danger" onClick={() => onRemovePage(page.id)}>
+                {t("pageStack.deletePage")}
+              </Button>
             </div>
           </header>
 
           {page.pageCards.length === 0 && (
-            <p className="page__empty">No cards yet — open one from the vault or add a new one.</p>
+            <p className="page__empty">{t("pageStack.emptyPage")}</p>
           )}
 
           {page.pageCards.map((pageCard) => (
@@ -58,13 +62,14 @@ export function PageStack({
               onSelect={() =>
                 onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
               }
+              onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
             />
           ))}
         </section>
       ))}
 
       {pages.length === 0 && (
-        <p className="page-stack__empty">No Pages yet. Create one to start stacking context.</p>
+        <p className="page-stack__empty">{t("pageStack.empty")}</p>
       )}
     </div>
   );

@@ -1,0 +1,23 @@
+.input-field {
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-3);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 var(--border-width-thin) var(--color-accent);
+}
+
+.input-field--multiline {
+  min-height: calc(var(--touch-target-min) * 2);
+  max-height: 40vh;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+}

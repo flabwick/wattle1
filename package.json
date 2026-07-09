@@ -10,7 +10,7 @@
     "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @wattle/api\" \"npm run dev -w @wattle/web\"",
     "dev:api": "npm run dev -w @wattle/api",
     "dev:web": "npm run dev -w @wattle/web",
-    "build": "npm run build -w @wattle/shared && npm run build -w @wattle/api && npm run build -w @wattle/web",
+    "build": "npm run build -w @wattle/shared && npm run build -w @wattle/prompt-engine && npm run build -w @wattle/api && npm run build -w @wattle/web",
     "db:migrate": "npm run db:migrate -w @wattle/api",
     "db:studio": "npm run db:studio -w @wattle/api"
   },

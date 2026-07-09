@@ -2,24 +2,31 @@
   padding: var(--space-4);
 }
 
+/* styling.md §5 "Dividers and grids": a dashed rule reads as an invitation to add,
+   rather than a bordered object — kept bespoke (not the Button primitive) since
+   nothing else in the app shares this dashed, full-width "add a slot" shape. */
 .page-stack__add {
   width: 100%;
   min-height: var(--touch-target-min);
-  border: 1px dashed var(--color-border);
+  border: var(--border-width-bold) dashed var(--color-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-accent);
-  font-weight: 600;
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
   margin-bottom: var(--space-5);
   cursor: pointer;
 }
 
+/* styling.md §5 "Cards and panels": each Page is a folio holding its Cards — bold
+   border + solid offset shadow, same material language as CardShell but one size up. */
 .page {
-  border: 1px solid var(--color-border);
+  border: var(--border-width-bold) solid var(--color-border-strong);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   padding: var(--space-3);
-  margin-bottom: var(--space-5);
-  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  margin-bottom: var(--space-6);
+  background: var(--color-surface);
 }
 
 .page__header {
@@ -29,29 +36,20 @@
   margin-bottom: var(--space-3);
 }
 
+/* styling.md §4: an all-caps "bespoke label" — same mono + tracking treatment as
+   Badge's archive-stamp text. */
 .page__label {
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
 }
 
 .page__actions {
   display: flex;
   gap: var(--space-2);
-}
-
-.page__actions button {
-  min-height: var(--touch-target-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  cursor: pointer;
-}
-
-.page__danger {
-  color: var(--color-danger);
 }
 
 .page__empty,

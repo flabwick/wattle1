@@ -17,6 +17,12 @@ model Card {
   id        String   @id @default(cuid())
   title     String
   content   String   @default("")
+  /// Versioned, extensible per-Card data (links, summary, color, aiParams, log, ...)
+  /// — see packages/shared/src/registries/cardMetadata.ts. Additive: new fields go in
+  /// a new metadata version, not a new column. Stored as a JSON string, not Prisma's
+  /// `Json` scalar, because the sqlite connector doesn't support that scalar type;
+  /// serialization happens in cardService.ts (serializeCard / write paths).
+  metadata  String   @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

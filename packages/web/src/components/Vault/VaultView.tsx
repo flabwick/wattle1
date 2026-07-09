@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { Card } from "@wattle/shared";
+import { Button, InputField } from "../primitives/index.js";
+import { t } from "../../i18n/index.js";
 import "./VaultView.css";
 
 interface VaultViewProps {
@@ -25,11 +27,11 @@ export function VaultView({
 
   return (
     <div className="vault">
-      <input
+      <InputField
         className="vault__search"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search title or text…"
+        placeholder={t("vault.searchPlaceholder")}
       />
 
       <form
@@ -41,34 +43,35 @@ export function VaultView({
           setNewTitle("");
         }}
       >
-        <input
+        <InputField
+          className="vault__new-input"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
-          placeholder="New Card title…"
+          placeholder={t("vault.newCardPlaceholder")}
         />
-        <button type="submit">Create</button>
+        <Button type="submit" variant="primary">
+          {t("vault.create")}
+        </Button>
       </form>
 
       <ul className="vault__list">
         {cards.map((card) => (
           <li key={card.id} className="vault__item">
             <div className="vault__item-body">
-              <div className="vault__item-title">{card.title || "Untitled"}</div>
+              <div className="vault__item-title">{card.title || t("common.untitled")}</div>
               <div className="vault__item-preview">{card.content.slice(0, 120)}</div>
             </div>
             <div className="vault__item-actions">
               {onOpenIntoTopPage && (
-                <button type="button" onClick={() => onOpenIntoTopPage(card.id)}>
-                  Open
-                </button>
+                <Button onClick={() => onOpenIntoTopPage(card.id)}>{t("vault.open")}</Button>
               )}
-              <button type="button" className="vault__danger" onClick={() => onDeleteCard(card.id)}>
-                Delete
-              </button>
+              <Button variant="danger" onClick={() => onDeleteCard(card.id)}>
+                {t("vault.delete")}
+              </Button>
             </div>
           </li>
         ))}
-        {cards.length === 0 && <li className="vault__empty">No Cards match.</li>}
+        {cards.length === 0 && <li className="vault__empty">{t("vault.empty")}</li>}
       </ul>
     </div>
   );

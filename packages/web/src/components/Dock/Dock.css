@@ -5,7 +5,7 @@
   right: 0;
   min-height: var(--dock-height);
   background: var(--color-surface-raised);
-  box-shadow: var(--shadow-dock);
+  border-top: var(--border-width-bold) solid var(--color-border-strong);
   padding: var(--space-2) var(--space-4);
   display: flex;
   flex-direction: column;
@@ -19,9 +19,40 @@
   font-size: var(--font-size-sm);
 }
 
+.dock__header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dock__vault-panel {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
 .dock__title {
-  font-weight: 600;
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
   padding: var(--space-2) 0;
+}
+
+/* styling.md §2 "Retro terminal screens": the live generation preview reads as its own
+   dark walnut/peat screen-within-a-screen, independent of the app's light/dark theme. */
+.dock__stream-preview {
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-bold) solid var(--color-terminal-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
 }
 
 .dock__row {
@@ -30,41 +61,7 @@
   overflow-x: auto;
 }
 
-.dock__row button {
-  min-height: var(--touch-target-min);
-  min-width: var(--touch-target-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.dock__row button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dock__danger {
-  color: var(--color-danger);
-}
-
-.dock__title-input {
-  min-height: var(--touch-target-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  font-weight: 600;
-}
-
-.dock__content-input {
-  min-height: calc(var(--touch-target-min) * 2);
-  max-height: 40vh;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  resize: vertical;
-}
+/* Button box styling now lives in components/primitives/Button.css; .dock__row only
+   needs the flex layout above. Text editing (title/content inputs) now happens inline
+   on the Card itself — see components/Card/Card.css — the Dock no longer has an
+   editing state or its own input styling. */
