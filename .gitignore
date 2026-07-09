@@ -11,6 +11,9 @@ packages/api/prisma/dev.db
 packages/api/prisma/dev.db-journal
 packages/api/generated/
 
+# Uploaded file Card bytes
+packages/api/uploads/
+
 # Vite
 packages/web/dist/
 packages/web/.vite/

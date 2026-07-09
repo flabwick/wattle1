@@ -67,5 +67,24 @@ export function usePages() {
     [refresh],
   );
 
-  return { pages, loading, error, refresh, addPage, removePage, openCardIntoPage, createCardInPage, generate };
+  const uploadFileToPage = useCallback(
+    async (pageId: string, file: File) => {
+      await api.uploadFileToPage(pageId, file);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  return {
+    pages,
+    loading,
+    error,
+    refresh,
+    addPage,
+    removePage,
+    openCardIntoPage,
+    createCardInPage,
+    generate,
+    uploadFileToPage,
+  };
 }

@@ -18,7 +18,8 @@ export type IconName =
   | "close"
   | "search"
   | "up"
-  | "down";
+  | "down"
+  | "upload";
 
 interface IconProps {
   name: IconName;
@@ -89,6 +90,13 @@ const PATHS: Record<IconName, JSX.Element> = {
   ),
   up: <path d="M6 15l6-6 6 6" />,
   down: <path d="M6 9l6 6 6-6" />,
+  upload: (
+    <>
+      <path d="M12 16V4" />
+      <path d="M7 9l5-5 5 5" />
+      <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </>
+  ),
 };
 
 /**

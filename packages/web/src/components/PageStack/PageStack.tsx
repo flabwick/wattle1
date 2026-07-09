@@ -1,7 +1,49 @@
-import type { PageWithCards } from "@wattle/shared";
+import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { CardView } from "../Card/Card.js";
+import { cardTypeUiRegistry } from "../../registries/cardTypeUi.js";
+import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { t } from "../../i18n/index.js";
 import "./PageStack.css";
+
+interface PageCardSlotProps {
+  pageCard: PageCardWithCard;
+  selected: boolean;
+  editing: boolean;
+  onSelect: () => void;
+  onRequestEdit: () => void;
+  onChangeDraft: (draft: { title?: string; content?: string }) => void;
+}
+
+/**
+ * Picks how to render one PageCard's Card: the "note" type still goes straight
+ * through CardView, unchanged, since that's the one type with a real inline editor
+ * (click-outside-to-close, long-press-to-edit — see Card.tsx) that a generic
+ * View/Editor split would otherwise have to duplicate. Every other registered type
+ * (e.g. "file" — see the Dock's upload action) renders via cardTypeUiRegistry
+ * instead, which is what a full C1-C5 rollout would eventually make the only path.
+ */
+function PageCardSlot({ pageCard, selected, editing, onSelect, onRequestEdit, onChangeDraft }: PageCardSlotProps) {
+  const typeId = getCardTypeId(pageCard.card);
+  if (typeId === "note") {
+    return (
+      <CardView
+        pageCard={pageCard}
+        selected={selected}
+        editing={editing}
+        onSelect={onSelect}
+        onRequestEdit={onRequestEdit}
+        onChangeDraft={onChangeDraft}
+      />
+    );
+  }
+  const ui = cardTypeUiRegistry.get(typeId);
+  if (editing) {
+    return <ui.Editor pageCard={pageCard} onChangeDraft={onChangeDraft} />;
+  }
+  return (
+    <ui.View pageCard={pageCard} selected={selected} onSelect={onSelect} onRequestEdit={onRequestEdit} />
+  );
+}
 
 interface PageStackProps {
   /** The single Page currently in view (spec1.md Part 2 "Pages" — one Page fills the
@@ -37,7 +79,7 @@ export function PageStack({
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
           {currentPage.pageCards.map((pageCard) => (
-            <CardView
+            <PageCardSlot
               key={pageCard.id}
               pageCard={pageCard}
               selected={pageCard.id === selectedPageCardId}

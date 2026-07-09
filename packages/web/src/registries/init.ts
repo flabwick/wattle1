@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Operation } from "@wattle/shared";
 import { initCardTypes, operationRegistry } from "@wattle/shared";
+import { initCardTypeUi } from "./cardTypeUiInit.js";
 
 let initialized = false;
 
@@ -37,6 +38,7 @@ function notImplementedOnClient(id: string): Operation["execute"] {
 export function initRegistries(): void {
   if (initialized) return;
   initCardTypes();
+  initCardTypeUi();
   for (const id of OPERATION_IDS) {
     operationRegistry.register({
       id,

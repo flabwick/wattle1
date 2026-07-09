@@ -13,6 +13,20 @@ export const cardMetadataV1Schema = z.object({
   color: z.string().optional(),
   aiParams: z.record(z.unknown()).optional(),
   log: z.array(z.unknown()).default([]),
+  /** Which CardTypeDefinition.id this Card is — see lib/getCardTypeId.ts. Omitted
+   *  (rather than defaulted here) so getCardTypeId's `?? "note"` stays the one place
+   *  that decides what an absent typeId means. */
+  typeId: z.string().optional(),
+  /** Set only on typeId "file" Cards — where the uploaded file's bytes live on disk
+   *  (relative to the API's uploads dir) and its original name/type/size. */
+  file: z
+    .object({
+      storedName: z.string(),
+      originalName: z.string(),
+      mimeType: z.string(),
+      size: z.number(),
+    })
+    .optional(),
 });
 
 export type CardMetadataV1 = z.infer<typeof cardMetadataV1Schema>;

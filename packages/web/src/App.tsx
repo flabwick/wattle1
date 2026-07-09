@@ -16,8 +16,16 @@ export function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [generating, setGenerating] = useState(false);
 
-  const { pages, addPage, removePage, createCardInPage, openCardIntoPage, generate, refresh } =
-    usePages();
+  const {
+    pages,
+    addPage,
+    removePage,
+    createCardInPage,
+    openCardIntoPage,
+    generate,
+    refresh,
+    uploadFileToPage,
+  } = usePages();
   const vault = useVault();
   const generation = useGeneration();
 
@@ -141,6 +149,11 @@ export function App() {
     await createCardInPage(currentPage.id, t("common.untitled"), "");
   }
 
+  async function handleUploadFileToCurrentPage(file: File) {
+    if (!currentPage) return;
+    await uploadFileToPage(currentPage.id, file);
+  }
+
   async function handleDeleteCurrentPage() {
     if (!currentPage) return;
     await removePage(currentPage.id);
@@ -191,6 +204,7 @@ export function App() {
         onGenerate={handleGenerate}
         onAddCardToPage={handleAddCardToCurrentPage}
         onDeletePage={handleDeleteCurrentPage}
+        onUploadFileToPage={currentPage ? handleUploadFileToCurrentPage : null}
         vaultCards={vault.cards}
         vaultQuery={vault.query}
         onVaultQueryChange={vault.setQuery}

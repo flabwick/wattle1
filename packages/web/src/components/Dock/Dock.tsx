@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Card, PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
 import { Button, Icon } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
+import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
@@ -30,6 +31,8 @@ interface DockProps {
   onDeleteVaultCard: (id: string) => void;
   /** Add a vault Card to the current Page, if one exists. */
   onAddVaultCardToPage: ((cardId: string) => void) | null;
+  /** Upload a file onto the current Page as a new "file"-typed Card, if one exists. */
+  onUploadFileToPage: ((file: File) => void) | null;
 }
 
 interface DockAction {
@@ -102,8 +105,10 @@ export function Dock({
   onCreateCardInPage,
   onDeleteVaultCard,
   onAddVaultCardToPage,
+  onUploadFileToPage,
 }: DockProps) {
   const [vaultOpen, setVaultOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const vaultLabel = vaultOpen ? t("dock.vault.close") : t("dock.vault.open");
   const vaultAction: DockAction = {
@@ -151,10 +156,7 @@ export function Dock({
       selected.draftTitle !== null ||
       selected.draftContent !== null ||
       !selected.card.savedToVault;
-    // Card has no `typeId` field yet (Step 3 only added `metadata` to it), and "note"
-    // is currently the only registered CardType, so it's the only possible lookup
-    // today. This is where a per-Card type selector would go once `typeId` exists.
-    const available = supportedOperationIds("note");
+    const available = supportedOperationIds(getCardTypeId(selected.card));
     modeActions = [
       {
         key: "edit",
@@ -208,6 +210,17 @@ export function Dock({
         label: t("pageStack.addCard"),
         onClick: onAddCardToPage,
       },
+      ...(onUploadFileToPage
+        ? [
+            {
+              key: "uploadFile",
+              operationId: null,
+              icon: "upload" as const,
+              label: t("dock.action.upload"),
+              onClick: () => fileInputRef.current?.click(),
+            },
+          ]
+        : []),
       {
         key: "deletePage",
         operationId: null,
@@ -226,6 +239,19 @@ export function Dock({
       {vaultPanel}
       {generating && streamingText && (
         <div className="dock__stream-preview">{streamingText}</div>
+      )}
+      {onUploadFileToPage && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="dock__file-input"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUploadFileToPage(file);
+            // Reset so selecting the same file again still fires onChange.
+            e.target.value = "";
+          }}
+        />
       )}
       <div className="dock__row">
         {actions.map((action) => (

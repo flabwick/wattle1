@@ -61,6 +61,12 @@
   overflow-x: auto;
 }
 
+/* Triggered via the upload DockAction's icon button (fileInputRef.current.click()),
+   never shown itself — the OS file picker is the actual UI. */
+.dock__file-input {
+  display: none;
+}
+
 /* Button box styling now lives in components/primitives/Button.css; .dock__row only
    needs the flex layout above. Text editing (title/content inputs) now happens inline
    on the Card itself — see components/Card/Card.css — the Dock no longer has an

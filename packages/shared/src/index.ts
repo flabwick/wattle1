@@ -4,4 +4,6 @@ export * from "./registries/operation.js";
 export * from "./registries/modelProvider.js";
 export * from "./registries/cardMetadata.js";
 export * from "./registries/definitions/noteCardType.js";
+export * from "./registries/definitions/linkCardType.js";
+export * from "./registries/definitions/fileCardType.js";
 export * from "./registries/init.js";

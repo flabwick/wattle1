@@ -3,6 +3,13 @@ import { defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
 import { serializeCard } from "./cardService.js";
 
+export interface UploadedFile {
+  storedName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
 function serialize(pc: {
   id: string;
   pageId: string;
@@ -61,6 +68,46 @@ export async function addNewCardToPage(
           title,
           content,
           metadata: JSON.stringify(defaultMetadata()),
+          savedToVault: false,
+        },
+      },
+    },
+    include: { card: true },
+  });
+  return {
+    ...serialize(pageCard),
+    card: serializeCard(pageCard.card),
+  };
+}
+
+/** Attach an uploaded file to a Page as a new "file"-typed Card (see the Dock's upload
+ *  action) — page-local scratch content, same as addNewCardToPage, until Saved. */
+export async function addFileCardToPage(
+  pageId: string,
+  file: UploadedFile,
+): Promise<PageCardWithCard> {
+  const bottom = await prisma.pageCard.aggregate({
+    where: { pageId },
+    _max: { order: true },
+  });
+  const pageCard = await prisma.pageCard.create({
+    data: {
+      page: { connect: { id: pageId } },
+      order: (bottom._max.order ?? -1) + 1,
+      card: {
+        create: {
+          title: file.originalName,
+          content: "",
+          metadata: JSON.stringify({
+            ...defaultMetadata(),
+            typeId: "file",
+            file: {
+              storedName: file.storedName,
+              originalName: file.originalName,
+              mimeType: file.mimeType,
+              size: file.size,
+            },
+          }),
           savedToVault: false,
         },
       },

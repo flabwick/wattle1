@@ -55,6 +55,19 @@ export const addNewCardToPage = (pageId: string, title: string, content: string)
     method: "POST",
     body: JSON.stringify({ title, content }),
   });
+/** Multipart, unlike every other call here — bypasses `request()` so the browser sets
+ *  its own `Content-Type: multipart/form-data; boundary=...` instead of the JSON one
+ *  `request()` always adds. */
+export const uploadFileToPage = async (pageId: string, file: File): Promise<PageCardWithCard> => {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api/pages/${pageId}/files`, { method: "POST", body });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<PageCardWithCard>;
+};
 export const reorderPageCards = (pageId: string, orderedIds: string[]) =>
   request<void>(`/pages/${pageId}/cards/reorder`, {
     method: "PUT",

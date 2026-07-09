@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as pageService from "../services/pageService.js";
 import * as pageCardService from "../services/pageCardService.js";
 import { runOperation } from "../operations/run.js";
+import { fileUpload } from "../uploads.js";
 
 export const pagesRouter = Router();
 
@@ -42,6 +43,21 @@ pagesRouter.post("/:pageId/cards", async (req, res) => {
     return res.status(201).json(await pageCardService.addNewCardToPage(pageId, title, content));
   }
   res.status(400).json({ error: "Provide either { cardId } or { title, content }" });
+});
+
+// POST /api/pages/:pageId/files  multipart/form-data, field "file" — upload a file and
+// attach it to the Page as a new "file"-typed Card (see pageCardService.addFileCardToPage).
+pagesRouter.post("/:pageId/files", fileUpload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "file is required" });
+  }
+  const pageCard = await pageCardService.addFileCardToPage(req.params.pageId, {
+    storedName: req.file.filename,
+    originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+  });
+  res.status(201).json(pageCard);
 });
 
 // PUT /api/pages/:pageId/cards/reorder  { orderedIds: string[] }  (top-to-bottom as

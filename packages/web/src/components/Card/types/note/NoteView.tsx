@@ -1,0 +1,45 @@
+import { useState } from "react";
+import { CardShell, Icon } from "../../../primitives/index.js";
+import { t } from "../../../../i18n/index.js";
+import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
+import "../../Card.css";
+
+/**
+ * The "note" CardType's non-editing render — extracted from Card.tsx's static branch.
+ * Not wired into Card.tsx yet (see the C0 doc): CardView still renders this same markup
+ * inline today. This copy exists so cardTypeUiRegistry has a real entry for "note"
+ * alongside the "link" stub, proving the registry pattern without touching the
+ * behaviour users see.
+ */
+export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTypeViewProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const title = pageCard.draftTitle ?? pageCard.card.title;
+  const content = pageCard.draftContent ?? pageCard.card.content;
+
+  return (
+    <CardShell selected={selected} onClick={onSelect} onDoubleClick={onRequestEdit}>
+      <div className="card__header">
+        <div className="card__header-start">
+          <button
+            type="button"
+            className="card__caret-btn"
+            aria-label={collapsed ? t("card.expand") : t("card.collapse")}
+            title={collapsed ? t("card.expand") : t("card.collapse")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setCollapsed((c) => !c);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <Icon
+              name="down"
+              className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
+            />
+          </button>
+          <span className="card__title">{title || t("common.untitled")}</span>
+        </div>
+      </div>
+      {!collapsed && <p className="card__preview">{content || t("card.emptyContent")}</p>}
+    </CardShell>
+  );
+}
