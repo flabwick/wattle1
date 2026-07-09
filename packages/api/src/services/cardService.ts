@@ -17,6 +17,7 @@ export function serializeCard(card: {
   title: string;
   content: string;
   metadata: string;
+  savedToVault: boolean;
   createdAt: Date;
   updatedAt: Date;
 }): Card {
@@ -25,21 +26,28 @@ export function serializeCard(card: {
     title: card.title,
     content: card.content,
     metadata: migrateMetadata(parseMetadataColumn(card.metadata)),
+    savedToVault: card.savedToVault,
     createdAt: card.createdAt.toISOString(),
     updatedAt: card.updatedAt.toISOString(),
   };
 }
 
+/** The vault list only ever shows Cards that have actually been saved there — a Card
+ *  created inside a Page (or by a generation) is page-local scratch content until its
+ *  Save action runs (see schema.prisma's Card.savedToVault doc comment). */
 export async function listCards(query?: string): Promise<Card[]> {
   const cards = await prisma.card.findMany({
-    where: query
-      ? {
-          OR: [
-            { title: { contains: query } },
-            { content: { contains: query } },
-          ],
-        }
-      : undefined,
+    where: {
+      savedToVault: true,
+      ...(query
+        ? {
+            OR: [
+              { title: { contains: query } },
+              { content: { contains: query } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { updatedAt: "desc" },
   });
   return cards.map(serializeCard);

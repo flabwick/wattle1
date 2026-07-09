@@ -1,23 +1,36 @@
-/* Box styling (borders/radius/background) for the search input, new-card input, and
-   every action button now lives in components/primitives/ (InputField.css/Button.css)
-   — this file only has Vault-specific layout. */
+/* Compact, IDE-file-explorer layout: flat rows behind a search+new toolbar, not the
+   bordered "thick stock" card treatment CardShell/vault items used before — a file
+   list should read dense, not like a stack of physical objects. Button/InputField
+   box styling still comes from components/primitives/. */
 
 .vault {
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.vault__toolbar {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.vault__search-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.vault__search-icon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-3);
+  transform: translateY(-50%);
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--color-text-muted);
+  pointer-events: none;
 }
 
 .vault__search {
-  margin-bottom: var(--space-3);
-}
-
-.vault__new {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-5);
-}
-
-.vault__new-input {
-  flex: 1;
+  padding-left: calc(var(--icon-size) + var(--space-3) + var(--space-2));
 }
 
 .vault__list {
@@ -26,38 +39,61 @@
   padding: 0;
 }
 
-/* styling.md §5: same "thick stock" card treatment as CardShell, one size narrower
-   in padding since this is a denser list row rather than a tap-to-open Card. */
+/* One flat row per file: thin divider, no border/shadow box — the compression this
+   view is meant to have. */
 .vault__item {
   display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.vault__item-open {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vault__item-open:hover:not(:disabled) {
   background: var(--color-surface);
 }
 
-.vault__item-title {
-  font-family: var(--font-family-heading);
-  font-weight: var(--font-weight-bold);
+.vault__item-open:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
-.vault__item-preview {
+.vault__item-icon {
   color: var(--color-text-muted);
+}
+
+.vault__item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
 }
 
-.vault__item-actions {
-  display: flex;
-  gap: var(--space-2);
+/* The delete action keeps the Button primitive's bordered/shadowed look — it's the
+   one "object" in an otherwise flat row, not just squeezed to match. */
+.vault__item-delete {
+  align-self: center;
   flex-shrink: 0;
 }
 
 .vault__empty {
+  padding: var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }

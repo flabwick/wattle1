@@ -1,33 +1,31 @@
 {
   "common.untitled": "Untitled",
 
-  "dock.empty": "Select a Card to edit or generate",
   "dock.vault.open": "Vault",
   "dock.vault.close": "Close Vault",
+  "dock.action.edit": "Edit",
   "dock.action.save": "Save",
   "dock.action.generate": "Generate",
   "dock.action.generating": "Generating…",
   "dock.action.remove": "Remove",
   "dock.action.delete": "Delete",
 
-  "card.unsaved": "unsaved",
   "card.emptyContent": "(empty)",
   "card.titlePlaceholder": "Title",
   "card.contentPlaceholder": "Write...",
-  "card.done": "Done",
-  "card.action.edit": "Edit",
+  "card.collapse": "Collapse",
+  "card.expand": "Expand",
 
-  "pageStack.addPage": "+ New Page",
-  "pageStack.pageLabel": "Page",
+  "pageStack.addPage": "New Page",
   "pageStack.addCard": "+ Card",
   "pageStack.deletePage": "Delete Page",
+  "pageStack.up": "Previous Page",
+  "pageStack.down": "Next Page",
   "pageStack.emptyPage": "No cards yet — open one from the vault or add a new one.",
   "pageStack.empty": "No Pages yet. Create one to start stacking context.",
 
   "vault.searchPlaceholder": "Search title or text…",
-  "vault.newCardPlaceholder": "New Card title…",
-  "vault.create": "Create",
-  "vault.open": "Open",
+  "vault.create": "New Card",
   "vault.delete": "Delete",
   "vault.empty": "No Cards match."
 }

@@ -100,6 +100,9 @@ export async function generateFromCard(pageCardId: string): Promise<GenerateResp
           title: "Generated response",
           content: responseText,
           metadata: JSON.stringify(defaultMetadata()),
+          // Page-local scratch content like any other new Card, not yet a Vault
+          // entry — see schema.prisma's Card.savedToVault doc comment.
+          savedToVault: false,
         },
       },
     },

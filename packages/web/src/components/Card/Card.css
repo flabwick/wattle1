@@ -9,11 +9,55 @@
   margin-bottom: var(--space-1);
 }
 
-.card__header-actions {
+.card__header-start {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  min-width: 0;
+  /* flex: 1 is a no-op for the static span (sized to its text either way, still
+     pushed flush left by the outer .card__header's space-between) but lets the
+     title *input* below grow to fill the same row in editing mode. */
+  flex: 1;
+}
+
+/* Deliberately not the Button primitive — a small, quiet disclosure triangle, not
+   another bordered/shadowed tactile object competing with the title. Plain reset,
+   muted color, no border/background/shadow. */
+.card__caret-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.card__caret-btn:hover {
+  color: var(--color-text);
+}
+
+/* The editing view's non-interactive stand-in for the caret (same slot, not
+   clickable — see Card.tsx). */
+.card__caret-btn--static {
+  cursor: default;
+}
+
+/* The fold caret is the "down" chevron, rotated and shrunk well below the standard
+   --icon-size — collapsed points right (content hidden), expanded points down
+   (content showing directly below), rather than a second icon just for this state. */
+.card__caret {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease-out;
+}
+
+.card__caret--collapsed {
+  transform: rotate(-90deg);
 }
 
 .card__title {
@@ -48,6 +92,15 @@
   font-family: var(--font-family-heading);
   font-weight: var(--font-weight-bold);
   font-size: var(--font-size-md);
+  /* An <input>'s intrinsic line-height differs from a <span>'s (browser UA styling),
+     which otherwise leaves .card__header a few px taller in edit mode and pushes the
+     content textarea below out of alignment with the static preview's position. */
+  line-height: var(--line-height-base);
+  /* Fill the same row as the caret placeholder, up to the "unsaved" Badge — a flex
+     item needs this explicitly; InputField's own width: 100% alone isn't enough
+     inside .card__header-start's flex row. */
+  flex: 1;
+  min-width: 0;
 }
 
 .input-field.card__content-input {
@@ -65,9 +118,4 @@
   border: none;
   box-shadow: none;
   outline: none;
-}
-
-.card__row {
-  display: flex;
-  gap: var(--space-2);
 }

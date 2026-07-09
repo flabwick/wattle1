@@ -20,7 +20,15 @@ function serializePageCard(pc: {
   draftContent: string | null;
   createdAt: Date;
   updatedAt: Date;
-  card: { id: string; title: string; content: string; metadata: string; createdAt: Date; updatedAt: Date };
+  card: {
+    id: string;
+    title: string;
+    content: string;
+    metadata: string;
+    savedToVault: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  };
 }): PageCardWithCard {
   return {
     id: pc.id,

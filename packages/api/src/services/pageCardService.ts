@@ -40,7 +40,9 @@ export async function addExistingCardToPage(
   return serialize(pageCard);
 }
 
-/** Create a brand-new blank Card directly in a Page's slot (spec1.md Part 3 "Pages"). */
+/** Create a brand-new blank Card directly in a Page's slot (spec1.md Part 3 "Pages").
+ *  Page-local scratch content, not yet a Vault entry — see schema.prisma's
+ *  Card.savedToVault doc comment. */
 export async function addNewCardToPage(
   pageId: string,
   title: string,
@@ -54,7 +56,14 @@ export async function addNewCardToPage(
     data: {
       page: { connect: { id: pageId } },
       order: (bottom._max.order ?? -1) + 1,
-      card: { create: { title, content, metadata: JSON.stringify(defaultMetadata()) } },
+      card: {
+        create: {
+          title,
+          content,
+          metadata: JSON.stringify(defaultMetadata()),
+          savedToVault: false,
+        },
+      },
     },
     include: { card: true },
   });
@@ -76,7 +85,9 @@ export async function updateDraft(
   return serialize(pageCard);
 }
 
-/** Persist a PageCard's draft edits back to its vault Card, then clear the draft. */
+/** Persist a PageCard's draft edits back to its vault Card, then clear the draft.
+ *  Also the one place a Card ever flips from page-local to a real, independently
+ *  accessible Vault entry (savedToVault: true) — see schema.prisma's doc comment. */
 export async function saveToVault(pageCardId: string): Promise<PageCard> {
   const pageCard = await prisma.pageCard.findUniqueOrThrow({
     where: { id: pageCardId },
@@ -88,6 +99,7 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
     data: {
       title: pageCard.draftTitle ?? pageCard.card.title,
       content: pageCard.draftContent ?? pageCard.card.content,
+      savedToVault: true,
     },
   });
 
@@ -98,9 +110,20 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
   return serialize(cleared);
 }
 
-/** Remove a Card from a Page only — the vault Card itself is untouched. */
+/** Remove a Card from a Page only — the vault Card itself is untouched, *unless* it was
+ *  never actually saved to the vault (savedToVault: false), in which case there's no
+ *  vault copy to preserve: "removing" it is the only copy of it there ever was, so the
+ *  Card is deleted outright (cascades and deletes this PageCard along with it). */
 export async function removeFromPage(pageCardId: string): Promise<void> {
-  await prisma.pageCard.delete({ where: { id: pageCardId } });
+  const pageCard = await prisma.pageCard.findUniqueOrThrow({
+    where: { id: pageCardId },
+    include: { card: true },
+  });
+  if (pageCard.card.savedToVault) {
+    await prisma.pageCard.delete({ where: { id: pageCardId } });
+  } else {
+    await prisma.card.delete({ where: { id: pageCard.cardId } });
+  }
 }
 
 /** Remove a Card from the Page and delete it from the vault entirely. */

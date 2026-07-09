@@ -13,6 +13,9 @@ export interface Card {
   content: string; // markdown
   /** Versioned, extensible per-Card data — see registries/cardMetadata.ts. */
   metadata: CardMetadataV1;
+  /** Whether this Card independently exists in the Vault (searchable/listable there)
+   *  yet, or is still page-local scratch content — see schema.prisma's Card model. */
+  savedToVault: boolean;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
 }

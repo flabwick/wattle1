@@ -1,0 +1,19 @@
+.icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  stroke-width: var(--icon-stroke-width);
+  flex-shrink: 0;
+}
+
+.icon--spin {
+  animation: icon-spin 1.1s linear infinite;
+}
+
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

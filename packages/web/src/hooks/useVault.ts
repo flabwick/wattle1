@@ -19,14 +19,6 @@ export function useVault() {
     return () => clearTimeout(handle);
   }, [query, refresh]);
 
-  const createCard = useCallback(
-    async (title: string, content: string) => {
-      await api.createCard({ title, content });
-      await refresh(query || undefined);
-    },
-    [query, refresh],
-  );
-
   const deleteCard = useCallback(
     async (id: string) => {
       setCards((prev) => prev.filter((c) => c.id !== id));
@@ -35,5 +27,5 @@ export function useVault() {
     [],
   );
 
-  return { cards, loading, query, setQuery, createCard, deleteCard, refresh };
+  return { cards, loading, query, setQuery, deleteCard, refresh };
 }

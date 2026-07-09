@@ -20,6 +20,10 @@
 
   /* Touch targets — mobile-first (spec1.md Part 4 "Large tap targets") */
   --touch-target-min: 44px;
+  /* A compact variant for the Dock's action row and the floating Page-nav arrows
+     (Step 8) — secondary/frequent controls that don't need the full 44px minimum,
+     not a general-purpose replacement for --touch-target-min. */
+  --touch-target-sm: 36px;
 
   /* Type scale */
   --font-size-sm: 0.875rem;
@@ -89,7 +93,14 @@
   --color-terminal-text: #d9a441;
   --color-terminal-border: #4a3a26;
 
-  --dock-height: 64px;
+  /* styling.md §6 "Iconography": "simple, refined line icons (1.5px weight) with
+     consistent geometry" — every Icon (components/primitives/Icon.tsx) draws from
+     these two instead of a hardcoded size/stroke. */
+  --icon-size: 20px;
+  --icon-size-sm: 16px;
+  --icon-stroke-width: 1.5;
+
+  --dock-height: 48px;
 }
 
 @media (prefers-color-scheme: dark) {

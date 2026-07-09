@@ -28,10 +28,13 @@
 }
 
 /* Card.tsx's inline editor: the same "thick stock" box, but a column of
-   inputs/buttons rather than a single tap target — not clickable itself. */
+   inputs rather than a single tap target — not clickable itself. No gap here: the
+   static (non-editing) view's only spacing mechanism is .card__header's own
+   margin-bottom, and editing reuses the exact same .card__header — a flex gap on
+   top of that margin would double the space between the header and what's below it,
+   breaking the "flush, identical either way" layout Card.css is built around. */
 .card-shell--editing {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   cursor: default;
 }

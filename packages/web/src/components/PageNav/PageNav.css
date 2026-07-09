@@ -1,0 +1,26 @@
+/* A normal flex row between the Page content and the Dock (see App.tsx) — not
+   `position: fixed`. That's what makes it "dynamically readjust": it always sits
+   directly above the Dock as a real layout sibling, regardless of how tall the Dock
+   itself currently is (its button row alone, plus the Vault panel, plus a streaming
+   preview all change that height, and none of them can make this overlap it). */
+.page-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg);
+}
+
+.page-nav .button {
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+}
+
+.page-nav .button.button--icon {
+  width: var(--touch-target-sm);
+}
+
+.page-nav .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}

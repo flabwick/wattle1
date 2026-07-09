@@ -38,7 +38,11 @@ export const deleteCard = (id: string) => request<void>(`/cards/${id}`, { method
 
 // Pages
 export const listPages = () => request<PageWithCards[]>("/pages");
-export const createPage = () => request<Page>("/pages", { method: "POST", body: "{}" });
+export const createPage = (order?: number) =>
+  request<Page>("/pages", {
+    method: "POST",
+    body: JSON.stringify(order !== undefined ? { order } : {}),
+  });
 export const deletePage = (id: string) => request<void>(`/pages/${id}`, { method: "DELETE" });
 export const reorderPages = (orderedIds: string[]) =>
   request<void>("/pages/reorder", { method: "PUT", body: JSON.stringify({ orderedIds }) });

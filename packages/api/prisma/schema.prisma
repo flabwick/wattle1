@@ -23,6 +23,14 @@ model Card {
   /// `Json` scalar, because the sqlite connector doesn't support that scalar type;
   /// serialization happens in cardService.ts (serializeCard / write paths).
   metadata  String   @default("{}")
+  /// Whether this Card independently exists in the Vault (searchable/listable there),
+  /// or is still page-local scratch content. A Card created straight in the vault
+  /// (createCard) is saved from the start; one created inside a Page (addNewCardToPage)
+  /// or by a generation (generateFromCard) starts false and only flips true when its
+  /// Page's Save action runs (pageCardService.saveToVault) — spec1.md Part 3's staging
+  /// layer "between 'in context' and 'in the vault'", made explicit as a real flag
+  /// rather than just PageCard's draft fields.
+  savedToVault Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

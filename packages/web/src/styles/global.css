@@ -41,7 +41,6 @@ input {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: var(--dock-height);
 }
 
 /* Desktop is the adaptation, not the base (spec1.md Part 4 "Responsive Behavior"):

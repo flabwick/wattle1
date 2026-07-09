@@ -1,74 +1,56 @@
 import type { PageWithCards } from "@wattle/shared";
 import { CardView } from "../Card/Card.js";
-import { Button } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 import "./PageStack.css";
 
 interface PageStackProps {
-  pages: PageWithCards[];
+  /** The single Page currently in view (spec1.md Part 2 "Pages" — one Page fills the
+   *  whole screen now, navigated with PageNav's up/down arrows, rather than all
+   *  Pages stacked in one scrolling column). Null if there are no Pages yet. */
+  currentPage: PageWithCards | null;
   selectedPageCardId: string | null;
+  editingPageCardId: string | null;
   onSelectPageCard: (id: string | null) => void;
-  onAddPage: () => void;
-  onRemovePage: (pageId: string) => void;
-  onCreateCardInPage: (pageId: string) => void;
+  onRequestEditPageCard: (id: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
 }
 
 /**
- * The vertical stack of Pages (spec1.md Part 2 "Pages"). Page.order ascends bottom
- * (0) to top, so the stack renders highest-order first — top of the stack is at the
- * top of the screen, matching "vertical scroll = moving between Pages."
+ * One full-screen Page's Cards at a time — no title, no border/shadow "folio" box,
+ * it IS the screen. Navigating between Pages and adding new ones lives in
+ * `PageNav`/App.tsx now, not here — this component only renders whichever Page is
+ * currently in view.
  */
 export function PageStack({
-  pages,
+  currentPage,
   selectedPageCardId,
+  editingPageCardId,
   onSelectPageCard,
-  onAddPage,
-  onRemovePage,
-  onCreateCardInPage,
+  onRequestEditPageCard,
   onChangeDraft,
 }: PageStackProps) {
-  const topDown = [...pages].sort((a, b) => b.order - a.order);
-
   return (
     <div className="page-stack">
-      <button type="button" className="page-stack__add" onClick={onAddPage}>
-        {t("pageStack.addPage")}
-      </button>
-
-      {topDown.map((page) => (
-        <section key={page.id} className="page">
-          <header className="page__header">
-            <span className="page__label">{t("pageStack.pageLabel")}</span>
-            <div className="page__actions">
-              <Button onClick={() => onCreateCardInPage(page.id)}>
-                {t("pageStack.addCard")}
-              </Button>
-              <Button variant="danger" onClick={() => onRemovePage(page.id)}>
-                {t("pageStack.deletePage")}
-              </Button>
-            </div>
-          </header>
-
-          {page.pageCards.length === 0 && (
-            <p className="page__empty">{t("pageStack.emptyPage")}</p>
+      {currentPage ? (
+        <>
+          {currentPage.pageCards.length === 0 && (
+            <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
-
-          {page.pageCards.map((pageCard) => (
+          {currentPage.pageCards.map((pageCard) => (
             <CardView
               key={pageCard.id}
               pageCard={pageCard}
               selected={pageCard.id === selectedPageCardId}
+              editing={pageCard.id === editingPageCardId}
               onSelect={() =>
                 onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
               }
+              onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
               onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
             />
           ))}
-        </section>
-      ))}
-
-      {pages.length === 0 && (
+        </>
+      ) : (
         <p className="page-stack__empty">{t("pageStack.empty")}</p>
       )}
     </div>

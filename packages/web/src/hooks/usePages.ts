@@ -25,10 +25,14 @@ export function usePages() {
     refresh();
   }, [refresh]);
 
-  const addPage = useCallback(async () => {
-    await api.createPage();
-    await refresh();
-  }, [refresh]);
+  const addPage = useCallback(
+    async (order?: number) => {
+      const page = await api.createPage(order);
+      await refresh();
+      return page.id;
+    },
+    [refresh],
+  );
 
   const removePage = useCallback(
     async (pageId: string) => {
