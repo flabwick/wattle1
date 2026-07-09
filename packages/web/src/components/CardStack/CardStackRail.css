@@ -1,0 +1,58 @@
+/* The sideways counterpart to PageNav.css: a horizontal flex row instead of a
+   vertical stack of Cards, arrows either side of the active member instead of
+   above/below the whole Page. */
+.card-stack-rail {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.card-stack-rail .button {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Reuses the "up" chevron rotated to point sideways (Card.css does the same for its
+   fold caret) rather than adding dedicated left/right icons to the shared Icon
+   vocabulary just for this prototype. */
+.card-stack-rail__arrow--left {
+  transform: rotate(-90deg);
+}
+
+.card-stack-rail__arrow--right {
+  transform: rotate(90deg);
+}
+
+/* Same "thick stock" box as CardShell, but not an actual button — T1 replaces this
+   with the active member's real CardView, which already carries that styling. */
+.card-stack-rail__active {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-3) var(--space-4);
+  min-height: var(--touch-target-min);
+}
+
+.card-stack-rail__title {
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-stack-rail__position {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+}
