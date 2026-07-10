@@ -18,7 +18,6 @@ interface DockProps {
   onEdit: () => void;
   onSave: () => void;
   onRemoveFromPage: () => void;
-  onDeleteEntirely: () => void;
   onGenerate: () => void;
   onAddCardToPage: () => void;
   onDeletePage: () => void;
@@ -76,7 +75,10 @@ function supportedOperationIds(typeId: string): Set<string> {
  * genuinely temporary) ever make it taller than that one row.
  *
  * Nothing selected -> just the Vault toggle; a Page selected (and no Card) -> + Add
- * Card/Delete Page; a Card selected -> Edit/Save/Generate/Remove/Delete. Edit still
+ * Card/Delete Page; a Card selected -> Edit/Save/Generate/Remove (X — removes this
+ * Card from this Page only, the vault copy is untouched and can be reopened any
+ * time; permanently deleting a Card from the vault lives in the Vault panel
+ * instead, on each Card there, not here). Edit still
  * opens the same inline title/textarea editor on the Card itself (Card.tsx); the Dock
  * only triggers it, it doesn't render it. Save has no separate "unsaved" Badge
  * anywhere — the action's own icon is the indicator: a `+` while there's a draft to
@@ -95,7 +97,6 @@ export function Dock({
   onEdit,
   onSave,
   onRemoveFromPage,
-  onDeleteEntirely,
   onGenerate,
   onAddCardToPage,
   onDeletePage,
@@ -188,17 +189,9 @@ export function Dock({
       {
         key: "remove",
         operationId: null,
-        icon: "remove" as const,
+        icon: "close" as const,
         label: t("dock.action.remove"),
         onClick: onRemoveFromPage,
-      },
-      {
-        key: "delete",
-        operationId: "card.delete",
-        icon: "delete" as const,
-        label: t("dock.action.delete"),
-        onClick: onDeleteEntirely,
-        danger: true,
       },
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedPage) {

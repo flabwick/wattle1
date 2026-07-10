@@ -64,15 +64,28 @@ export function subscribeToSaves(listener: (cardId: string) => void): () => void
   return () => savedListeners.delete(listener);
 }
 
+/** Fired whenever a Card durably lands in the vault by any path — not just edits
+ *  made through this store's own editCard/flushWrite (embeds), but also the
+ *  top-level "Save" action (App.tsx's handleSave, which writes via a plain REST
+ *  call and never touches writePending/writeInFlight at all). Without this second
+ *  call site, subscribeToSaves would only ever fire for embed edits, and
+ *  useVault's subscription (the reason this exists) would miss the far more common
+ *  primary Save flow entirely. */
+export function notifySaved(cardId: string): void {
+  savedListeners.forEach((l) => l(cardId));
+}
+
 /** Publishes a Card fetched or saved elsewhere (usePages.ts's refresh(), which sees
  *  every Card via GET /api/pages) into the shared cache, so any mounted CardEmbed of
  *  the same id picks it up immediately instead of only on its own next fetch. A
- *  no-op if that cardId has a write in flight right now — that write's own eventual
- *  server response is the more current value; overwriting it with a possibly
- *  slightly-stale concurrent GET's copy would just re-introduce the same
- *  out-of-order-write problem `writeInFlight` exists to prevent. */
+ *  no-op only if that cardId has genuinely newer local edits still waiting to be
+ *  sent (`writePending`) — those haven't reached the server yet, so a concurrent
+ *  GET can't possibly reflect them. A write merely being in flight (`writeInFlight`
+ *  with nothing pending) doesn't block this: that write has already been sent, so an
+ *  incoming published Card from a refresh triggered by that same save is the
+ *  authoritative post-write version and should be applied. */
 export function publishCard(card: Card): void {
-  if (writeInFlight.has(card.id)) return;
+  if (writePending.has(card.id)) return;
   cache.set(card.id, card);
   notify(card.id);
 }
@@ -109,7 +122,7 @@ async function flushWrite(cardId: string) {
     const saved = await patchCard(cardId, next);
     cache.set(cardId, saved);
     notify(cardId);
-    savedListeners.forEach((l) => l(cardId));
+    notifySaved(cardId);
   } catch {
     /* best-effort — same fire-and-forget convention the rest of the app's draft
        edits use; the optimistic cache entry set in editCard below stands as-is. */

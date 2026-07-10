@@ -6,6 +6,8 @@ import { CardContent } from "./CardContent.js";
 import { CardContentEditor } from "./CardContentEditor.js";
 import type { CardContentEditorHandle } from "./CardContentEditor.js";
 import { CardLinkPicker } from "./CardLinkPicker.js";
+import { useCard } from "../../hooks/useCard.js";
+import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
 
@@ -33,19 +35,51 @@ interface CardProps {
  * (see Dock.tsx and the gesture handlers below) — and swaps this Card's own body for a
  * title input + textarea right where it sits, rather than a separate editor elsewhere.
  *
- * There's no explicit "Done"/close button and no "unsaved" indicator: every keystroke
- * commits straight to the vault Card via onChangeDraft (App.tsx), so there's nothing
- * left to save or lose. Clicking anywhere outside the Card while it's editing just
- * deselects it, which closes the editor as a side effect (App.tsx resets `editing`
- * whenever the selected Card changes).
+ * Once a Card has been saved to the vault at least once (`card.savedToVault`),
+ * there's no explicit "Done"/close button and no "unsaved" indicator any more:
+ * every keystroke commits straight to the vault Card, live, through the same shared
+ * cardStore CardEmbed.tsx uses (see editCard/useCard) — so any other open instance
+ * of this same Card, on this Page or any other, updates immediately too, and
+ * there's nothing left to save or lose. Clicking anywhere outside the Card while
+ * it's editing just deselects it, which closes the editor as a side effect (App.tsx
+ * resets `editing` whenever the selected Card changes).
+ *
+ * A Card that has *never* been saved to the vault yet is still page-local scratch
+ * content (schema.prisma's Card.savedToVault doc comment) — those edits go through
+ * the draft/Save flow instead (onChangeDraft, App.tsx/usePages.ts), same as before,
+ * until the first explicit Save promotes it into the vault and this switches over.
  */
 export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit, onChangeDraft }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
   const [collapsed, setCollapsed] = useState(false);
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
-  const title = pageCard.draftTitle ?? pageCard.card.title;
-  const content = pageCard.draftContent ?? pageCard.card.content;
+
+  const savedToVault = pageCard.card.savedToVault;
+  // Once saved, `pageCard.card` (only as fresh as the last listPages fetch) stops
+  // being the source of truth in favor of the live cardStore cache — the same one
+  // every CardEmbed of this id reads from — so edits made through an embed, or
+  // through this same Card open on a different Page, show up here immediately too.
+  const { card: liveCard } = useCard(pageCard.card.id);
+  const canonicalCard = liveCard ?? pageCard.card;
+  const title = savedToVault ? canonicalCard.title : pageCard.draftTitle ?? pageCard.card.title;
+  const content = savedToVault ? canonicalCard.content : pageCard.draftContent ?? pageCard.card.content;
+
+  function handleTitleChange(value: string) {
+    if (savedToVault) {
+      editCard(pageCard.card.id, { title: value });
+    } else {
+      onChangeDraft({ title: value });
+    }
+  }
+
+  function handleContentChange(value: string) {
+    if (savedToVault) {
+      editCard(pageCard.card.id, { content: value });
+    } else {
+      onChangeDraft({ content: value });
+    }
+  }
 
   const editorRef = useRef<HTMLDivElement>(null);
   const contentEditorRef = useRef<CardContentEditorHandle>(null);
@@ -119,7 +153,7 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
               value={title}
               placeholder={t("card.titlePlaceholder")}
               autoFocus
-              onChange={(e) => onChangeDraft({ title: e.target.value })}
+              onChange={(e) => handleTitleChange(e.target.value)}
             />
           </div>
           <div className="card__link-btn-wrap">
@@ -140,7 +174,7 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
         <CardContentEditor
           ref={contentEditorRef}
           content={content}
-          onChangeContent={(next) => onChangeDraft({ content: next })}
+          onChangeContent={handleContentChange}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
         />

@@ -6,6 +6,7 @@ import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
 import { useGeneration } from "./hooks/useGeneration.js";
+import { notifySaved } from "./lib/cardStore.js";
 import { t } from "./i18n/index.js";
 
 export function App() {
@@ -68,12 +69,14 @@ export function App() {
     if (!canNavigateUp) return;
     setCurrentPageId(sortedPages[currentPageIndex - 1].id);
     selectPageCard(null);
+    refresh();
   }
 
   function navigateDown() {
     if (!canNavigateDown) return;
     setCurrentPageId(sortedPages[currentPageIndex + 1].id);
     selectPageCard(null);
+    refresh();
   }
 
   const selectedPageCard = useMemo(
@@ -108,33 +111,28 @@ export function App() {
   async function handleSave() {
     if (!selectedPageCard) return;
     await api.savePageCardToVault(selectedPageCard.id);
+    // The publishCard guard fix in cardStore.ts means the following refresh()'s
+    // publishCard calls (usePages.ts) will apply cleanly even if this Card has no
+    // write in flight through cardStore itself (the Save action is a plain REST
+    // call, not routed through editCard). notifySaved separately lets useVault
+    // (which isn't otherwise connected to usePages' refresh) know a save just
+    // happened, so the Vault panel picks up the change too.
+    notifySaved(selectedPageCard.card.id);
     await refresh();
   }
 
   async function handleRemoveFromPage() {
     if (!selectedPageCard) return;
+    const cardId = selectedPageCard.card.id;
     selectPageCard(null);
     await api.removePageCardFromPage(selectedPageCard.id);
     await refresh();
     // "Remove" never deletes the vault Card (see pageCardService.removeFromPage) —
     // it can even *promote* one into the vault, if it was still page-local scratch
-    // content — so the Vault panel's own separately-fetched list needs its own
-    // refresh to potentially pick up a newly-vaulted Card, same as
-    // handleCreateCardInVault below.
-    await vault.refresh(vault.query || undefined);
-  }
-
-  async function handleDeleteEntirely() {
-    if (!selectedPageCard) return;
-    selectPageCard(null);
-    await api.deletePageCardEntirely(selectedPageCard.id);
-    await refresh();
-    // Unlike "Remove", "Delete" (Dock's separate, explicitly destructive action) can
-    // actually erase a Card the Vault panel's list already has cached — without this,
-    // the stale entry stays clickable and "open into page" 500s on the now-missing
-    // Card (see handleAddVaultCardToPage's catch below for the same failure mode
-    // from the other direction).
-    await vault.refresh(vault.query || undefined);
+    // content. That's a plain REST call, not routed through cardStore, so
+    // subscribeToSaves won't fire for it on its own — notifySaved tells the Vault
+    // panel (useVault) directly in case this Card just became newly vaulted.
+    notifySaved(cardId);
   }
 
   // Draft edits fire on every keystroke (Card.tsx/CardContentEditor.tsx's
@@ -195,10 +193,10 @@ export function App() {
   }
 
   /** Opening a vault Card into the current Page can 500 if the panel's cached list
-   *  is stale — e.g. the Card was deleted (Dock's Delete action) from a different
-   *  PageCard elsewhere since the list was last fetched, so this cardId no longer
-   *  exists. Re-syncing the list on failure clears the dead entry instead of leaving
-   *  it clickable (and failing the same way) indefinitely. */
+   *  is stale — e.g. the Card was deleted (the Vault panel's own per-Card delete
+   *  action) from a different PageCard elsewhere since the list was last fetched, so
+   *  this cardId no longer exists. Re-syncing the list on failure clears the dead
+   *  entry instead of leaving it clickable (and failing the same way) indefinitely. */
   async function handleAddVaultCardToPage(cardId: string) {
     if (!currentPage) return;
     try {
@@ -264,7 +262,6 @@ export function App() {
         onEdit={() => setIsEditing(true)}
         onSave={handleSave}
         onRemoveFromPage={handleRemoveFromPage}
-        onDeleteEntirely={handleDeleteEntirely}
         onGenerate={handleGenerate}
         onAddCardToPage={handleAddCardToCurrentPage}
         onDeletePage={handleDeleteCurrentPage}
