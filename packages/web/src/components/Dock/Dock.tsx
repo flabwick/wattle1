@@ -12,6 +12,13 @@ interface DockProps {
   selected: PageCardWithCard | null;
   /** A selected Page (mutually exclusive with `selected` — see App.tsx). */
   selectedPage: PageWithCards | null;
+  /** An independently-selected embedded Card's id (mutually exclusive with, and takes
+   *  priority over, `selected`/`selectedPage` — see App.tsx/CardContent.tsx). Embeds
+   *  are always already-saved vault Cards (CardLinkPicker only offers saved ones), so
+   *  there's no Edit/Save/Generate action for one here, just Remove/Delete. */
+  selectedEmbedId: string | null;
+  onRemoveEmbed: () => void;
+  onDeleteEmbed: () => void;
   generating: boolean;
   /** Live text streamed so far from the Step 2 SSE preview endpoint, while generating. */
   streamingText?: string;
@@ -92,6 +99,9 @@ function supportedOperationIds(typeId: string): Set<string> {
 export function Dock({
   selected,
   selectedPage,
+  selectedEmbedId,
+  onRemoveEmbed,
+  onDeleteEmbed,
   generating,
   streamingText,
   onEdit,
@@ -149,7 +159,25 @@ export function Dock({
 
   let modeActions: DockAction[] = [];
 
-  if (selected) {
+  if (selectedEmbedId) {
+    modeActions = [
+      {
+        key: "removeEmbed",
+        operationId: null,
+        icon: "close" as const,
+        label: t("dock.action.remove"),
+        onClick: onRemoveEmbed,
+      },
+      {
+        key: "deleteEmbed",
+        operationId: null,
+        icon: "delete" as const,
+        label: t("dock.action.delete"),
+        onClick: onDeleteEmbed,
+        danger: true,
+      },
+    ];
+  } else if (selected) {
     // Needs saving if there's a pending draft edit not yet committed, OR the Card has
     // never been saved to the Vault at all yet (still page-local scratch content from
     // creation/generation — see schema.prisma's Card.savedToVault doc comment).

@@ -25,6 +25,15 @@ interface CardEmbedProps {
    *  shows the edit state of everything embedded in it, all the way down (bounded by
    *  MAX_EMBED_DEPTH same as normal viewing). */
   forceEditing?: boolean;
+  /** Which embedded Card, if any, is independently selected (App.tsx state) — see
+   *  CardContent.tsx's doc comment. Threaded through unchanged so a selection nested
+   *  several embeds deep still resolves correctly. */
+  selectedEmbedId?: string | null;
+  onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
+  /** Strips *this* embed's own `[[cardId]]` token out of its immediate parent's
+   *  content — undefined only when there's nowhere to route a removal (forceEditing
+   *  callers don't pass one, since selection isn't wired into that path). */
+  onRemoveSelf?: () => void;
 }
 
 /**
@@ -41,7 +50,15 @@ interface CardEmbedProps {
  * edits it, not just on next reload. There's no page-local draft for an embed the
  * way there is for a PageCard: edits go straight to the vault.
  */
-export function CardEmbed({ cardId, ancestorIds, depth, forceEditing = false }: CardEmbedProps) {
+export function CardEmbed({
+  cardId,
+  ancestorIds,
+  depth,
+  forceEditing = false,
+  selectedEmbedId,
+  onSelectEmbed,
+  onRemoveSelf,
+}: CardEmbedProps) {
   const circular = ancestorIds.has(cardId);
   const tooDeep = depth > MAX_EMBED_DEPTH;
 
@@ -62,9 +79,24 @@ export function CardEmbed({ cardId, ancestorIds, depth, forceEditing = false }: 
   }
 
   const childAncestorIds = new Set([...ancestorIds, cardId]);
+  // Only selectable in the read-only render — while an ancestor is being edited
+  // (forceEditing), every embed in the tree is already directly editable, so there's
+  // nothing independent left to select (see App.tsx/Dock.tsx's embed-selected row).
+  const selectable = !forceEditing && !!onSelectEmbed && !!onRemoveSelf;
+  const isSelected = selectable && selectedEmbedId === cardId;
 
   return (
-    <div className="card-shell card-embed">
+    <div
+      className={`card-shell card-embed${isSelected ? " card-shell--selected" : ""}`}
+      onClick={
+        selectable
+          ? (e) => {
+              e.stopPropagation();
+              onSelectEmbed!(cardId, onRemoveSelf!);
+            }
+          : undefined
+      }
+    >
       <div className="card__header">
         <div className="card__header-start">
           <button
@@ -72,7 +104,10 @@ export function CardEmbed({ cardId, ancestorIds, depth, forceEditing = false }: 
             className="card__caret-btn"
             aria-label={folded ? t("card.expand") : t("card.collapse")}
             title={folded ? t("card.expand") : t("card.collapse")}
-            onClick={() => setFolded((f) => !f)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setFolded((f) => !f);
+            }}
           >
             <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
           </button>
@@ -97,7 +132,14 @@ export function CardEmbed({ cardId, ancestorIds, depth, forceEditing = false }: 
             depth={depth + 1}
           />
         ) : (
-          <CardContent content={card.content} ancestorIds={childAncestorIds} depth={depth + 1} />
+          <CardContent
+            content={card.content}
+            ancestorIds={childAncestorIds}
+            depth={depth + 1}
+            selectedEmbedId={selectedEmbedId}
+            onSelectEmbed={onSelectEmbed}
+            onChangeContent={(next) => editCard(cardId, { content: next })}
+          />
         ))}
     </div>
   );

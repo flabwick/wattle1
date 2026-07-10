@@ -1,12 +1,20 @@
+import type { PageWithCards } from "@wattle/shared";
 import { Button, Icon } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 import "./PageNav.css";
 
 interface PageNavProps {
+  /** Top-to-bottom stack order (App.tsx's sortedPages) — index 0 is the topmost
+   *  Page, same order/indexing canNavigateUp/onNavigateUp etc. already use. Drives
+   *  the small dot row below. */
+  pages: PageWithCards[];
+  currentIndex: number;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
   onNavigateUp: () => void;
   onNavigateDown: () => void;
+  /** Jumps straight to `pages[index]` — the dot row's click target. */
+  onSelectPage: (index: number) => void;
   onAddPage: () => void;
 }
 
@@ -22,10 +30,13 @@ interface PageNavProps {
  * turns into a `+` and creates one there instead of navigating.
  */
 export function PageNav({
+  pages,
+  currentIndex,
   canNavigateUp,
   canNavigateDown,
   onNavigateUp,
   onNavigateDown,
+  onSelectPage,
   onAddPage,
 }: PageNavProps) {
   const atBottom = !canNavigateDown;
@@ -41,6 +52,22 @@ export function PageNav({
       >
         <Icon name="up" />
       </Button>
+      {pages.length > 1 && (
+        <div className="page-nav__dots" role="tablist" aria-label={t("pageStack.selectPage")}>
+          {pages.map((page, i) => (
+            <button
+              key={page.id}
+              type="button"
+              role="tab"
+              aria-selected={i === currentIndex}
+              aria-label={`Page ${i + 1} of ${pages.length}`}
+              title={`Page ${i + 1} of ${pages.length}`}
+              className={`page-nav__dot${i === currentIndex ? " page-nav__dot--active" : ""}`}
+              onClick={() => onSelectPage(i)}
+            />
+          ))}
+        </div>
+      )}
       <Button
         iconOnly
         aria-label={atBottom ? t("pageStack.addPage") : t("pageStack.down")}

@@ -7,3 +7,43 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
+
+/* Navigation feel: the new Page slides in from the direction it "came from" in the
+   stack (App.tsx's navDirection) rather than just popping in — "up" arrives from
+   below (you're moving toward the top of the stack), "down" from above. */
+@keyframes page-stack-slide-up {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes page-stack-slide-down {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.page-stack__page--up {
+  animation: page-stack-slide-up 220ms ease-out;
+}
+
+.page-stack__page--down {
+  animation: page-stack-slide-down 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-stack__page--up,
+  .page-stack__page--down {
+    animation: none;
+  }
+}

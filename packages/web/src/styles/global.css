@@ -37,6 +37,21 @@ input {
   height: 100dvh;
 }
 
+/* Wraps .app__main so PageStackEdges (App.tsx) can absolutely-position its subtle
+   top/bottom "stack depth" bars against the same box the scrollable Page content
+   fills, independent of that content's own scroll offset — position: sticky can't
+   give a reliably-pinned bottom edge when the sticky element sits before tall
+   scrolling content in DOM order (its static position scrolls out of reach before
+   the "stick to bottom" threshold would ever engage), so this uses absolute
+   positioning against a non-scrolling relative ancestor instead. */
+.page-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .app__main {
   flex: 1;
   min-height: 0;
@@ -46,7 +61,7 @@ input {
 /* Desktop is the adaptation, not the base (spec1.md Part 4 "Responsive Behavior"):
    same data model, more room to show context at once. */
 @media (min-width: 900px) {
-  .app__main {
+  .page-viewport {
     max-width: 720px;
     margin: 0 auto;
   }

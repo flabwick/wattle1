@@ -12,6 +12,8 @@ interface PageCardSlotProps {
   onSelect: () => void;
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
+  selectedEmbedId: string | null;
+  onSelectEmbed: (cardId: string, onRemove: () => void) => void;
 }
 
 /**
@@ -22,7 +24,16 @@ interface PageCardSlotProps {
  * (e.g. "file" — see the Dock's upload action) renders via cardTypeUiRegistry
  * instead, which is what a full C1-C5 rollout would eventually make the only path.
  */
-function PageCardSlot({ pageCard, selected, editing, onSelect, onRequestEdit, onChangeDraft }: PageCardSlotProps) {
+function PageCardSlot({
+  pageCard,
+  selected,
+  editing,
+  onSelect,
+  onRequestEdit,
+  onChangeDraft,
+  selectedEmbedId,
+  onSelectEmbed,
+}: PageCardSlotProps) {
   const typeId = getCardTypeId(pageCard.card);
   if (typeId === "note") {
     return (
@@ -33,6 +44,8 @@ function PageCardSlot({ pageCard, selected, editing, onSelect, onRequestEdit, on
         onSelect={onSelect}
         onRequestEdit={onRequestEdit}
         onChangeDraft={onChangeDraft}
+        selectedEmbedId={selectedEmbedId}
+        onSelectEmbed={onSelectEmbed}
       />
     );
   }
@@ -50,11 +63,16 @@ interface PageStackProps {
    *  whole screen now, navigated with PageNav's up/down arrows, rather than all
    *  Pages stacked in one scrolling column). Null if there are no Pages yet. */
   currentPage: PageWithCards | null;
+  /** Which way the last navigation moved (App.tsx's navDirection) — drives the slide
+   *  animation below. Null on first load, so there's no animation on initial mount. */
+  direction: "up" | "down" | null;
   selectedPageCardId: string | null;
   editingPageCardId: string | null;
   onSelectPageCard: (id: string | null) => void;
   onRequestEditPageCard: (id: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
+  selectedEmbedId: string | null;
+  onSelectEmbed: (cardId: string, onRemove: () => void) => void;
 }
 
 /**
@@ -65,16 +83,26 @@ interface PageStackProps {
  */
 export function PageStack({
   currentPage,
+  direction,
   selectedPageCardId,
   editingPageCardId,
   onSelectPageCard,
   onRequestEditPageCard,
   onChangeDraft,
+  selectedEmbedId,
+  onSelectEmbed,
 }: PageStackProps) {
   return (
     <div className="page-stack">
       {currentPage ? (
-        <>
+        // Keyed on the Page id so switching Pages remounts this wrapper — a fresh
+        // element always replays its CSS animation on mount (unlike toggling a class
+        // on a node that's already there), which is what makes the slide direction
+        // below reliably retrigger on every navigation, not just the first one.
+        <div
+          key={currentPage.id}
+          className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
+        >
           {currentPage.pageCards.length === 0 && (
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
@@ -89,9 +117,11 @@ export function PageStack({
               }
               onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
               onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
+              selectedEmbedId={selectedEmbedId}
+              onSelectEmbed={onSelectEmbed}
             />
           ))}
-        </>
+        </div>
       ) : (
         <p className="page-stack__empty">{t("pageStack.empty")}</p>
       )}

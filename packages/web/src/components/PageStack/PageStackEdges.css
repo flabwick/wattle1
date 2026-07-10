@@ -1,0 +1,32 @@
+/* Absolutely positioned against .page-viewport (global.css) — the same box
+   .app__main fills — rather than living inside the scrolling content itself, so
+   these always sit at the visual top/bottom edge of the Page area regardless of how
+   long the current Page's content is or how far it's scrolled. Zero real layout
+   height of their own: pointer-events: none so they never intercept clicks on the
+   content underneath. */
+.page-stack-edges {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--space-4);
+  pointer-events: none;
+}
+
+.page-stack-edges--top {
+  top: 0;
+}
+
+.page-stack-edges--bottom {
+  bottom: 0;
+  align-items: flex-end;
+}
+
+.page-stack-edges__bar {
+  height: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-border-strong);
+}

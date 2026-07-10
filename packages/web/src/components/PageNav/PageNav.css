@@ -5,10 +5,46 @@
    preview all change that height, and none of them can make this overlap it). */
 .page-nav {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-3);
   background: var(--color-bg);
+}
+
+/* Small, subtle Page selector — a row of dots between the arrows rather than a
+   panel/list, so it costs almost no space and stays out of the way of the arrows'
+   own touch targets. Scrolls internally (hidden scrollbar) instead of wrapping or
+   growing the bar's height if there are ever more Pages than comfortably fit. */
+.page-nav__dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 96px;
+  padding: 0 var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.page-nav__dots::-webkit-scrollbar {
+  display: none;
+}
+
+.page-nav__dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-border);
+  cursor: pointer;
+}
+
+.page-nav__dot--active {
+  width: 8px;
+  height: 8px;
+  background: var(--color-accent);
 }
 
 .page-nav .button {

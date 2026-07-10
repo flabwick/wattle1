@@ -27,6 +27,11 @@ interface CardProps {
    *  touch (see the touch handlers below), or the Dock's Edit action. */
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
+  /** Which embedded Card, if any, is independently selected (App.tsx state) — see
+   *  CardContent.tsx's doc comment. Only wired into the non-editing render below;
+   *  the inline editor's embeds keep their existing cascading-edit behavior untouched. */
+  selectedEmbedId?: string | null;
+  onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
 }
 
 /**
@@ -49,7 +54,16 @@ interface CardProps {
  * the draft/Save flow instead (onChangeDraft, App.tsx/usePages.ts), same as before,
  * until the first explicit Save promotes it into the vault and this switches over.
  */
-export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit, onChangeDraft }: CardProps) {
+export function CardView({
+  pageCard,
+  selected,
+  editing,
+  onSelect,
+  onRequestEdit,
+  onChangeDraft,
+  selectedEmbedId,
+  onSelectEmbed,
+}: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
   const [collapsed, setCollapsed] = useState(false);
@@ -219,6 +233,9 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
           content={content}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
+          selectedEmbedId={selectedEmbedId}
+          onSelectEmbed={onSelectEmbed}
+          onChangeContent={handleContentChange}
         />
       )}
     </CardShell>

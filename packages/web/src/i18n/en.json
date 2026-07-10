@@ -31,6 +31,7 @@
   "pageStack.deletePage": "Delete Page",
   "pageStack.up": "Previous Page",
   "pageStack.down": "Next Page",
+  "pageStack.selectPage": "Select a Page",
   "pageStack.emptyPage": "No cards yet — open one from the vault or add a new one.",
   "pageStack.empty": "No Pages yet. Create one to start stacking context.",
 

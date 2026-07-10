@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Dock } from "./components/Dock/Dock.js";
 import { PageNav } from "./components/PageNav/PageNav.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
+import { PageStackEdges } from "./components/PageStack/PageStackEdges.js";
 import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
@@ -16,6 +17,13 @@ export function App() {
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [generating, setGenerating] = useState(false);
+  /** An independently-selected embedded Card (CardContent.tsx/CardEmbed.tsx's
+   *  click-to-select), separate from `selectedPageCardId` — see Dock.tsx's
+   *  embed-selected action row. `onRemove` is the exact splice closure captured at
+   *  selection time for stripping this embed's token back out of its parent. */
+  const [selectedEmbed, setSelectedEmbed] = useState<{ cardId: string; onRemove: () => void } | null>(
+    null,
+  );
 
   const {
     pages,
@@ -50,6 +58,7 @@ export function App() {
   function selectPageCard(id: string | null) {
     setSelectedPageCardId(id);
     setIsEditing(false);
+    setSelectedEmbed(null);
   }
 
   // Double-click / long-press a Card (Card.tsx) to jump straight into editing it —
@@ -58,6 +67,34 @@ export function App() {
   function requestEditPageCard(id: string) {
     setSelectedPageCardId(id);
     setIsEditing(true);
+    setSelectedEmbed(null);
+  }
+
+  /** Selects an embedded Card independently of whatever top-level Card contains it —
+   *  clicking the same one again toggles it back off, same convention as
+   *  selectPageCard's toggle. Deliberately doesn't touch selectedPageCardId/isEditing:
+   *  the containing Card stays exactly as selected/editing as it was. */
+  function selectEmbed(cardId: string, onRemove: () => void) {
+    setSelectedEmbed((prev) => (prev?.cardId === cardId ? null : { cardId, onRemove }));
+  }
+
+  function handleRemoveEmbed() {
+    if (!selectedEmbed) return;
+    selectedEmbed.onRemove();
+    setSelectedEmbed(null);
+  }
+
+  // Deletes the embedded Card from the vault entirely (same global delete the Vault
+  // panel uses — vault.deleteCard), then strips the now-dangling token out of this
+  // particular parent too, rather than leaving CardEmbed's "not found" fallback
+  // showing indefinitely where the user was just looking.
+  async function handleDeleteEmbed() {
+    if (!selectedEmbed) return;
+    const { cardId, onRemove } = selectedEmbed;
+    setSelectedEmbed(null);
+    onRemove();
+    await vault.deleteCard(cardId);
+    await refresh();
   }
 
   const currentPageIndex = sortedPages.findIndex((p) => p.id === currentPageId);
@@ -65,18 +102,33 @@ export function App() {
   const canNavigateUp = currentPageIndex > 0;
   const canNavigateDown = currentPageIndex !== -1 && currentPageIndex < sortedPages.length - 1;
 
-  function navigateUp() {
-    if (!canNavigateUp) return;
-    setCurrentPageId(sortedPages[currentPageIndex - 1].id);
+  /** Which way the Page transition animation should play (PageStack.tsx) — "up"
+   *  slides the new Page in from below (moving toward the top of the stack, index
+   *  decreasing), "down" from above. Set right before the Page actually changes so
+   *  PageStack's remount (keyed on the new Page's id) picks up the right direction
+   *  class on first paint. */
+  const [navDirection, setNavDirection] = useState<"up" | "down" | null>(null);
+
+  /** Jumps straight to any Page by its position in `sortedPages` — used by both
+   *  arrow navigation and the PageNav dot selector (Step: page indicator), so there's
+   *  one place that derives the animation direction and resets selection/refreshes. */
+  function navigateToIndex(index: number) {
+    const target = sortedPages[index];
+    if (!target || target.id === currentPageId) return;
+    setNavDirection(index < currentPageIndex ? "up" : "down");
+    setCurrentPageId(target.id);
     selectPageCard(null);
     refresh();
   }
 
+  function navigateUp() {
+    if (!canNavigateUp) return;
+    navigateToIndex(currentPageIndex - 1);
+  }
+
   function navigateDown() {
     if (!canNavigateDown) return;
-    setCurrentPageId(sortedPages[currentPageIndex + 1].id);
-    selectPageCard(null);
-    refresh();
+    navigateToIndex(currentPageIndex + 1);
   }
 
   const selectedPageCard = useMemo(
@@ -229,34 +281,50 @@ export function App() {
 
   async function handleAddPageAtBottom() {
     const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
+    setNavDirection("down");
     setCurrentPageId(newPageId);
     selectPageCard(null);
   }
 
+  const pagesAboveCount = currentPageIndex === -1 ? 0 : currentPageIndex;
+  const pagesBelowCount = currentPageIndex === -1 ? 0 : sortedPages.length - 1 - currentPageIndex;
+
   return (
     <div className="app">
-      <main className="app__main">
-        <PageStack
-          currentPage={currentPage}
-          selectedPageCardId={selectedPageCardId}
-          editingPageCardId={editingPageCardId}
-          onSelectPageCard={selectPageCard}
-          onRequestEditPageCard={requestEditPageCard}
-          onChangeDraft={handleChangeDraft}
-        />
-      </main>
+      <div className="page-viewport">
+        <PageStackEdges above={pagesAboveCount} below={pagesBelowCount} />
+        <main className="app__main">
+          <PageStack
+            currentPage={currentPage}
+            direction={navDirection}
+            selectedPageCardId={selectedPageCardId}
+            editingPageCardId={editingPageCardId}
+            onSelectPageCard={selectPageCard}
+            onRequestEditPageCard={requestEditPageCard}
+            onChangeDraft={handleChangeDraft}
+            selectedEmbedId={selectedEmbed?.cardId ?? null}
+            onSelectEmbed={selectEmbed}
+          />
+        </main>
+      </div>
 
       <PageNav
+        pages={sortedPages}
+        currentIndex={currentPageIndex}
         canNavigateUp={canNavigateUp}
         canNavigateDown={canNavigateDown}
         onNavigateUp={navigateUp}
         onNavigateDown={navigateDown}
+        onSelectPage={navigateToIndex}
         onAddPage={handleAddPageAtBottom}
       />
 
       <Dock
         selected={selectedPageCard}
         selectedPage={selectedPageForDock}
+        selectedEmbedId={selectedEmbed?.cardId ?? null}
+        onRemoveEmbed={handleRemoveEmbed}
+        onDeleteEmbed={handleDeleteEmbed}
         generating={generating}
         streamingText={generating ? generation.text : ""}
         onEdit={() => setIsEditing(true)}
