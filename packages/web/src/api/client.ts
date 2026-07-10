@@ -30,6 +30,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Vault
 export const listCards = (q?: string) =>
   request<Card[]>(`/cards${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+export const getCard = (id: string) => request<Card>(`/cards/${id}`);
 export const createCard = (input: CreateCardInput) =>
   request<Card>("/cards", { method: "POST", body: JSON.stringify(input) });
 export const updateCard = (id: string, input: UpdateCardInput) =>

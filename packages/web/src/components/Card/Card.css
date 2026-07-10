@@ -20,6 +20,37 @@
   flex: 1;
 }
 
+/* The editing view's "insert card link" button — a sibling of .card__header-start so
+   .card__header's space-between pins it flush right, same slot the Dock's actions
+   would occupy on a top-level Card. Positioned so CardLinkPicker.css's absolutely
+   positioned popover anchors right below this button rather than the whole card. */
+.card__link-btn-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.card__link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.card__link-btn:hover {
+  color: var(--color-text);
+}
+
+.card__link-btn .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
 /* Deliberately not the Button primitive — a small, quiet disclosure triangle, not
    another bordered/shadowed tactile object competing with the title. Plain reset,
    muted color, no border/background/shadow. */
@@ -103,11 +134,18 @@
   min-width: 0;
 }
 
+/* Auto-growing, not fixed-height: CardContentEditor.tsx sets this element's `height`
+   style directly to its scrollHeight on every change, so the Card's own box (which
+   has no height of its own — see CardShell.css) grows to fit however much content is
+   typed instead of scrolling inside a fixed box or offering a manual resize handle. */
 .input-field.card__content-input {
   border: none;
   background: transparent;
   padding: 0;
-  min-height: 4.5em;
+  min-height: 1.5em;
+  max-height: none;
+  resize: none;
+  overflow: hidden;
   box-shadow: none;
   font-size: var(--font-size-sm);
   color: var(--color-text);

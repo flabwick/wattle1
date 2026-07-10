@@ -1,0 +1,16 @@
+/* The card-shell/card__header/card__title/card__caret-btn classes CardEmbed reuses
+   come from CardShell.css and Card.css — this file only has what's specific to the
+   embed: spacing under the box, and the loading/error/circular-reference inline notes
+   shown instead of it when there's nothing to render yet (or ever). */
+
+.card-embed {
+  margin-bottom: var(--space-2);
+}
+
+.card-embed__inline-note {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}

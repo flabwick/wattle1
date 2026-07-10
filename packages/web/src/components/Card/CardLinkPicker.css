@@ -1,0 +1,93 @@
+/* Positioned by its parent (Card.tsx's editing view sets position: relative and
+   anchors this absolutely below the toolbar button) — this file only has the
+   popover's own box/list styling, borrowed from VaultView.css's compact file-list
+   look rather than CardShell's "thick stock" treatment (a search popover isn't a
+   physical card). */
+.card-link-picker {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-1));
+  /* Anchored from the right, not the left: the toolbar button this hangs off of
+     (.card__link-btn-wrap) sits flush against the card's right edge (.card__header's
+     space-between), so a left-anchored popover would overshoot the card — and often
+     the viewport — to the right. */
+  right: 0;
+  width: min(280px, 80vw);
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.card-link-picker__search-wrap {
+  position: relative;
+  flex-shrink: 0;
+  padding: var(--space-2);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.card-link-picker__search-icon {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--space-2) + var(--space-2));
+  transform: translateY(-50%);
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.card-link-picker__search {
+  padding-left: calc(var(--icon-size-sm) + var(--space-3));
+}
+
+.card-link-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) 0;
+  overflow-y: auto;
+}
+
+.card-link-picker__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--touch-target-sm);
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-link-picker__item:hover {
+  background: var(--color-surface);
+}
+
+.card-link-picker__item-icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.card-link-picker__item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+}
+
+.card-link-picker__empty {
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

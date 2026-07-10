@@ -16,6 +16,15 @@
   "card.contentPlaceholder": "Write...",
   "card.collapse": "Collapse",
   "card.expand": "Expand",
+  "card.insertLink": "Insert card link",
+
+  "card.linkPicker.searchPlaceholder": "Search cards to link…",
+  "card.linkPicker.empty": "No cards match.",
+
+  "card.embed.loading": "Loading…",
+  "card.embed.notFound": "Card not found",
+  "card.embed.circular": "Circular reference",
+  "card.embed.tooDeep": "Nested too deep",
 
   "pageStack.addPage": "New Page",
   "pageStack.addCard": "+ Card",

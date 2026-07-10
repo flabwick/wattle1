@@ -1,11 +1,15 @@
 import { Icon, InputField } from "../../../primitives/index.js";
+import { CardContentEditor } from "../../CardContentEditor.js";
 import { t } from "../../../../i18n/index.js";
 import type { CardTypeEditorProps } from "../../../../registries/cardTypeUi.js";
 import "../../Card.css";
 
 /**
  * The "note" CardType's inline editor — extracted from Card.tsx's editing branch. Not
- * wired into Card.tsx yet; see NoteView.tsx for why.
+ * wired into Card.tsx yet; see NoteView.tsx for why. (Missing Card.tsx's "insert card
+ * link" toolbar button, since that was never ported here either — but the content
+ * editor itself stays in sync so embeds already in a Card's content still render and
+ * stay editable rather than showing raw `[[cardId]]` text.)
  */
 export function NoteEditor({ pageCard, onChangeDraft }: CardTypeEditorProps) {
   const title = pageCard.draftTitle ?? pageCard.card.title;
@@ -27,12 +31,11 @@ export function NoteEditor({ pageCard, onChangeDraft }: CardTypeEditorProps) {
           />
         </div>
       </div>
-      <InputField
-        multiline
-        className="card__content-input"
-        value={content}
-        placeholder={t("card.contentPlaceholder")}
-        onChange={(e) => onChangeDraft({ content: e.target.value })}
+      <CardContentEditor
+        content={content}
+        onChangeContent={(next) => onChangeDraft({ content: next })}
+        ancestorIds={new Set([pageCard.card.id])}
+        depth={0}
       />
     </div>
   );

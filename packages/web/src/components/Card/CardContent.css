@@ -1,0 +1,18 @@
+/* Only used once a Card's content actually contains a [[cardId]] ref — plain content
+   keeps rendering as the single clamped <p class="card__preview"> from Card.css. */
+.card__preview--embedded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.card-content__text {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+}
+
+.card-content__text:last-child {
+  margin-bottom: 0;
+}

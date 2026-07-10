@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CardShell, Icon } from "../../../primitives/index.js";
+import { CardContent } from "../../CardContent.js";
 import { t } from "../../../../i18n/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import "../../Card.css";
@@ -39,7 +40,9 @@ export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
           <span className="card__title">{title || t("common.untitled")}</span>
         </div>
       </div>
-      {!collapsed && <p className="card__preview">{content || t("card.emptyContent")}</p>}
+      {!collapsed && (
+        <CardContent content={content} ancestorIds={new Set([pageCard.card.id])} depth={0} />
+      )}
     </CardShell>
   );
 }

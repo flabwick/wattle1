@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dock } from "./components/Dock/Dock.js";
 import { PageNav } from "./components/PageNav/PageNav.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
@@ -25,6 +25,7 @@ export function App() {
     generate,
     refresh,
     uploadFileToPage,
+    updateDraftLocally,
   } = usePages();
   const vault = useVault();
   const generation = useGeneration();
@@ -115,6 +116,12 @@ export function App() {
     selectPageCard(null);
     await api.removePageCardFromPage(selectedPageCard.id);
     await refresh();
+    // "Remove" never deletes the vault Card (see pageCardService.removeFromPage) —
+    // it can even *promote* one into the vault, if it was still page-local scratch
+    // content — so the Vault panel's own separately-fetched list needs its own
+    // refresh to potentially pick up a newly-vaulted Card, same as
+    // handleCreateCardInVault below.
+    await vault.refresh(vault.query || undefined);
   }
 
   async function handleDeleteEntirely() {
@@ -122,14 +129,57 @@ export function App() {
     selectPageCard(null);
     await api.deletePageCardEntirely(selectedPageCard.id);
     await refresh();
+    // Unlike "Remove", "Delete" (Dock's separate, explicitly destructive action) can
+    // actually erase a Card the Vault panel's list already has cached — without this,
+    // the stale entry stays clickable and "open into page" 500s on the now-missing
+    // Card (see handleAddVaultCardToPage's catch below for the same failure mode
+    // from the other direction).
+    await vault.refresh(vault.query || undefined);
   }
 
-  async function handleChangeDraft(
-    pageCardId: string,
-    draft: { title?: string; content?: string },
-  ) {
-    await api.updatePageCardDraft(pageCardId, draft);
-    await refresh();
+  // Draft edits fire on every keystroke (Card.tsx/CardContentEditor.tsx's
+  // onChangeDraft). Two things could otherwise go wrong under fast typing, now that
+  // CardContentEditor can have several independently-typeable text segments:
+  //
+  // 1. UI correctness: the content textarea is a *controlled* input, so React resets
+  //    its DOM value back to `pages` state on every render. If nothing updated that
+  //    state synchronously, any incidental re-render mid-keystroke (there's no
+  //    shortage of causes in a tree this size) would silently erase whatever was
+  //    typed since the last server round-trip landed — usePages' updateDraftLocally
+  //    fixes this by patching state immediately, before the PATCH even goes out.
+  // 2. DB correctness: overlapping PATCH requests for the same PageCard can be
+  //    applied by the server out of order (a slow-to-land early keystroke's PATCH
+  //    can overwrite a faster later one's). Coalescing per pageCardId guarantees at
+  //    most one PATCH+refresh in flight per Card at a time: further edits that
+  //    arrive while one is in flight get merged into `pending` and sent as a single
+  //    follow-up request once it resolves, so writes reach the server in the order
+  //    they were last known, never raced against each other.
+  const draftInFlight = useRef<Set<string>>(new Set());
+  const draftPending = useRef<Map<string, { title?: string; content?: string }>>(new Map());
+
+  async function flushDraft(pageCardId: string) {
+    const next = draftPending.current.get(pageCardId);
+    if (!next) return;
+    draftPending.current.delete(pageCardId);
+    draftInFlight.current.add(pageCardId);
+    try {
+      await api.updatePageCardDraft(pageCardId, next);
+      await refresh();
+    } finally {
+      draftInFlight.current.delete(pageCardId);
+      if (draftPending.current.has(pageCardId)) {
+        await flushDraft(pageCardId);
+      }
+    }
+  }
+
+  function handleChangeDraft(pageCardId: string, draft: { title?: string; content?: string }) {
+    updateDraftLocally(pageCardId, draft);
+    const merged = { ...draftPending.current.get(pageCardId), ...draft };
+    draftPending.current.set(pageCardId, merged);
+    if (!draftInFlight.current.has(pageCardId)) {
+      flushDraft(pageCardId);
+    }
   }
 
   /**
@@ -142,6 +192,20 @@ export function App() {
   async function handleCreateCardInVault(pageId: string) {
     await createCardInPage(pageId, t("common.untitled"), "");
     await vault.refresh(vault.query || undefined);
+  }
+
+  /** Opening a vault Card into the current Page can 500 if the panel's cached list
+   *  is stale — e.g. the Card was deleted (Dock's Delete action) from a different
+   *  PageCard elsewhere since the list was last fetched, so this cardId no longer
+   *  exists. Re-syncing the list on failure clears the dead entry instead of leaving
+   *  it clickable (and failing the same way) indefinitely. */
+  async function handleAddVaultCardToPage(cardId: string) {
+    if (!currentPage) return;
+    try {
+      await openCardIntoPage(currentPage.id, cardId);
+    } catch {
+      await vault.refresh(vault.query || undefined);
+    }
   }
 
   async function handleAddCardToCurrentPage() {
@@ -210,9 +274,7 @@ export function App() {
         onVaultQueryChange={vault.setQuery}
         onCreateCardInPage={currentPage ? () => handleCreateCardInVault(currentPage.id) : null}
         onDeleteVaultCard={vault.deleteCard}
-        onAddVaultCardToPage={
-          currentPage ? (cardId) => openCardIntoPage(currentPage.id, cardId) : null
-        }
+        onAddVaultCardToPage={currentPage ? handleAddVaultCardToPage : null}
       />
     </div>
   );

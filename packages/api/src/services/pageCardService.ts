@@ -157,20 +157,29 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
   return serialize(cleared);
 }
 
-/** Remove a Card from a Page only — the vault Card itself is untouched, *unless* it was
- *  never actually saved to the vault (savedToVault: false), in which case there's no
- *  vault copy to preserve: "removing" it is the only copy of it there ever was, so the
- *  Card is deleted outright (cascades and deletes this PageCard along with it). */
+/** Remove a Card from a Page only — never the vault Card itself. "Remove" is meant to
+ *  be the safe, low-friction action (the Dock's separate, explicitly destructive
+ *  "Delete" action — see deleteEntirely below — is the only way to actually remove a
+ *  Card from the vault): a Card that was still page-local scratch content
+ *  (savedToVault: false) gets auto-promoted to the vault first, carrying over
+ *  whatever draft it had, so removing it from a Page can never silently destroy
+ *  unsaved work. */
 export async function removeFromPage(pageCardId: string): Promise<void> {
   const pageCard = await prisma.pageCard.findUniqueOrThrow({
     where: { id: pageCardId },
     include: { card: true },
   });
-  if (pageCard.card.savedToVault) {
-    await prisma.pageCard.delete({ where: { id: pageCardId } });
-  } else {
-    await prisma.card.delete({ where: { id: pageCard.cardId } });
+  if (!pageCard.card.savedToVault) {
+    await prisma.card.update({
+      where: { id: pageCard.cardId },
+      data: {
+        title: pageCard.draftTitle ?? pageCard.card.title,
+        content: pageCard.draftContent ?? pageCard.card.content,
+        savedToVault: true,
+      },
+    });
   }
+  await prisma.pageCard.delete({ where: { id: pageCardId } });
 }
 
 /** Remove a Card from the Page and delete it from the vault entirely. */

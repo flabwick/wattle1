@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { TouchEvent } from "react";
-import type { PageCardWithCard } from "@wattle/shared";
+import type { Card, PageCardWithCard } from "@wattle/shared";
 import { CardShell, Icon, InputField } from "../primitives/index.js";
+import { CardContent } from "./CardContent.js";
+import { CardContentEditor } from "./CardContentEditor.js";
+import type { CardContentEditorHandle } from "./CardContentEditor.js";
+import { CardLinkPicker } from "./CardLinkPicker.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
 
@@ -39,10 +43,20 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
   const [collapsed, setCollapsed] = useState(false);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const title = pageCard.draftTitle ?? pageCard.card.title;
   const content = pageCard.draftContent ?? pageCard.card.content;
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const contentEditorRef = useRef<CardContentEditorHandle>(null);
+
+  /** Inserts `[[cardId]]` at whichever content segment's cursor was last focused (see
+   *  CardContentEditor.tsx's insertToken) rather than always appending — so linking a
+   *  Card from partway through a sentence lands where you were typing. */
+  function insertCardLink(card: Card) {
+    contentEditorRef.current?.insertToken(`[[${card.id}]]`);
+    setLinkPickerOpen(false);
+  }
 
   // Click-outside-to-close: only listens while editing, and only acts on presses
   // outside the editor itself (so clicking the title/content inputs, or the caret,
@@ -108,13 +122,27 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
               onChange={(e) => onChangeDraft({ title: e.target.value })}
             />
           </div>
+          <div className="card__link-btn-wrap">
+            <button
+              type="button"
+              className="card__link-btn"
+              aria-label={t("card.insertLink")}
+              title={t("card.insertLink")}
+              onClick={() => setLinkPickerOpen((open) => !open)}
+            >
+              <Icon name="link" />
+            </button>
+            {linkPickerOpen && (
+              <CardLinkPicker onSelect={insertCardLink} onClose={() => setLinkPickerOpen(false)} />
+            )}
+          </div>
         </div>
-        <InputField
-          multiline
-          className="card__content-input"
-          value={content}
-          placeholder={t("card.contentPlaceholder")}
-          onChange={(e) => onChangeDraft({ content: e.target.value })}
+        <CardContentEditor
+          ref={contentEditorRef}
+          content={content}
+          onChangeContent={(next) => onChangeDraft({ content: next })}
+          ancestorIds={new Set([pageCard.card.id])}
+          depth={0}
         />
       </div>
     );
@@ -153,7 +181,11 @@ export function CardView({ pageCard, selected, editing, onSelect, onRequestEdit,
         </div>
       </div>
       {!collapsed && (
-        <p className="card__preview">{content || t("card.emptyContent")}</p>
+        <CardContent
+          content={content}
+          ancestorIds={new Set([pageCard.card.id])}
+          depth={0}
+        />
       )}
     </CardShell>
   );
