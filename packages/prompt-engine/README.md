@@ -27,36 +27,58 @@ registered out of the box: `"json"` (`JSON.parse` / `JSON.stringify`).
    `src/parsers/index.ts` imports for its side effect.
 2. Look it up elsewhere with `parserRegistry.get("<id>")`.
 
-## Prompt Templates (`src/templates/index.ts`)
+## Card Block Parser (`src/parsers/cardBlockParser.ts`)
 
-Renders a context value into the literal prompt string sent to a `ModelProvider`.
+A stateful, incremental parser — not part of `ParserRegistry` above, which is for
+one-shot whole-string parsing — for the output contract every prompt in `prompts/`
+commits the model to: exactly one root `<card type="..." title="...">...</card>` block,
+which may contain any number of nested `<card>` blocks at any depth.
 
 ```ts
-export interface PromptTemplate {
-  id: string;                    // unique key, e.g. "generate-from-context"
-  render(context: unknown): string;
+const parser = new CardBlockParser();
+for await (const chunk of modelStream) {
+  const events = parser.push(chunk.text);   // CardBlockEvent[]: open / text / error
+  // forward each event, e.g. as an SSE message
 }
+const finalEvents = parser.finish();        // done, or error if unterminated
 ```
 
-`promptTemplateRegistry` is the singleton instance (`register`, `get`, `list`). One
-template is registered out of the box: `"generate-from-context"`, which takes a
-`GenerationContextEntry[]` (from `@wattle/shared`) and renders each entry as
-`- title\ncontent`, blank-line separated.
+Stack-based: `open` events push a frame (with a unique `id` and its `parentId`, or
+`null` for the root), `close` pops one, and `text` always reports which `id` it belongs
+to — so a consumer never has to re-parse anything to know which card block (root or
+nested) is currently open. Tags split across chunk boundaries are buffered internally
+and resolved once the rest arrives.
 
-> **Note on this template's origin:** `generationService.ts`'s pre-Step-2 stub
-> `callModel()` never actually built a model prompt — it only formatted a titles-only
-> summary for its own canned response text. That isn't sufficient input for a real
-> provider, which needs each Card's content, not just its title. `"generate-from-context"`
-> keeps the same `"- title"` list style for readability but includes content, since that's
-> the minimum a real generation needs. See `docs/step2-model-providers.md` for the full
-> reasoning.
+## Prompt Compiler (`src/promptCompiler.ts` + `prompts/`)
 
-### Adding a new PromptTemplate
+Compiles a trigger into the `{systemPrompt, userMessage}` pair sent to a
+`ModelProvider`. Replaces the old flat "generate-from-context" template.
 
-1. Register it — `promptTemplateRegistry.register({ id, render })` — in
-   `src/templates/index.ts` or a file it imports for its side effect.
-2. Reference it by id wherever a prompt needs to be built:
-   `promptTemplateRegistry.get("<id>").render(context)`.
+```ts
+export type PromptMode = "generate" | "selection" | "interactive";
+
+export function compilePrompt(input: CompilePromptInput): CompiledPrompt;
+// CompiledPrompt = { systemPrompt: string; userMessage: string }
+```
+
+The system prompt for each mode is loaded **fresh from disk** on every call from
+`prompts/<mode>/system.md` (see [`prompts/README.md`](./prompts/README.md)) — editing one
+of those files changes model behavior on the next generation, no rebuild or restart
+required. The user message is the assembled context in the existing "everything above,
+nothing below" directional form (unchanged — see `generationService.assembleContext`),
+plus, for `selection`/`interactive`, the extra input that mode needs.
+
+All three modes share the same output contract, written into each `system.md`: the
+model's entire response is exactly one root `<card type="..." title="...">...</card>`
+block, which may itself contain any number of nested `<card>` blocks at any depth for
+sub-points. `src/parsers/cardBlockParser.ts` is the streaming parser that consumes that
+format.
+
+### Adding a new prompt mode
+
+1. Create `prompts/<mode>/system.md`.
+2. Add `<mode>` to `PromptMode`, `SYSTEM_PROMPT_FILE`, and a matching input type in
+   `src/promptCompiler.ts`.
 
 ## Credentials (`src/credentials/index.ts`)
 

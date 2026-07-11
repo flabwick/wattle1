@@ -3,27 +3,25 @@ import type { ModelProvider } from "@wattle/shared";
 const NO_CONTEXT = "(no context above)";
 
 /**
- * Reproduces the pre-registry callModel() stub from generationService.ts: an echo-back
- * response with no real AI provider. Used when MODEL_PROVIDER is "stub" (the default),
- * or as the fallback when no ANTHROPIC_API_KEY is configured.
- *
- * The original stub counted context entries and listed only their titles, using the
- * raw GenerationContextEntry[] it was called with directly. ModelProvider.generate only
- * receives the already-rendered prompt string (title + content per entry, blank-line
- * separated — see @wattle/prompt-engine's "generate-from-context" template), so the
- * entry count here is recovered from that same separator rather than from structured
- * data. The visible shape of the response is unchanged.
+ * Local dev / no-credentials fallback — used when config/model.config.json's
+ * "activeProvider" (or MODEL_PROVIDER) is "stub", or as the ultimate fallback when no
+ * provider key is configured at all. Echoes back the assembled context so a fresh
+ * checkout can exercise the whole pipeline with no API key, wrapped in the same
+ * `<card type="..." title="...">...</card>` output contract every real prompt commits
+ * the model to (see @wattle/prompt-engine's prompts/README.md and
+ * parsers/cardBlockParser.ts) — without this wrapping, streamGeneration's parser would
+ * reject the stub's own output as a stream with no root card block.
  */
 export const stubProvider: ModelProvider = {
   id: "stub",
   async *generate(prompt) {
     const entryCount = prompt.trim() === NO_CONTEXT ? 0 : prompt.split("\n\n").length;
-    const text = [
-      "_Stub response — wire up a real model call in generationService.ts._",
+    const body = [
+      "_Stub response — no ModelProvider credentials configured._",
       "",
       `Context received (${entryCount} card${entryCount === 1 ? "" : "s"}):`,
       prompt,
     ].join("\n");
-    yield { text, done: true };
+    yield { text: `<card type="note" title="Stub response">\n${body}\n</card>`, done: true };
   },
 };

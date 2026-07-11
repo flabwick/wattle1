@@ -12,6 +12,9 @@
   "dock.action.upload": "Upload File",
   "dock.action.move": "Move",
   "dock.action.cancelMove": "Cancel Move",
+  "dock.action.acceptGeneration": "Accept",
+  "dock.action.denyGeneration": "Deny",
+  "dock.action.dismiss": "Dismiss",
 
   "card.emptyContent": "(empty)",
   "card.titlePlaceholder": "Title",

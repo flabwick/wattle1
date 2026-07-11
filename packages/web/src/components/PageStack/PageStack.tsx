@@ -1,5 +1,8 @@
+import { Fragment } from "react";
 import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { CardView } from "../Card/Card.js";
+import { GhostCard } from "../Card/GhostCard.js";
+import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import { cardTypeUiRegistry } from "../../registries/cardTypeUi.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { t } from "../../i18n/index.js";
@@ -78,6 +81,13 @@ interface PageStackProps {
   /** Tap a drop zone to place the moving Card at this index (top-to-bottom, same
    *  convention as the reorder/move endpoints). */
   onDropAt: (index: number) => void;
+  /** A generation streaming or awaiting review (App.tsx/useGeneration.ts), rendered in
+   *  the same slot the real Card lands in once accepted: directly below a specific
+   *  PageCard when `afterPageCardId` is set (generationService.persistGeneratedCard),
+   *  or at the bottom of the Page when it's null — the "nothing selected" case
+   *  (generationService.persistGeneratedCardToPage). Null (the whole prop) when no
+   *  generation is in flight. */
+  ghostCard: { afterPageCardId: string | null; rootId: number; nodes: Record<number, GhostCardNode> } | null;
 }
 
 /** Converts a "gap" position in the full rendered list (0..pageCards.length, where
@@ -125,6 +135,7 @@ export function PageStack({
   onSelectEmbed,
   movingPageCardId,
   onDropAt,
+  ghostCard,
 }: PageStackProps) {
   const movingIndex = currentPage
     ? currentPage.pageCards.findIndex((pc) => pc.id === movingPageCardId)
@@ -148,29 +159,42 @@ export function PageStack({
             <DropZone onClick={() => onDropAt(toDestIndex(0, movingIndex))} />
           )}
           {currentPage.pageCards.map((pageCard, index) => (
-            <div
-              key={pageCard.id}
-              className={
-                pageCard.id === movingPageCardId ? "page-stack__slot page-stack__slot--moving" : undefined
-              }
-            >
-              <PageCardSlot
-                pageCard={pageCard}
-                selected={pageCard.id === selectedPageCardId}
-                editing={pageCard.id === editingPageCardId}
-                onSelect={() =>
-                  onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
+            <Fragment key={pageCard.id}>
+              <div
+                className={
+                  pageCard.id === movingPageCardId ? "page-stack__slot page-stack__slot--moving" : undefined
                 }
-                onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
-                onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
-                selectedEmbedId={selectedEmbedId}
-                onSelectEmbed={onSelectEmbed}
-              />
-              {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
-                <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />
+              >
+                <PageCardSlot
+                  pageCard={pageCard}
+                  selected={pageCard.id === selectedPageCardId}
+                  editing={pageCard.id === editingPageCardId}
+                  onSelect={() =>
+                    onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
+                  }
+                  onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
+                  onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
+                  selectedEmbedId={selectedEmbedId}
+                  onSelectEmbed={onSelectEmbed}
+                />
+                {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
+                  <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />
+                )}
+              </div>
+              {ghostCard && ghostCard.afterPageCardId === pageCard.id && (
+                <div className="page-stack__slot">
+                  <GhostCard nodeId={ghostCard.rootId} nodes={ghostCard.nodes} />
+                </div>
               )}
-            </div>
+            </Fragment>
           ))}
+          {/* "Nothing selected" generation (Dock's Generate action when only a Page,
+              not a Card, is in view) — appends at the very bottom of the Page. */}
+          {ghostCard && ghostCard.afterPageCardId === null && (
+            <div className="page-stack__slot">
+              <GhostCard nodeId={ghostCard.rootId} nodes={ghostCard.nodes} />
+            </div>
+          )}
         </div>
       ) : (
         <p className="page-stack__empty">{t("pageStack.empty")}</p>

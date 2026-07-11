@@ -16,7 +16,6 @@ export function App() {
    *  with the up/down arrows, one visible at a time — not a click-to-select thing). */
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [generating, setGenerating] = useState(false);
   /** An independently-selected embedded Card (CardContent.tsx/CardEmbed.tsx's
    *  click-to-select), separate from `selectedPageCardId` — see Dock.tsx's
    *  embed-selected action row. `onRemove` is the exact splice closure captured at
@@ -36,7 +35,6 @@ export function App() {
     removePage,
     createCardInPage,
     openCardIntoPage,
-    generate,
     refresh,
     uploadFileToPage,
     updateDraftLocally,
@@ -149,20 +147,34 @@ export function App() {
 
   const editingPageCardId = isEditing ? selectedPageCardId : null;
 
-  async function handleGenerate() {
+  // The sole model call for a generation (no separate preview/persist calls any
+  // more) — streams into useGeneration's local ghost-card state, rendered directly
+  // below this Card by PageStack/GhostCard.tsx. Nothing is persisted until the Dock's
+  // Accept action below.
+  function handleGenerate() {
     if (!selectedPageCard) return;
-    setGenerating(true);
-    try {
-      // Stream a live preview first (Step 3) — this is read-only and never persists
-      // anything (see docs/step2-model-providers.md), so the actual save below is
-      // unchanged from before this hook existed. Best-effort: if streaming fails for
-      // any reason, still fall through to the real (persisting) generate call so
-      // Generate keeps working exactly as it did pre-Step-3.
-      await generation.start(selectedPageCard.id).catch(() => {});
-      await generate(selectedPageCard.id);
-    } finally {
-      setGenerating(false);
-    }
+    generation.start(selectedPageCard.id);
+  }
+
+  // The "nothing selected" counterpart — Dock's Generate action when only a Page is
+  // in view (selectedPageForDock). Appends at the bottom of the Page instead of
+  // directly below a specific Card; see generationService.persistGeneratedCardToPage.
+  function handleGeneratePage() {
+    if (!currentPage) return;
+    generation.startForPage(currentPage.id);
+  }
+
+  // Accept persists the ghost card's finalized content via a new endpoint that does
+  // not call the model again (it already ran once during streaming); deny just drops
+  // the local state, no server call, no trace left. useGeneration tracks which target
+  // (Card or Page) the in-flight generation is anchored to, so this doesn't need to.
+  async function handleAcceptGeneration() {
+    await generation.accept();
+    await refresh();
+  }
+
+  function handleDenyGeneration() {
+    generation.deny();
   }
 
   async function handleSave() {
@@ -340,6 +352,16 @@ export function App() {
             onSelectEmbed={selectEmbed}
             movingPageCardId={movingPageCardId}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
+            ghostCard={
+              generation.rootId !== null && generation.target
+                ? {
+                    afterPageCardId:
+                      generation.target.type === "card" ? generation.target.pageCardId : null,
+                    rootId: generation.rootId,
+                    nodes: generation.nodes,
+                  }
+                : null
+            }
           />
         </main>
       </div>
@@ -361,13 +383,18 @@ export function App() {
         selectedEmbedId={selectedEmbed?.cardId ?? null}
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
-        generating={generating}
-        streamingText={generating ? generation.text : ""}
+        generating={generation.isStreaming}
+        reviewingGeneration={generation.isReviewing}
+        generationError={generation.error}
+        onDismissGenerationError={handleDenyGeneration}
+        onAcceptGeneration={handleAcceptGeneration}
+        onDenyGeneration={handleDenyGeneration}
         onEdit={() => setIsEditing(true)}
         onSave={handleSave}
         onRemoveFromPage={handleRemoveFromPage}
         onGenerate={handleGenerate}
         onAddCardToPage={handleAddCardToCurrentPage}
+        onGeneratePage={currentPage ? handleGeneratePage : null}
         onDeletePage={handleDeleteCurrentPage}
         movingPageCardId={movingPageCardId}
         onEnterMoveMode={handleEnterMoveMode}

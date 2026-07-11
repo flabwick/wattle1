@@ -92,6 +92,16 @@ export const movePageCard = (pageCardId: string, destPageId: string, destIndex: 
     body: JSON.stringify({ destPageId, destIndex }),
   });
 
-// Generation Rule
-export const generateFromPageCard = (pageCardId: string) =>
-  request<GenerateResponse>("/generate", { method: "POST", body: JSON.stringify({ pageCardId }) });
+// Generation Rule — the streaming calls themselves (GET /generate/stream/:pageCardId,
+// or /stream/page/:pageId for the "nothing selected" case) go through
+// useGeneration.ts's EventSource, not this REST client. This is only the accept step:
+// persisting a ghost card the user reviewed after that stream finished. No model call
+// happens here.
+export const acceptGeneration = (
+  target: { pageCardId: string } | { pageId: string },
+  generated: { title: string; content: string; cardType?: string },
+) =>
+  request<GenerateResponse>("/generate/accept", {
+    method: "POST",
+    body: JSON.stringify({ ...target, ...generated }),
+  });

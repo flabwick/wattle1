@@ -20,13 +20,26 @@ interface DockProps {
   onRemoveEmbed: () => void;
   onDeleteEmbed: () => void;
   generating: boolean;
-  /** Live text streamed so far from the Step 2 SSE preview endpoint, while generating. */
-  streamingText?: string;
+  /** True once a generation has finished streaming and is showing as a ghost card
+   *  (PageStack.tsx/GhostCard.tsx) awaiting Accept/Deny — a distinct Dock state that
+   *  replaces the normal Card action row, the same way Move Mode does. */
+  reviewingGeneration: boolean;
+  /** Set once a generation stream ends in an error (bad credentials, network failure,
+   *  malformed model output — see useGeneration.ts) rather than a valid root card.
+   *  Shown as a dismissible banner instead of silently doing nothing. */
+  generationError: string | null;
+  onDismissGenerationError: () => void;
+  onAcceptGeneration: () => void;
+  onDenyGeneration: () => void;
   onEdit: () => void;
   onSave: () => void;
   onRemoveFromPage: () => void;
   onGenerate: () => void;
   onAddCardToPage: () => void;
+  /** Generate with nothing selected — appends at the bottom of the current Page
+   *  instead of directly below a specific Card (App.tsx/useGeneration.ts's
+   *  startForPage). Null when there's no current Page to generate into. */
+  onGeneratePage: (() => void) | null;
   onDeletePage: () => void;
   /** Move Mode (the Dock's Move action) — see App.tsx's movingPageCardId. Non-null
    *  while a Card is "in transit" waiting for a drop target to be tapped. */
@@ -108,12 +121,17 @@ export function Dock({
   onRemoveEmbed,
   onDeleteEmbed,
   generating,
-  streamingText,
+  reviewingGeneration,
+  generationError,
+  onDismissGenerationError,
+  onAcceptGeneration,
+  onDenyGeneration,
   onEdit,
   onSave,
   onRemoveFromPage,
   onGenerate,
   onAddCardToPage,
+  onGeneratePage,
   onDeletePage,
   movingPageCardId,
   onEnterMoveMode,
@@ -138,7 +156,7 @@ export function Dock({
     onClick: () => setVaultOpen((open) => !open),
   };
 
-  const vaultPanel = vaultOpen && !movingPageCardId && (
+  const vaultPanel = vaultOpen && !movingPageCardId && !reviewingGeneration && (
     <div className="dock__vault-panel">
       <VaultView
         cards={vaultCards}
@@ -215,7 +233,7 @@ export function Dock({
       },
       {
         key: "generate",
-        operationId: "card.generate",
+        operationId: "card.generateAccept",
         icon: "generate" as const,
         spin: generating,
         label: generating ? t("dock.action.generating") : t("dock.action.generate"),
@@ -257,6 +275,19 @@ export function Dock({
             },
           ]
         : []),
+      ...(onGeneratePage
+        ? [
+            {
+              key: "generatePage",
+              operationId: null,
+              icon: "generate" as const,
+              spin: generating,
+              label: generating ? t("dock.action.generating") : t("dock.action.generate"),
+              onClick: onGeneratePage,
+              disabled: generating,
+            },
+          ]
+        : []),
       {
         key: "deletePage",
         operationId: null,
@@ -268,26 +299,59 @@ export function Dock({
     ];
   }
 
+  // A finished generation awaiting review (App.tsx/useGeneration.ts) collapses the
+  // Dock to just Accept/Deny on the ghost card — same pattern as Move Mode below —
+  // since nothing else should happen until that's resolved one way or the other.
+  const reviewActions: DockAction[] = [
+    {
+      key: "denyGeneration",
+      operationId: null,
+      icon: "close" as const,
+      label: t("dock.action.denyGeneration"),
+      onClick: onDenyGeneration,
+    },
+    {
+      key: "acceptGeneration",
+      operationId: null,
+      icon: "done" as const,
+      label: t("dock.action.acceptGeneration"),
+      onClick: onAcceptGeneration,
+    },
+  ];
+
   // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
   // action — no Vault toggle, no other Card/Page actions — so the only thing to do
   // is tap a drop target (PageStack.tsx) or back out.
-  const actions: DockAction[] = movingPageCardId
-    ? [
-        {
-          key: "cancelMove",
-          operationId: null,
-          icon: "close" as const,
-          label: t("dock.action.cancelMove"),
-          onClick: onCancelMove,
-        },
-      ]
-    : [vaultAction, ...modeActions];
+  const actions: DockAction[] = reviewingGeneration
+    ? reviewActions
+    : movingPageCardId
+      ? [
+          {
+            key: "cancelMove",
+            operationId: null,
+            icon: "close" as const,
+            label: t("dock.action.cancelMove"),
+            onClick: onCancelMove,
+          },
+        ]
+      : [vaultAction, ...modeActions];
 
   return (
     <footer className="dock">
       {vaultPanel}
-      {generating && streamingText && (
-        <div className="dock__stream-preview">{streamingText}</div>
+      {generationError && (
+        <div className="dock__error-banner" role="alert">
+          <span className="dock__error-banner-text">{generationError}</span>
+          <button
+            type="button"
+            className="dock__error-banner-dismiss"
+            aria-label={t("dock.action.dismiss")}
+            title={t("dock.action.dismiss")}
+            onClick={onDismissGenerationError}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
       )}
       {onUploadFileToPage && (
         <input

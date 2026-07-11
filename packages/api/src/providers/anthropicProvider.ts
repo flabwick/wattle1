@@ -2,17 +2,20 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ModelProvider } from "@wattle/shared";
 import { getCredential } from "@wattle/prompt-engine";
 
-const MODEL = "claude-opus-4-8";
+const DEFAULT_MODEL = "claude-opus-4-8";
+const DEFAULT_MAX_TOKENS = 4096;
 
 export const anthropicProvider: ModelProvider = {
   id: "anthropic",
-  async *generate(prompt) {
+  async *generate(prompt, opts) {
     const apiKey = getCredential("ANTHROPIC_API_KEY");
     const client = new Anthropic({ apiKey });
 
     const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: 4096,
+      model: (opts?.model as string | undefined) ?? DEFAULT_MODEL,
+      max_tokens: (opts?.maxTokens as number | undefined) ?? DEFAULT_MAX_TOKENS,
+      temperature: opts?.temperature as number | undefined,
+      system: opts?.systemPrompt as string | undefined,
       messages: [{ role: "user", content: prompt }],
     });
 

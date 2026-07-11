@@ -1,41 +1,68 @@
-import type { Chunk, GenerationContextEntry, GenerateResponse } from "@wattle/shared";
-import { defaultMetadata, modelProviderRegistry } from "@wattle/shared";
-import { promptTemplateRegistry } from "@wattle/prompt-engine";
+import type { GenerationContextEntry, GenerateResponse, PageCard } from "@wattle/shared";
+import { cardTypeRegistry, defaultMetadata, modelProviderRegistry } from "@wattle/shared";
+import type { CardBlockEvent } from "@wattle/prompt-engine";
+import { CardBlockParser, compilePrompt } from "@wattle/prompt-engine";
 import { prisma } from "../db.js";
 import { activeProviderId } from "../providers/init.js";
+import { configuredProviderSettings } from "../modelConfig.js";
 import { serializeCard } from "./cardService.js";
+
+/** Where a generation is anchored: either a specific triggering Card (insert directly
+ *  below it, context is everything above it), or a Page with nothing selected (append
+ *  at the bottom of the Page, context is everything already on it — see App.tsx's
+ *  "nothing selected" Dock action). */
+export type GenerationTarget =
+  | { type: "card"; pageCardId: string }
+  | { type: "page"; pageId: string };
 
 /**
  * The Generation Rule (spec1.md Part 2 "Generation Rule (Context Visibility)" and
- * Part 3 MVP spec): everything in Pages above the triggering Card's Page, plus
- * everything above the triggering Card within its own Page. Nothing below.
+ * Part 3 MVP spec): everything in Pages above the target's Page, plus everything above
+ * the target within its own Page. Nothing below.
  *
  * Page.order and PageCard.order both ascend from 0. A larger Page.order is a Page
  * higher in the stack ("above"); a larger PageCard.order is a Card further down the
- * page's own list, so "above" within a page means a *smaller* order value.
+ * page's own list, so "above" within a page means a *smaller* order value. A page-level
+ * target (nothing selected, appending at the bottom of the Page) has no order of its
+ * own to be "above" — every existing Card in that Page counts as context, same as a
+ * card-level target whose own order is greater than all of them.
  */
-export async function assembleContext(
-  pageCardId: string,
+async function assembleContextForTarget(
+  target: GenerationTarget,
 ): Promise<GenerationContextEntry[]> {
-  const trigger = await prisma.pageCard.findUniqueOrThrow({
-    where: { id: pageCardId },
-    include: { page: true },
-  });
+  let pageId: string;
+  let pageOrder: number;
+  let withinPageCutoff: number | null;
 
-  const [aboveInSamePage, cardsInPagesAbove] = await Promise.all([
+  if (target.type === "card") {
+    const trigger = await prisma.pageCard.findUniqueOrThrow({
+      where: { id: target.pageCardId },
+      include: { page: true },
+    });
+    pageId = trigger.pageId;
+    pageOrder = trigger.page.order;
+    withinPageCutoff = trigger.order;
+  } else {
+    const page = await prisma.page.findUniqueOrThrow({ where: { id: target.pageId } });
+    pageId = page.id;
+    pageOrder = page.order;
+    withinPageCutoff = null;
+  }
+
+  const [withinPage, cardsInPagesAbove] = await Promise.all([
     prisma.pageCard.findMany({
-      where: { pageId: trigger.pageId, order: { lt: trigger.order } },
+      where: { pageId, ...(withinPageCutoff !== null ? { order: { lt: withinPageCutoff } } : {}) },
       orderBy: { order: "asc" },
       include: { card: true, page: true },
     }),
     prisma.pageCard.findMany({
-      where: { page: { order: { gt: trigger.page.order } } },
+      where: { page: { order: { gt: pageOrder } } },
       orderBy: [{ page: { order: "asc" } }, { order: "asc" }],
       include: { card: true, page: true },
     }),
   ]);
 
-  const entries = [...cardsInPagesAbove, ...aboveInSamePage].map(
+  const entries = [...cardsInPagesAbove, ...withinPage].map(
     (pc): GenerationContextEntry => ({
       pageId: pc.pageId,
       pageOrder: pc.page.order,
@@ -50,40 +77,91 @@ export async function assembleContext(
   return entries;
 }
 
-/** Render a context via the shared "generate-from-context" prompt template. */
-function buildPrompt(context: GenerationContextEntry[]): string {
-  return promptTemplateRegistry.get("generate-from-context").render(context);
+/** Card-level preview (GET /api/generate/context/:pageCardId — spec1.md Part 1 §2). */
+export function assembleContext(pageCardId: string): Promise<GenerationContextEntry[]> {
+  return assembleContextForTarget({ type: "card", pageCardId });
 }
 
 /**
- * Stream a model generation for an already-assembled context, via whichever
- * ModelProvider is active (see providers/init.ts — MODEL_PROVIDER env var). Exposed
- * separately from callModel so the streaming route can forward chunks as they arrive
- * instead of waiting for the full response.
+ * The sole model invocation for a generation ("collapse to one call" — there is no
+ * separate preview call and persist call any more). Compiles the "generate" prompt,
+ * streams the active ModelProvider's raw text through a CardBlockParser, and yields
+ * that parser's events (open/text/close for the root card and any nested card blocks,
+ * then a final done/error). Nothing is persisted here — the caller (the SSE route)
+ * only forwards these events on to the frontend's local ghost-card state; persisting
+ * only happens if/when the user explicitly accepts it (see persistGeneratedCard(ToPage)).
  */
-export function streamModel(context: GenerationContextEntry[]): AsyncIterable<Chunk> {
-  const prompt = buildPrompt(context);
-  const provider = modelProviderRegistry.get(activeProviderId());
-  return provider.generate(prompt);
-}
+async function* streamForTarget(target: GenerationTarget): AsyncGenerator<CardBlockEvent> {
+  const context = await assembleContextForTarget(target);
+  const { systemPrompt, userMessage } = compilePrompt({ mode: "generate", context });
 
-/** Non-streaming: consume the provider's chunks fully and concatenate the text. */
-async function callModel(context: GenerationContextEntry[]): Promise<string> {
-  let text = "";
-  for await (const chunk of streamModel(context)) {
-    text += chunk.text;
+  const providerId = activeProviderId();
+  const provider = modelProviderRegistry.get(providerId);
+  const settings = configuredProviderSettings(providerId);
+
+  const parser = new CardBlockParser();
+  for await (const chunk of provider.generate(userMessage, {
+    systemPrompt,
+    model: settings?.model,
+    temperature: settings?.temperature,
+    maxTokens: settings?.maxTokens,
+  })) {
+    for (const event of parser.push(chunk.text)) yield event;
+    if (chunk.done) break;
   }
-  return text;
+  for (const event of parser.finish()) yield event;
 }
 
-/** Generate from a Card: assemble context, call the model, append the result below it. */
-export async function generateFromCard(pageCardId: string): Promise<GenerateResponse> {
-  const trigger = await prisma.pageCard.findUniqueOrThrow({
-    where: { id: pageCardId },
-  });
+/** Card-level generation — GET /api/generate/stream/:pageCardId. */
+export function streamGeneration(pageCardId: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "card", pageCardId });
+}
 
-  const context = await assembleContext(pageCardId);
-  const responseText = await callModel(context);
+/** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */
+export function streamGenerationForPage(pageId: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "page", pageId });
+}
+
+function isRegisteredCardType(id: string): boolean {
+  return cardTypeRegistry.list().some((def) => def.id === id);
+}
+
+function buildMetadata(cardType?: string): ReturnType<typeof defaultMetadata> {
+  const typeId = cardType && isRegisteredCardType(cardType) ? cardType : undefined;
+  return { ...defaultMetadata(), ...(typeId ? { typeId } : {}) };
+}
+
+function buildResponse(
+  context: GenerationContextEntry[],
+  created: { id: string; pageId: string; cardId: string; order: number; draftTitle: string | null; draftContent: string | null; createdAt: Date; updatedAt: Date; card: Parameters<typeof serializeCard>[0] },
+): GenerateResponse {
+  const pageCard: PageCard = {
+    id: created.id,
+    pageId: created.pageId,
+    cardId: created.cardId,
+    order: created.order,
+    draftTitle: created.draftTitle,
+    draftContent: created.draftContent,
+    createdAt: created.createdAt.toISOString(),
+    updatedAt: created.updatedAt.toISOString(),
+  };
+  return { context, card: serializeCard(created.card), pageCard };
+}
+
+/**
+ * Persists an already-generated root card directly below the triggering Card, in the
+ * same page-local scratch state (savedToVault: false) any other new Card is created in.
+ * No model call happens here — the model was already invoked once during streaming
+ * (see streamGeneration above); this only accepts the finalized text the user reviewed
+ * as a ghost card and chose to keep.
+ */
+export async function persistGeneratedCard(
+  pageCardId: string,
+  generated: { title: string; content: string; cardType?: string },
+): Promise<GenerateResponse> {
+  const trigger = await prisma.pageCard.findUniqueOrThrow({ where: { id: pageCardId } });
+  const context = await assembleContextForTarget({ type: "card", pageCardId });
+  const metadata = buildMetadata(generated.cardType);
 
   // Make room directly below the triggering card, then insert the new one there.
   await prisma.pageCard.updateMany({
@@ -97,9 +175,9 @@ export async function generateFromCard(pageCardId: string): Promise<GenerateResp
       order: trigger.order + 1,
       card: {
         create: {
-          title: "Generated response",
-          content: responseText,
-          metadata: JSON.stringify(defaultMetadata()),
+          title: generated.title,
+          content: generated.content,
+          metadata: JSON.stringify(metadata),
           // Page-local scratch content like any other new Card, not yet a Vault
           // entry — see schema.prisma's Card.savedToVault doc comment.
           savedToVault: false,
@@ -109,18 +187,39 @@ export async function generateFromCard(pageCardId: string): Promise<GenerateResp
     include: { card: true },
   });
 
-  return {
-    context,
-    card: serializeCard(created.card),
-    pageCard: {
-      id: created.id,
-      pageId: created.pageId,
-      cardId: created.cardId,
-      order: created.order,
-      draftTitle: created.draftTitle,
-      draftContent: created.draftContent,
-      createdAt: created.createdAt.toISOString(),
-      updatedAt: created.updatedAt.toISOString(),
+  return buildResponse(context, created);
+}
+
+/**
+ * Persists an already-generated root card at the bottom of a Page — the "nothing
+ * selected" counterpart to persistGeneratedCard above, used when the generation was
+ * triggered with no specific Card selected (see streamGenerationForPage). No shifting
+ * needed since it's always appended after everything already there.
+ */
+export async function persistGeneratedCardToPage(
+  pageId: string,
+  generated: { title: string; content: string; cardType?: string },
+): Promise<GenerateResponse> {
+  const context = await assembleContextForTarget({ type: "page", pageId });
+  const metadata = buildMetadata(generated.cardType);
+
+  const bottom = await prisma.pageCard.aggregate({ where: { pageId }, _max: { order: true } });
+
+  const created = await prisma.pageCard.create({
+    data: {
+      page: { connect: { id: pageId } },
+      order: (bottom._max.order ?? -1) + 1,
+      card: {
+        create: {
+          title: generated.title,
+          content: generated.content,
+          metadata: JSON.stringify(metadata),
+          savedToVault: false,
+        },
+      },
     },
-  };
+    include: { card: true },
+  });
+
+  return buildResponse(context, created);
 }

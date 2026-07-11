@@ -22,7 +22,7 @@ const OPERATION_IDS = [
   "card.reorder",
   "card.edit",
   "card.save",
-  "card.generate",
+  "card.generateAccept",
 ] as const;
 
 function notImplementedOnClient(id: string): Operation["execute"] {

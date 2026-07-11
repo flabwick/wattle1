@@ -38,3 +38,12 @@
   flex-direction: column;
   cursor: default;
 }
+
+/* A generation streaming or awaiting review (App.tsx/useGeneration.ts) — held in local
+   state only, not yet a real PageCard, so it reads as "not committed yet" rather than
+   an ordinary selected Card. */
+.card-shell--ghost {
+  cursor: default;
+  border-style: dashed;
+  opacity: 0.85;
+}

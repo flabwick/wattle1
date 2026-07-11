@@ -40,19 +40,34 @@
   box-shadow: var(--shadow-card);
 }
 
-/* styling.md §2 "Retro terminal screens": the live generation preview reads as its own
-   dark walnut/peat screen-within-a-screen, independent of the app's light/dark theme. */
-.dock__stream-preview {
-  max-height: 30vh;
-  overflow-y: auto;
+/* A generation that ended in an error (bad credentials, network failure, malformed
+   model output — useGeneration.ts) rather than a valid root card, so the Dock has
+   something visible to show instead of the Generate action silently doing nothing. */
+.dock__error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-bold) solid var(--color-terminal-border);
+  border: var(--border-width-bold) solid var(--color-danger);
   border-radius: var(--radius-sm);
-  background: var(--color-terminal-bg);
-  color: var(--color-terminal-text);
-  font-family: var(--font-family-mono);
+  background: var(--color-danger);
+  color: var(--color-danger-text);
+}
+
+.dock__error-banner-text {
+  flex: 1;
   font-size: var(--font-size-sm);
-  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dock__error-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
 }
 
 .dock__row {

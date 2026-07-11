@@ -12,19 +12,25 @@ interface OpenRouterStreamChunk {
 }
 
 /**
- * Registry id (env MODEL_ID) -> the raw "vendor/model" string OpenRouter expects.
- * Falls back to DEFAULT_MODEL_ID so the provider works with no MODEL_ID set.
+ * Resolves opts.model (from config/model.config.json, falling back to env MODEL_ID,
+ * then DEFAULT_MODEL_ID) to the raw "vendor/model" string OpenRouter expects. Accepts
+ * either a ModelRegistry id (e.g. "claude-sonnet") or, if that lookup misses, the id is
+ * used verbatim as an OpenRouter model slug (e.g. "deepseek/deepseek-chat") — the
+ * config file is meant to be editable to any OpenRouter-supported model without also
+ * requiring a matching models/definitions/*.ts entry.
  */
-function resolveModel() {
+function resolveModel(overrideId?: string): string {
   initModels();
-  return modelRegistry.get(process.env.MODEL_ID ?? DEFAULT_MODEL_ID);
+  const id = overrideId ?? process.env.MODEL_ID ?? DEFAULT_MODEL_ID;
+  return modelRegistry.list().find((m) => m.id === id)?.openRouterModel ?? id;
 }
 
 export const openRouterProvider: ModelProvider = {
   id: "openrouter",
-  async *generate(prompt) {
+  async *generate(prompt, opts) {
     const apiKey = getCredential("OPENROUTER_API_KEY");
-    const model = resolveModel();
+    const model = resolveModel(opts?.model as string | undefined);
+    const systemPrompt = opts?.systemPrompt as string | undefined;
 
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
@@ -33,9 +39,14 @@ export const openRouterProvider: ModelProvider = {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: model.openRouterModel,
+        model,
         stream: true,
-        messages: [{ role: "user", content: prompt }],
+        temperature: opts?.temperature,
+        max_tokens: opts?.maxTokens,
+        messages: [
+          ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+          { role: "user", content: prompt },
+        ],
       }),
     });
 

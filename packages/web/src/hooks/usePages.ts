@@ -90,14 +90,6 @@ export function usePages() {
     [refresh],
   );
 
-  const generate = useCallback(
-    async (pageCardId: string) => {
-      await api.generateFromPageCard(pageCardId);
-      await refresh();
-    },
-    [refresh],
-  );
-
   const uploadFileToPage = useCallback(
     async (pageId: string, file: File) => {
       await api.uploadFileToPage(pageId, file);
@@ -144,7 +136,6 @@ export function usePages() {
     removePage,
     openCardIntoPage,
     createCardInPage,
-    generate,
     uploadFileToPage,
     updateDraftLocally,
   };

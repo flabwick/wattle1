@@ -2,6 +2,7 @@ import { modelProviderRegistry } from "@wattle/shared";
 import { anthropicProvider } from "./anthropicProvider.js";
 import { stubProvider } from "./stubProvider.js";
 import { openRouterProvider } from "./openRouterProvider.js";
+import { configuredProviderId } from "../modelConfig.js";
 
 let initialized = false;
 
@@ -19,13 +20,16 @@ export function initProviders(): void {
 }
 
 /**
- * Which provider id generationService should use. Honors an explicit MODEL_PROVIDER
- * env var; otherwise prefers "openrouter" when OPENROUTER_API_KEY is present (the
- * centralized model backend going forward), then "anthropic" when ANTHROPIC_API_KEY is
- * present, and "stub" when neither is — so a fresh checkout with no key configured
- * still runs.
+ * Which provider id generationService should use. config/model.config.json's
+ * "activeProvider" (read fresh on every call — see ../modelConfig.ts) takes priority
+ * when set; otherwise falls back to the env-var-based selection this always used: an
+ * explicit MODEL_PROVIDER env var, else "openrouter" when OPENROUTER_API_KEY is
+ * present, else "anthropic" when ANTHROPIC_API_KEY is present, else "stub" — so a fresh
+ * checkout with no config or key configured still runs.
  */
 export function activeProviderId(): string {
+  const configured = configuredProviderId();
+  if (configured) return configured;
   if (process.env.MODEL_PROVIDER) return process.env.MODEL_PROVIDER;
   if (process.env.OPENROUTER_API_KEY) return "openrouter";
   return process.env.ANTHROPIC_API_KEY ? "anthropic" : "stub";
