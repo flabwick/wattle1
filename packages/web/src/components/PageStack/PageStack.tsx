@@ -73,6 +73,38 @@ interface PageStackProps {
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
   selectedEmbedId: string | null;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
+  /** Move Mode (App.tsx's movingPageCardId) — the PageCard id in transit, or null. */
+  movingPageCardId: string | null;
+  /** Tap a drop zone to place the moving Card at this index (top-to-bottom, same
+   *  convention as the reorder/move endpoints). */
+  onDropAt: (index: number) => void;
+}
+
+/** Converts a "gap" position in the full rendered list (0..pageCards.length, where
+ *  the moving Card's own ghosted slot still counts as one of the list's items) into
+ *  the `destIndex` the move API expects — a position among *siblings only* (the
+ *  moving Card excluded), since pageCardService.movePageCard splices it back in by
+ *  destIndex against the destination's other PageCards. No-op when the moving Card
+ *  isn't on this Page (movingIndex -1): every gap already only counts siblings. */
+function toDestIndex(gap: number, movingIndex: number): number {
+  if (movingIndex === -1 || gap <= movingIndex) return gap;
+  return gap - 1;
+}
+
+/** A single tappable insertion point between Cards (or before the first/after the
+ *  last) — explicit button-sized zones rather than thin hover lines, since this is a
+ *  tap-first, mobile interaction (Move Mode). */
+function DropZone({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="page-stack__drop-zone"
+      onClick={onClick}
+      aria-label={t("pageStack.dropHere")}
+    >
+      {t("pageStack.dropHere")}
+    </button>
+  );
 }
 
 /**
@@ -91,7 +123,13 @@ export function PageStack({
   onChangeDraft,
   selectedEmbedId,
   onSelectEmbed,
+  movingPageCardId,
+  onDropAt,
 }: PageStackProps) {
+  const movingIndex = currentPage
+    ? currentPage.pageCards.findIndex((pc) => pc.id === movingPageCardId)
+    : -1;
+
   return (
     <div className="page-stack">
       {currentPage ? (
@@ -103,23 +141,35 @@ export function PageStack({
           key={currentPage.id}
           className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
         >
-          {currentPage.pageCards.length === 0 && (
+          {currentPage.pageCards.length === 0 && !movingPageCardId && (
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
-          {currentPage.pageCards.map((pageCard) => (
-            <PageCardSlot
+          {movingPageCardId && movingIndex !== 0 && (
+            <DropZone onClick={() => onDropAt(toDestIndex(0, movingIndex))} />
+          )}
+          {currentPage.pageCards.map((pageCard, index) => (
+            <div
               key={pageCard.id}
-              pageCard={pageCard}
-              selected={pageCard.id === selectedPageCardId}
-              editing={pageCard.id === editingPageCardId}
-              onSelect={() =>
-                onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
+              className={
+                pageCard.id === movingPageCardId ? "page-stack__slot page-stack__slot--moving" : undefined
               }
-              onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
-              onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
-              selectedEmbedId={selectedEmbedId}
-              onSelectEmbed={onSelectEmbed}
-            />
+            >
+              <PageCardSlot
+                pageCard={pageCard}
+                selected={pageCard.id === selectedPageCardId}
+                editing={pageCard.id === editingPageCardId}
+                onSelect={() =>
+                  onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
+                }
+                onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
+                onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
+                selectedEmbedId={selectedEmbedId}
+                onSelectEmbed={onSelectEmbed}
+              />
+              {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
+                <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />
+              )}
+            </div>
           ))}
         </div>
       ) : (

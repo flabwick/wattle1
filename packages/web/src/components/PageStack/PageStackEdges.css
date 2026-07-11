@@ -20,11 +20,6 @@
   top: 0;
 }
 
-.page-stack-edges--bottom {
-  bottom: 0;
-  align-items: flex-end;
-}
-
 .page-stack-edges__bar {
   height: 3px;
   border-radius: var(--radius-sm);

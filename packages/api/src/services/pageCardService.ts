@@ -204,3 +204,51 @@ export async function reorderPageCards(
     ),
   );
 }
+
+/** Move a PageCard to a specific position, either within its own Page or onto a
+ *  different one, in a single atomic step (Move Mode — the Dock's Move action).
+ *  Unlike removeFromPage, the PageCard is never orphaned mid-operation (it's always
+ *  attached to exactly one Page, both before and after), so there's no
+ *  savedToVault-promotion concern here the way there is for a permanent removal.
+ *  `destIndex` is top-to-bottom as displayed, same convention as reorderPageCards. */
+export async function movePageCard(
+  pageCardId: string,
+  destPageId: string,
+  destIndex: number,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const pageCard = await tx.pageCard.findUniqueOrThrow({ where: { id: pageCardId } });
+    const sourcePageId = pageCard.pageId;
+
+    if (sourcePageId !== destPageId) {
+      const sourceSiblings = await tx.pageCard.findMany({
+        where: { pageId: sourcePageId, id: { not: pageCardId } },
+        orderBy: { order: "asc" },
+      });
+      await Promise.all(
+        sourceSiblings.map((pc, index) =>
+          tx.pageCard.update({ where: { id: pc.id }, data: { order: index } }),
+        ),
+      );
+    }
+
+    const destSiblings = await tx.pageCard.findMany({
+      where: { pageId: destPageId, id: { not: pageCardId } },
+      orderBy: { order: "asc" },
+    });
+    const clampedIndex = Math.max(0, Math.min(destIndex, destSiblings.length));
+    const destOrder = [
+      ...destSiblings.slice(0, clampedIndex).map((pc) => pc.id),
+      pageCardId,
+      ...destSiblings.slice(clampedIndex).map((pc) => pc.id),
+    ];
+    await Promise.all(
+      destOrder.map((id, index) =>
+        tx.pageCard.update({
+          where: { id },
+          data: id === pageCardId ? { pageId: destPageId, order: index } : { order: index },
+        }),
+      ),
+    );
+  });
+}

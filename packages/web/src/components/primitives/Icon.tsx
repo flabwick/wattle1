@@ -20,7 +20,8 @@ export type IconName =
   | "up"
   | "down"
   | "upload"
-  | "link";
+  | "link"
+  | "move";
 
 interface IconProps {
   name: IconName;
@@ -103,6 +104,16 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M9 15l6-6" />
       <path d="M8 13l-2.5 2.5a3.5 3.5 0 0 0 5 5L13 18" />
       <path d="M16 11l2.5-2.5a3.5 3.5 0 0 0-5-5L11 6" />
+    </>
+  ),
+  move: (
+    <>
+      <path d="M12 3v18" />
+      <path d="M9 6l3-3 3 3" />
+      <path d="M9 18l3 3 3-3" />
+      <path d="M3 12h18" />
+      <path d="M6 9l-3 3 3 3" />
+      <path d="M18 9l3 3-3 3" />
     </>
   ),
 };

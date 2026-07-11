@@ -47,3 +47,30 @@
     animation: none;
   }
 }
+
+/* Move Mode (Dock's Move action): the Card being moved stays visible in its
+   original spot, dimmed, while explicit tappable zones show every other place it
+   could land. */
+.page-stack__slot--moving {
+  opacity: 0.4;
+}
+
+.page-stack__drop-zone {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  cursor: pointer;
+}
+
+.page-stack__drop-zone:hover,
+.page-stack__drop-zone:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}

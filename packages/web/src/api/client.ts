@@ -86,6 +86,11 @@ export const removePageCardFromPage = (pageCardId: string) =>
   request<void>(`/page-cards/${pageCardId}`, { method: "DELETE" });
 export const deletePageCardEntirely = (pageCardId: string) =>
   request<void>(`/page-cards/${pageCardId}/vault`, { method: "DELETE" });
+export const movePageCard = (pageCardId: string, destPageId: string, destIndex: number) =>
+  request<void>(`/page-cards/${pageCardId}/move`, {
+    method: "PUT",
+    body: JSON.stringify({ destPageId, destIndex }),
+  });
 
 // Generation Rule
 export const generateFromPageCard = (pageCardId: string) =>

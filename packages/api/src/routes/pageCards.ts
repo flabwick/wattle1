@@ -31,3 +31,12 @@ pageCardsRouter.delete("/:id/vault", async (req, res) => {
   await pageCardService.deleteEntirely(req.params.id);
   res.status(204).end();
 });
+
+// PUT /api/page-cards/:id/move  { destPageId, destIndex } — Move Mode's drop action.
+// Ad hoc, not an Operation-registry action (same reasoning as remove/delete-from-page
+// above): Move is a structural placement change that should work for every CardType.
+pageCardsRouter.put("/:id/move", async (req, res) => {
+  const { destPageId, destIndex } = req.body ?? {};
+  await pageCardService.movePageCard(req.params.id, destPageId, destIndex);
+  res.status(204).end();
+});

@@ -28,6 +28,11 @@ interface DockProps {
   onGenerate: () => void;
   onAddCardToPage: () => void;
   onDeletePage: () => void;
+  /** Move Mode (the Dock's Move action) — see App.tsx's movingPageCardId. Non-null
+   *  while a Card is "in transit" waiting for a drop target to be tapped. */
+  movingPageCardId: string | null;
+  onEnterMoveMode: () => void;
+  onCancelMove: () => void;
   /** Vault extension panel, toggled from the Dock (spec1.md Part 3 "Vault"). */
   vaultCards: Card[];
   vaultQuery: string;
@@ -110,6 +115,9 @@ export function Dock({
   onGenerate,
   onAddCardToPage,
   onDeletePage,
+  movingPageCardId,
+  onEnterMoveMode,
+  onCancelMove,
   vaultCards,
   vaultQuery,
   onVaultQueryChange,
@@ -130,7 +138,7 @@ export function Dock({
     onClick: () => setVaultOpen((open) => !open),
   };
 
-  const vaultPanel = vaultOpen && (
+  const vaultPanel = vaultOpen && !movingPageCardId && (
     <div className="dock__vault-panel">
       <VaultView
         cards={vaultCards}
@@ -215,6 +223,13 @@ export function Dock({
         disabled: generating,
       },
       {
+        key: "move",
+        operationId: null,
+        icon: "move" as const,
+        label: t("dock.action.move"),
+        onClick: onEnterMoveMode,
+      },
+      {
         key: "remove",
         operationId: null,
         icon: "close" as const,
@@ -253,7 +268,20 @@ export function Dock({
     ];
   }
 
-  const actions: DockAction[] = [vaultAction, ...modeActions];
+  // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
+  // action — no Vault toggle, no other Card/Page actions — so the only thing to do
+  // is tap a drop target (PageStack.tsx) or back out.
+  const actions: DockAction[] = movingPageCardId
+    ? [
+        {
+          key: "cancelMove",
+          operationId: null,
+          icon: "close" as const,
+          label: t("dock.action.cancelMove"),
+          onClick: onCancelMove,
+        },
+      ]
+    : [vaultAction, ...modeActions];
 
   return (
     <footer className="dock">

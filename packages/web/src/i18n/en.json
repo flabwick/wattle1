@@ -10,6 +10,8 @@
   "dock.action.remove": "Remove",
   "dock.action.delete": "Delete",
   "dock.action.upload": "Upload File",
+  "dock.action.move": "Move",
+  "dock.action.cancelMove": "Cancel Move",
 
   "card.emptyContent": "(empty)",
   "card.titlePlaceholder": "Title",
@@ -34,6 +36,7 @@
   "pageStack.selectPage": "Select a Page",
   "pageStack.emptyPage": "No cards yet — open one from the vault or add a new one.",
   "pageStack.empty": "No Pages yet. Create one to start stacking context.",
+  "pageStack.dropHere": "Drop here",
 
   "vault.searchPlaceholder": "Search title or text…",
   "vault.create": "New Card",

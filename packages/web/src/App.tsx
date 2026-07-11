@@ -24,6 +24,11 @@ export function App() {
   const [selectedEmbed, setSelectedEmbed] = useState<{ cardId: string; onRemove: () => void } | null>(
     null,
   );
+  /** Move Mode (Dock's Move action) — the PageCard id currently "in transit" waiting
+   *  for a drop target tap, or null when not moving. Deliberately not touched by
+   *  navigateToIndex's selectPageCard(null) call, so it persists across Page
+   *  navigation (see PageStack.tsx/Dock.tsx). */
+  const [movingPageCardId, setMovingPageCardId] = useState<string | null>(null);
 
   const {
     pages,
@@ -187,6 +192,24 @@ export function App() {
     notifySaved(cardId);
   }
 
+  function handleEnterMoveMode() {
+    if (!selectedPageCardId) return;
+    setMovingPageCardId(selectedPageCardId);
+  }
+
+  function handleCancelMove() {
+    setMovingPageCardId(null);
+  }
+
+  async function handleDropAt(destPageId: string, destIndex: number) {
+    if (!movingPageCardId) return;
+    const id = movingPageCardId;
+    setMovingPageCardId(null);
+    selectPageCard(null);
+    await api.movePageCard(id, destPageId, destIndex);
+    await refresh();
+  }
+
   // Draft edits fire on every keystroke (Card.tsx/CardContentEditor.tsx's
   // onChangeDraft). Two things could otherwise go wrong under fast typing, now that
   // CardContentEditor can have several independently-typeable text segments:
@@ -286,13 +309,24 @@ export function App() {
     selectPageCard(null);
   }
 
+  /** The PageNav "+" control, repurposed while moving (see the onAddPage prop below):
+   *  creates a new Page at the bottom of the stack, same placement rule as
+   *  handleAddPageAtBottom, then immediately drops the moving Card there as its
+   *  first Card. */
+  async function handleDropOnNewPage() {
+    if (!movingPageCardId) return;
+    const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
+    setNavDirection("down");
+    setCurrentPageId(newPageId);
+    await handleDropAt(newPageId, 0);
+  }
+
   const pagesAboveCount = currentPageIndex === -1 ? 0 : currentPageIndex;
-  const pagesBelowCount = currentPageIndex === -1 ? 0 : sortedPages.length - 1 - currentPageIndex;
 
   return (
     <div className="app">
       <div className="page-viewport">
-        <PageStackEdges above={pagesAboveCount} below={pagesBelowCount} />
+        <PageStackEdges above={pagesAboveCount} />
         <main className="app__main">
           <PageStack
             currentPage={currentPage}
@@ -304,6 +338,8 @@ export function App() {
             onChangeDraft={handleChangeDraft}
             selectedEmbedId={selectedEmbed?.cardId ?? null}
             onSelectEmbed={selectEmbed}
+            movingPageCardId={movingPageCardId}
+            onDropAt={(index) => handleDropAt(currentPage!.id, index)}
           />
         </main>
       </div>
@@ -316,7 +352,7 @@ export function App() {
         onNavigateUp={navigateUp}
         onNavigateDown={navigateDown}
         onSelectPage={navigateToIndex}
-        onAddPage={handleAddPageAtBottom}
+        onAddPage={movingPageCardId ? handleDropOnNewPage : handleAddPageAtBottom}
       />
 
       <Dock
@@ -333,6 +369,9 @@ export function App() {
         onGenerate={handleGenerate}
         onAddCardToPage={handleAddCardToCurrentPage}
         onDeletePage={handleDeleteCurrentPage}
+        movingPageCardId={movingPageCardId}
+        onEnterMoveMode={handleEnterMoveMode}
+        onCancelMove={handleCancelMove}
         onUploadFileToPage={currentPage ? handleUploadFileToCurrentPage : null}
         vaultCards={vault.cards}
         vaultQuery={vault.query}
