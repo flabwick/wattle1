@@ -26,6 +26,7 @@ function serializePageCard(pc: {
     content: string;
     metadata: string;
     savedToVault: boolean;
+    folderId: string | null;
     createdAt: Date;
     updatedAt: Date;
   };

@@ -18,6 +18,7 @@ export function serializeCard(card: {
   content: string;
   metadata: string;
   savedToVault: boolean;
+  folderId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): Card {
@@ -27,6 +28,7 @@ export function serializeCard(card: {
     content: card.content,
     metadata: migrateMetadata(parseMetadataColumn(card.metadata)),
     savedToVault: card.savedToVault,
+    folderId: card.folderId,
     createdAt: card.createdAt.toISOString(),
     updatedAt: card.updatedAt.toISOString(),
   };
@@ -65,7 +67,17 @@ export async function createCard(input: CreateCardInput): Promise<Card> {
       title: input.title,
       content: input.content,
       metadata: JSON.stringify(metadata),
+      folderId: input.folderId ?? null,
     },
+  });
+  return serializeCard(card);
+}
+
+/** Moves a Card to a different Folder (or to the vault root, if `folderId` is null). */
+export async function moveCard(id: string, folderId: string | null): Promise<Card> {
+  const card = await prisma.card.update({
+    where: { id },
+    data: { folderId },
   });
   return serializeCard(card);
 }

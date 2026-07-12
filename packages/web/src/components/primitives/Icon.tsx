@@ -22,6 +22,8 @@ export type IconName =
   | "upload"
   | "link"
   | "move"
+  | "folder"
+  | "chevronRight"
   | "annotate"
   | "diff"
   | "footnote"
@@ -158,6 +160,12 @@ const PATHS: Record<IconName, JSX.Element> = {
   // A filled square — the Dock's Generate action becomes this while a generation is
   // streaming, standard "stop" glyph so it reads as distinct from close/cancel (X).
   stop: <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
+  // A folder tab — distinct from "vault" (the Dock's whole-panel toggle) even though
+  // both read as container shapes; this one marks individual Folder rows/breadcrumbs.
+  folder: <path d="M4 6h6l2 2h8v11H4V6z" />,
+  // A single right-pointing chevron — the explicit "open this Folder" row control,
+  // since a Folder row's own click now only selects it (see VaultView.tsx).
+  chevronRight: <path d="M9 5l7 7-7 7" />,
 };
 
 /**

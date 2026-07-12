@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { Card } from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { PageNav } from "./components/PageNav/PageNav.js";
@@ -371,16 +372,12 @@ export function App() {
     }
   }
 
-  /**
-   * The Vault panel's "new file" action creates the Card via `usePages` (so it lands
-   * directly on the Page, IDE-style — see VaultView's doc comment), which only
-   * refreshes `usePages`' own state. `useVault`'s Card list is separate state that
-   * only refetches when its search query changes, so without this it'd go stale:
-   * reopening the panel wouldn't show the Card `createCardInPage` just created.
-   */
-  async function handleCreateCardInVault(pageId: string) {
-    await createCardInPage(pageId, t("common.untitled"), "");
-    await vault.refresh(vault.query || undefined);
+  /** The Vault panel's "new file" action (Dock.tsx's onCreateVaultCard) — creates the
+   *  Card directly in the vault, in whichever Folder is currently browsed, rather
+   *  than on the current Page (that's a separate, page-oriented action — the Dock's
+   *  own "Add Card" button when a Page is selected). */
+  async function handleCreateVaultCard(): Promise<Card> {
+    return vault.createCardInCurrentFolder(t("common.untitled"));
   }
 
   /** Opening a vault Card into the current Page can 500 if the panel's cached list
@@ -539,11 +536,19 @@ export function App() {
         onEnterMoveMode={handleEnterMoveMode}
         onCancelMove={handleCancelMove}
         onUploadFileToPage={currentPage ? handleUploadFileToCurrentPage : null}
-        vaultCards={vault.cards}
+        vaultSearchResults={vault.cards}
         vaultQuery={vault.query}
         onVaultQueryChange={vault.setQuery}
-        onCreateCardInPage={currentPage ? () => handleCreateCardInVault(currentPage.id) : null}
+        vaultFolderContents={vault.folderContents}
+        onOpenVaultFolder={vault.openFolder}
+        onCreateVaultCard={handleCreateVaultCard}
+        onCreateVaultFolder={vault.createFolder}
+        onRenameVaultCard={vault.renameCard}
+        onRenameVaultFolder={vault.renameFolder}
+        onMoveVaultCard={vault.moveCard}
+        onMoveVaultFolder={vault.moveFolder}
         onDeleteVaultCard={vault.deleteCard}
+        onDeleteVaultFolder={vault.deleteFolder}
         onAddVaultCardToPage={currentPage ? handleAddVaultCardToPage : null}
       />
     </div>

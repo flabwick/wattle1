@@ -16,6 +16,8 @@ export interface Card {
   /** Whether this Card independently exists in the Vault (searchable/listable there)
    *  yet, or is still page-local scratch content — see schema.prisma's Card model. */
   savedToVault: boolean;
+  /** Which vault Folder this Card sits in, or null for the vault root. */
+  folderId: string | null;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
 }
@@ -25,6 +27,8 @@ export interface CreateCardInput {
   content: string;
   /** Raw, unvalidated — the API validates against CardMetadataV1 before persisting. */
   metadata?: unknown;
+  /** Vault Folder to create the Card in — omit or null for the vault root. */
+  folderId?: string | null;
 }
 
 export interface UpdateCardInput {
@@ -110,4 +114,26 @@ export interface GenerateResponse {
 
 export interface SearchCardsQuery {
   q?: string;
+}
+
+/** A Folder in the vault — see schema.prisma's Folder model. */
+export interface Folder {
+  id: string;
+  title: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One screen's worth of vault browsing: a Folder's immediate children (subfolders and
+ * Cards, not recursive) plus the ancestor chain to render as a breadcrumb. `folder` is
+ * null and `breadcrumb` is empty at the vault root.
+ */
+export interface FolderContents {
+  folder: Folder | null;
+  /** Root-to-parent order, not including `folder` itself. */
+  breadcrumb: Folder[];
+  folders: Folder[];
+  cards: Card[];
 }

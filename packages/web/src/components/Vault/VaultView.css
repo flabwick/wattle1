@@ -33,6 +33,49 @@
   padding-left: calc(var(--icon-size) + var(--space-3) + var(--space-2));
 }
 
+.vault__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.vault__crumb {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vault__crumb:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.vault__crumb--current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.vault__crumb--current .vault__item-title,
+.vault__crumb--current .vault__item-rename {
+  font: inherit;
+  color: inherit;
+}
+
+.vault__crumb--selected {
+  text-decoration: underline;
+}
+
+.vault__crumb-sep {
+  margin: 0 var(--space-1);
+}
+
 .vault__list {
   list-style: none;
   margin: 0;
@@ -73,6 +116,47 @@
   cursor: default;
 }
 
+.vault__item-open--selected {
+  background: var(--color-surface);
+  box-shadow: inset 2px 0 0 var(--color-accent, var(--color-text));
+}
+
+.vault__item-rename {
+  flex: 1;
+  min-width: 0;
+  border: var(--border-width-thin) solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  padding: 0 var(--space-1);
+}
+
+.vault__move-target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vault__move-target:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
+.vault__move-target:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
 .vault__item-icon {
   color: var(--color-text-muted);
 }
@@ -85,9 +169,10 @@
   font-size: var(--font-size-sm);
 }
 
-/* The delete action keeps the Button primitive's bordered/shadowed look — it's the
-   one "object" in an otherwise flat row, not just squeezed to match. */
-.vault__item-delete {
+/* The chevron keeps the Button primitive's bordered/shadowed look — it's the one
+   "object" in an otherwise flat row, not just squeezed to match — same treatment the
+   old per-row delete button (now a Dock action, not a row control) used to get. */
+.vault__item-chevron {
   align-self: center;
   flex-shrink: 0;
 }

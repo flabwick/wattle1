@@ -1,6 +1,8 @@
 import type {
   Card,
   CreateCardInput,
+  Folder,
+  FolderContents,
   GeneratedCardPart,
   GenerateResponse,
   Page,
@@ -49,6 +51,19 @@ export const createCard = (input: CreateCardInput) =>
 export const updateCard = (id: string, input: UpdateCardInput) =>
   request<Card>(`/cards/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 export const deleteCard = (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" });
+export const moveCard = (id: string, folderId: string | null) =>
+  request<Card>(`/cards/${id}/move`, { method: "PATCH", body: JSON.stringify({ folderId }) });
+
+// Vault Folders
+export const getFolderContents = (folderId: string | null) =>
+  request<FolderContents>(`/folders/contents${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ""}`);
+export const createFolder = (title: string, parentId: string | null) =>
+  request<Folder>("/folders", { method: "POST", body: JSON.stringify({ title, parentId }) });
+export const renameFolder = (id: string, title: string) =>
+  request<Folder>(`/folders/${id}`, { method: "PATCH", body: JSON.stringify({ title }) });
+export const moveFolder = (id: string, parentId: string | null) =>
+  request<Folder>(`/folders/${id}/move`, { method: "PATCH", body: JSON.stringify({ parentId }) });
+export const deleteFolder = (id: string) => request<void>(`/folders/${id}`, { method: "DELETE" });
 
 // Pages
 export const listPages = () => request<PageWithCards[]>("/pages");

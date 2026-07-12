@@ -12,6 +12,8 @@
   "dock.action.upload": "Upload File",
   "dock.action.move": "Move",
   "dock.action.cancelMove": "Cancel Move",
+  "dock.action.addToPage": "Add to Page",
+  "dock.action.rename": "Rename",
   "generate.truncatedNotice": "The last generation was cut off partway through, but was saved as generated.",
   "generate.stoppedNotice": "Generation was stopped early — saved as generated so far.",
   "dock.action.dismiss": "Dismiss",
@@ -63,8 +65,14 @@
 
   "vault.searchPlaceholder": "Search title or text…",
   "vault.create": "New Card",
+  "vault.createFolder": "New Folder",
+  "vault.untitledFolder": "Untitled Folder",
   "vault.delete": "Delete",
   "vault.empty": "No Cards match.",
+  "vault.emptyFolder": "This folder is empty.",
+  "vault.root": "Vault",
+  "vault.moveHere": "Move Here",
+  "vault.open": "Open",
 
   "cardStack.previous": "Previous alternate",
   "cardStack.next": "Next alternate",

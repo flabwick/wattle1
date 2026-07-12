@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { Card, PageCardWithCard, PageWithCards } from "@wattle/shared";
+import type { Card, Folder, FolderContents, PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Button, Icon } from "../primitives/index.js";
@@ -78,13 +78,28 @@ interface DockProps {
   movingPageCardId: string | null;
   onEnterMoveMode: () => void;
   onCancelMove: () => void;
-  /** Vault extension panel, toggled from the Dock (spec1.md Part 3 "Vault"). */
-  vaultCards: Card[];
+  /** Vault extension panel, toggled from the Dock (spec1.md Part 3 "Vault"). Folders
+   *  and search are two mutually exclusive views over it — see useVault.ts. */
+  vaultSearchResults: Card[];
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
-  /** Create a new blank Card directly on the current Page, IDE-"new file" style. */
-  onCreateCardInPage: (() => void) | null;
+  /** The currently browsed Folder's contents (subfolders, its Cards, and its
+   *  breadcrumb) — null only until the first fetch lands. Browsing the vault root
+   *  looks the same as any other Folder here, just with `folder: null`. */
+  vaultFolderContents: FolderContents | null;
+  onOpenVaultFolder: (id: string | null) => void;
+  /** Create a new blank Card directly in the vault, in whichever Folder is currently
+   *  open — IDE-"new file" style, like the Page-oriented action this replaced.
+   *  Returns the created Card so the Dock can select it immediately. Null while
+   *  search is active (there's no single Folder to create into). */
+  onCreateVaultCard: (() => Promise<Card>) | null;
+  onCreateVaultFolder: ((title: string) => Promise<Folder>) | null;
+  onRenameVaultCard: (id: string, title: string) => void;
+  onRenameVaultFolder: (id: string, title: string) => void;
+  onMoveVaultCard: (id: string, folderId: string | null) => void;
+  onMoveVaultFolder: (id: string, parentId: string | null) => void;
   onDeleteVaultCard: (id: string) => void;
+  onDeleteVaultFolder: (id: string) => void;
   /** Add a vault Card to the current Page, if one exists. */
   onAddVaultCardToPage: ((cardId: string) => void) | null;
   /** Upload a file onto the current Page as a new "file"-typed Card, if one exists. */
@@ -135,8 +150,10 @@ function supportedOperationIds(typeId: string): Set<string> {
  * Card/Generate/Delete Page; a Card or embedded Card selected -> Edit/Save/Remove
  * (X — removes this Card from this Page, or this embed's `[[cardId]]` token from its
  * parent's content — only; the vault copy is untouched and can be reopened any time;
- * permanently deleting a Card from the vault lives in the Vault panel instead, on
- * each Card there, not here). Generate is deliberately *only* ever available with
+ * permanently deleting a Card from the vault is a Vault-panel-selection action
+ * instead, alongside Rename/Move/Add to Page — see vaultModeActions below, which
+ * takes over the row whenever something's selected inside an open Vault panel).
+ * Generate is deliberately *only* ever available with
  * nothing selected at all — selecting any Card or embed hides it, there's no
  * "generate below this Card" affordance any more. Edit still opens the same inline
  * title/textarea editor on the Card itself (Card.tsx/CardEmbed.tsx); the Dock only
@@ -178,18 +195,64 @@ export function Dock({
   movingPageCardId,
   onEnterMoveMode,
   onCancelMove,
-  vaultCards,
+  vaultSearchResults,
   vaultQuery,
   onVaultQueryChange,
-  onCreateCardInPage,
+  vaultFolderContents,
+  onOpenVaultFolder,
+  onCreateVaultCard,
+  onCreateVaultFolder,
+  onRenameVaultCard,
+  onRenameVaultFolder,
+  onMoveVaultCard,
+  onMoveVaultFolder,
   onDeleteVaultCard,
+  onDeleteVaultFolder,
   onAddVaultCardToPage,
   onUploadFileToPage,
 }: DockProps) {
   const [vaultOpen, setVaultOpen] = useState(false);
+  /** Which vault Card or Folder is selected — clicking one selects it instead of
+   *  acting on it immediately, so the Dock can show what to do with it (see
+   *  vaultModeActions below). Selecting a Folder is deliberately independent of
+   *  browsing it (see VaultView.tsx's doc comment): the Folder currently open and
+   *  the Folder currently selected can be different, or the same, at once. */
+  const [selectedVaultItem, setSelectedVaultItem] = useState<{ type: "card" | "folder"; id: string } | null>(
+    null,
+  );
+  /** Non-null while a vault Card/Folder row shows an inline rename input in place of
+   *  its label (VaultView.tsx's ItemLabel) — set by the Rename action below. */
+  const [vaultRenaming, setVaultRenaming] = useState<{ type: "card" | "folder"; id: string } | null>(
+    null,
+  );
+  /** Non-null while a vault Card/Folder is "in transit" waiting for a destination
+   *  Folder to be picked — the vault-panel equivalent of movingPageCardId/Move Mode. */
+  const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
+
+  /** Clears every piece of vault-panel-local selection state — used whenever the
+   *  panel closes, so reopening it starts fresh rather than resuming mid-rename or
+   *  mid-move at some Card/Folder that may not even be in view any more. */
+  function closeVaultSelection() {
+    setSelectedVaultItem(null);
+    setVaultRenaming(null);
+    setVaultMoving(null);
+  }
+
+  /** Navigating to a different Folder invalidates whatever was selected (a selected
+   *  Card may not even be in the new list; a selected Folder's Rename/Move/Delete
+   *  actions should disappear once you've navigated away from the reason you picked
+   *  it) — but deliberately leaves `vaultMoving` alone, since browsing *is* how a
+   *  Move destination gets picked (see VaultView.tsx's "Move Here" row). */
+  function handleOpenVaultFolder(id: string | null) {
+    setSelectedVaultItem(null);
+    setVaultRenaming(null);
+    onOpenVaultFolder(id);
+  }
+
+  const currentVaultFolder = vaultFolderContents?.folder ?? null;
 
   /** Shared by both the `selected` and `selectedEmbedId` branches below — a Card and
    *  an embedded Card get the same process/accept-all-diffs actions, same precedent
@@ -259,35 +322,177 @@ export function Dock({
     operationId: null,
     icon: vaultOpen ? "close" : "vault",
     label: vaultLabel,
-    onClick: () => setVaultOpen((open) => !open),
+    onClick: () =>
+      setVaultOpen((open) => {
+        if (open) closeVaultSelection();
+        return !open;
+      }),
   };
 
   const vaultPanel = vaultOpen && !movingPageCardId && (
     <div className="dock__vault-panel">
       <VaultView
-        cards={vaultCards}
         query={vaultQuery}
         onQueryChange={onVaultQueryChange}
+        searchResults={vaultSearchResults}
+        folder={currentVaultFolder}
+        breadcrumb={vaultFolderContents?.breadcrumb ?? []}
+        subfolders={vaultFolderContents?.folders ?? []}
+        cards={vaultFolderContents?.cards ?? []}
+        onOpenFolder={handleOpenVaultFolder}
         onCreateCard={
-          onCreateCardInPage
-            ? () => {
-                onCreateCardInPage();
-                setVaultOpen(false);
+          onCreateVaultCard && !vaultQuery
+            ? async () => {
+                const card = await onCreateVaultCard();
+                setSelectedVaultItem({ type: "card", id: card.id });
               }
             : null
         }
-        onDeleteCard={onDeleteVaultCard}
-        onOpenIntoTopPage={
-          onAddVaultCardToPage
-            ? (cardId) => {
-                onAddVaultCardToPage(cardId);
-                setVaultOpen(false);
+        onCreateFolder={
+          onCreateVaultFolder && !vaultQuery
+            ? async () => {
+                const folder = await onCreateVaultFolder(t("vault.untitledFolder"));
+                setVaultRenaming({ type: "folder", id: folder.id });
               }
             : null
         }
+        selectedCardId={selectedVaultItem?.type === "card" ? selectedVaultItem.id : null}
+        onSelectCard={(id) =>
+          setSelectedVaultItem((prev) =>
+            prev?.type === "card" && prev.id === id ? null : { type: "card", id },
+          )
+        }
+        selectedFolderId={selectedVaultItem?.type === "folder" ? selectedVaultItem.id : null}
+        onSelectFolder={(id) =>
+          setSelectedVaultItem((prev) =>
+            prev?.type === "folder" && prev.id === id ? null : { type: "folder", id },
+          )
+        }
+        renamingId={vaultRenaming?.id ?? null}
+        onCommitRename={(title) => {
+          if (!vaultRenaming) return;
+          const { type, id } = vaultRenaming;
+          setVaultRenaming(null);
+          if (type === "folder") onRenameVaultFolder(id, title);
+          else onRenameVaultCard(id, title);
+        }}
+        onCancelRename={() => setVaultRenaming(null)}
+        moving={vaultMoving}
+        onPickMoveTarget={() => {
+          if (!vaultMoving) return;
+          const targetId = currentVaultFolder?.id ?? null;
+          if (vaultMoving.type === "card") onMoveVaultCard(vaultMoving.id, targetId);
+          else onMoveVaultFolder(vaultMoving.id, targetId);
+          setVaultMoving(null);
+          setSelectedVaultItem(null);
+        }}
       />
     </div>
   );
+
+  /**
+   * Actions for whatever's selected *within* the Vault panel — takes priority over
+   * selectedEmbedId/selected/selectedPage below while the panel's open and something
+   * in it is selected, since that's the more specific, more recent thing the user
+   * pointed at. Falls through to the usual Page/Card row once nothing's selected in
+   * the vault (e.g. freshly opened at the root with nothing picked yet), so opening
+   * the panel over an already-selected Page Card doesn't blank the row out. A
+   * selected Folder needn't be the one currently browsed — see VaultView.tsx's doc
+   * comment — so Delete only navigates out if they happen to be the same one.
+   */
+  let vaultModeActions: DockAction[] | null = null;
+  if (vaultOpen && selectedVaultItem?.type === "card") {
+    const cardId = selectedVaultItem.id;
+    vaultModeActions = [
+      ...(onAddVaultCardToPage
+        ? [
+            {
+              key: "vaultAddToPage",
+              operationId: null,
+              icon: "plus" as const,
+              label: t("dock.action.addToPage"),
+              onClick: () => {
+                onAddVaultCardToPage(cardId);
+                setVaultOpen(false);
+                closeVaultSelection();
+              },
+            },
+          ]
+        : []),
+      {
+        key: "vaultRename",
+        operationId: null,
+        icon: "edit" as const,
+        label: t("dock.action.rename"),
+        onClick: () => {
+          setVaultMoving(null);
+          setVaultRenaming({ type: "card", id: cardId });
+        },
+      },
+      {
+        key: "vaultMove",
+        operationId: null,
+        icon: "move" as const,
+        label: t("dock.action.move"),
+        onClick: () => {
+          setVaultRenaming(null);
+          setVaultMoving({ type: "card", id: cardId });
+        },
+      },
+      {
+        key: "vaultDelete",
+        operationId: null,
+        icon: "delete" as const,
+        label: t("dock.action.delete"),
+        danger: true,
+        onClick: () => {
+          onDeleteVaultCard(cardId);
+          setSelectedVaultItem(null);
+        },
+      },
+    ];
+  } else if (vaultOpen && selectedVaultItem?.type === "folder") {
+    const folderId = selectedVaultItem.id;
+    vaultModeActions = [
+      {
+        key: "vaultRenameFolder",
+        operationId: null,
+        icon: "edit" as const,
+        label: t("dock.action.rename"),
+        onClick: () => {
+          setVaultMoving(null);
+          setVaultRenaming({ type: "folder", id: folderId });
+        },
+      },
+      {
+        key: "vaultMoveFolder",
+        operationId: null,
+        icon: "move" as const,
+        label: t("dock.action.move"),
+        onClick: () => {
+          setVaultRenaming(null);
+          setVaultMoving({ type: "folder", id: folderId });
+        },
+      },
+      {
+        key: "vaultDeleteFolder",
+        operationId: null,
+        icon: "delete" as const,
+        label: t("dock.action.delete"),
+        danger: true,
+        onClick: () => {
+          onDeleteVaultFolder(folderId);
+          // Only step back out to the parent if the Folder just deleted was the one
+          // currently browsed — deleting a merely-selected subfolder leaves the view
+          // exactly where it was, minus that row.
+          if (currentVaultFolder && folderId === currentVaultFolder.id) {
+            onOpenVaultFolder(currentVaultFolder.parentId);
+          }
+          setSelectedVaultItem(null);
+        },
+      },
+    ];
+  }
 
   let modeActions: DockAction[] = [];
 
@@ -429,9 +634,10 @@ export function Dock({
     ];
   }
 
-  // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
-  // action — no Vault toggle, no other Card/Page actions — so the only thing to do
-  // is tap a drop target (PageStack.tsx) or back out.
+  // While a Card is in transit (Move Mode, or the vault panel's own equivalent), the
+  // Dock collapses to just a Cancel action — no Vault toggle, no other actions — so
+  // the only thing to do is tap a drop target (PageStack.tsx, or VaultView's "Move
+  // Here" row) or back out.
   const actions: DockAction[] = movingPageCardId
     ? [
         {
@@ -442,7 +648,17 @@ export function Dock({
           onClick: onCancelMove,
         },
       ]
-    : [vaultAction, ...modeActions];
+    : vaultMoving
+      ? [
+          {
+            key: "cancelVaultMove",
+            operationId: null,
+            icon: "close" as const,
+            label: t("dock.action.cancelMove"),
+            onClick: () => setVaultMoving(null),
+          },
+        ]
+      : [vaultAction, ...(vaultModeActions ?? modeActions)];
 
   return (
     <footer className="dock">

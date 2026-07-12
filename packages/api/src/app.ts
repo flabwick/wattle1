@@ -4,6 +4,7 @@ import "express-async-errors";
 import { ZodError } from "zod";
 import { annotationsRouter } from "./routes/annotations.js";
 import { cardsRouter } from "./routes/cards.js";
+import { foldersRouter } from "./routes/folders.js";
 import { generateRouter } from "./routes/generate.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
 import { pagesRouter } from "./routes/pages.js";
@@ -17,6 +18,7 @@ export function createApp() {
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
   app.use("/api/cards", cardsRouter);
+  app.use("/api/folders", foldersRouter);
   app.use("/api/pages", pagesRouter);
   app.use("/api/page-cards", pageCardsRouter);
   app.use("/api/generate", generateRouter);

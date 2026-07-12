@@ -64,12 +64,18 @@ which this package must not depend on).
 
 - CardType: `"note"` (title + markdown content — the only card type so far).
 - Operations: `card.rename`, `card.delete`, `card.reorder`, `card.edit`, `card.save`,
-  `card.generate`. See the per-operation files in `packages/api/src/operations/` for
-  which route each wraps and why. A few existing mutations were deliberately left as
-  plain service calls because they don't map 1:1 onto this operation-id list: creating a
-  Card (`POST /api/cards`, `POST /api/pages/:pageId/cards`), removing a Card from a Page
-  vs. deleting it entirely (`DELETE /api/page-cards/:id` and `/:id/vault`), and
-  reordering Pages themselves (`PUT /api/pages/reorder`, distinct from reordering the
-  Cards within one Page). Folding those into the six listed ids would have meant either
+  `card.generate`, `card.move`, `folder.rename`, `folder.move`, `folder.delete`. See the
+  per-operation files in `packages/api/src/operations/` for which route each wraps and
+  why. A few existing mutations were deliberately left as plain service calls because
+  they don't map 1:1 onto this operation-id list: creating a Card (`POST /api/cards`,
+  `POST /api/pages/:pageId/cards`) or a Folder (`POST /api/folders`), removing a Card
+  from a Page vs. deleting it entirely (`DELETE /api/page-cards/:id` and `/:id/vault`),
+  and reordering Pages themselves (`PUT /api/pages/reorder`, distinct from reordering the
+  Cards within one Page). Folding those into the id list would have meant either
   inventing new ids beyond what was specified or conflating semantically different
-  mutations under one id — both riskier than leaving them alone for this step.
+  mutations under one id — both riskier than leaving them alone.
+- Vault Folders (`Folder` in `types.ts`, `packages/api/src/services/folderService.ts`)
+  are not a CardType — they're a separate, self-referencing-parent entity a Card
+  optionally belongs to (`Card.folderId`). `card.*`/`folder.*` Operation ids are
+  namespaced by which entity they act on, not registered per-CardType the way
+  `supportsOperations` gates Card actions.

@@ -18,11 +18,17 @@ cardsRouter.get("/:id", async (req, res) => {
 });
 
 cardsRouter.post("/", async (req, res) => {
-  const { title, content } = req.body ?? {};
+  const { title, content, folderId } = req.body ?? {};
   if (typeof title !== "string" || typeof content !== "string") {
     return res.status(400).json({ error: "title and content are required strings" });
   }
-  res.status(201).json(await cardService.createCard({ title, content }));
+  res.status(201).json(
+    await cardService.createCard({
+      title,
+      content,
+      folderId: typeof folderId === "string" ? folderId : null,
+    }),
+  );
 });
 
 // Direct vault edit — wraps the "card.rename" Operation. Distinct from the "card.edit"
@@ -35,4 +41,11 @@ cardsRouter.patch("/:id", async (req, res) => {
 cardsRouter.delete("/:id", async (req, res) => {
   await runOperation<void>("card.delete", { id: req.params.id });
   res.status(204).end();
+});
+
+// PATCH /api/cards/:id/move  { folderId: string | null } — move a vault Card into a
+// different Folder (null = vault root). Wraps the "card.move" Operation.
+cardsRouter.patch("/:id/move", async (req, res) => {
+  const payload = { id: req.params.id, folderId: req.body?.folderId ?? null };
+  res.json(await runOperation<Card>("card.move", payload));
 });

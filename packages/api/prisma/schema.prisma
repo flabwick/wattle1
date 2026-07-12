@@ -34,7 +34,33 @@ model Card {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Which vault Folder this Card sits in — null means the vault root. Set only once
+  /// savedToVault; page-local scratch Cards aren't placed in the tree yet.
+  folderId String?
+  folder   Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
   pageCards PageCard[]
+
+  @@index([folderId])
+}
+
+/// A Folder in the vault — groups Cards and other Folders into a navigable tree.
+/// spec1.md's original Vault section explicitly deferred this ("no folders ... yet");
+/// this is that deferred feature. `parentId` null means the folder sits at vault root.
+/// Deleting a Folder cascades to its Cards and to its subfolders (and *their* Cards),
+/// recursively — a deliberate product choice, not an oversight.
+model Folder {
+  id        String   @id @default(cuid())
+  title     String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Folder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children Folder[] @relation("FolderChildren")
+  cards    Card[]
+
+  @@index([parentId])
 }
 
 /// A Page — one slot in the vertical stack. `order` is ascending bottom (0) to top.

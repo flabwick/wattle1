@@ -23,7 +23,7 @@ palette, and a humanist-sans/warm-serif type pairing, all expressed as tokens so
 | `CardShell` | A tappable card-like container | `selected` (accent border + accent-colored shadow). A `<div role="button">`, not a real `<button>` (Step 5 — Card.tsx nests real buttons/gesture handlers inside it, and a `<button>` can't legally nest another). |
 | `Badge` | A small inline label ("archive stamp": bordered, uppercase, mono) | — |
 | `InputField` | A text input or textarea | `multiline` switches `<input>` → `<textarea>` |
-| `Icon` | A line icon in place of a text label (Step 5) | `name`: one of the fixed set in `Icon.tsx` (`edit`, `generate`, `remove`, `delete`, `done`, `plus`, `file`, `vault`, `close`, `search`, `up`, `down`) — add a new one there, don't inline an `<svg>` at a call site. `spin` for the in-progress generate icon. |
+| `Icon` | A line icon in place of a text label (Step 5) | `name`: one of the fixed set in `Icon.tsx` (`edit`, `generate`, `remove`, `delete`, `done`, `plus`, `file`, `vault`, `close`, `search`, `up`, `down`, `folder`, `chevronRight`, ...) — add a new one there, don't inline an `<svg>` at a call site. `spin` for the in-progress generate icon. |
 
 Each ships its own `.css` file (e.g. `Button.tsx` / `Button.css`) — same one-file-per-
 component convention as everywhere else in `packages/web/src/components/`.
