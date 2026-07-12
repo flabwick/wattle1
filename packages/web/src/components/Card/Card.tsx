@@ -28,10 +28,20 @@ interface CardProps {
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   /** Which embedded Card, if any, is independently selected (App.tsx state) — see
-   *  CardContent.tsx's doc comment. Only wired into the non-editing render below;
-   *  the inline editor's embeds keep their existing cascading-edit behavior untouched. */
+   *  CardContent.tsx's doc comment. Wired into both render branches below now: an
+   *  embed can be selected/edited independently of whether this Card itself is
+   *  being edited. */
   selectedEmbedId?: string | null;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
+  /** Double-click / long-press an embedded Card to jump straight into editing it —
+   *  same convention as onRequestEdit above, just for an embed instead of this Card
+   *  itself (see CardEmbed.tsx). */
+  onRequestEditEmbed?: (cardId: string, onRemove: () => void) => void;
+  /** Embedded Cards (any depth, any number) currently in their own inline edit mode
+   *  — independent of `editing` above, so this Card and any combination of its
+   *  embeds can each be editing or not, on their own (App.tsx/CardEmbed.tsx). */
+  editingEmbedIds: ReadonlySet<string>;
+  onToggleEmbedEdit: (cardId: string) => void;
 }
 
 /**
@@ -63,6 +73,9 @@ export function CardView({
   onChangeDraft,
   selectedEmbedId,
   onSelectEmbed,
+  onRequestEditEmbed,
+  editingEmbedIds,
+  onToggleEmbedEdit,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
@@ -108,11 +121,16 @@ export function CardView({
 
   // Click-outside-to-close: only listens while editing, and only acts on presses
   // outside the editor itself (so clicking the title/content inputs, or the caret,
-  // never closes it).
+  // never closes it). Also excludes the Dock: it's a toolbar *for* this editing
+  // session (Save/Remove/Move/an embed's own Edit button, etc.), physically outside
+  // editorRef in the DOM but not an "away" click — without this, pointerdown on any
+  // Dock button would close/deselect this Card a beat before the Dock's own onClick
+  // (which fires later, on "click") ever got to run.
   useEffect(() => {
     if (!editing) return;
     function handlePointerDown(e: PointerEvent) {
-      if (editorRef.current && !editorRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      if (editorRef.current && !editorRef.current.contains(target) && !target.closest(".dock")) {
         onSelect();
       }
     }
@@ -191,6 +209,11 @@ export function CardView({
           onChangeContent={handleContentChange}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
+          selectedEmbedId={selectedEmbedId}
+          onSelectEmbed={onSelectEmbed}
+          onRequestEditEmbed={onRequestEditEmbed}
+          editingEmbedIds={editingEmbedIds}
+          onToggleEmbedEdit={onToggleEmbedEdit}
         />
       </div>
     );
@@ -235,6 +258,9 @@ export function CardView({
           depth={0}
           selectedEmbedId={selectedEmbedId}
           onSelectEmbed={onSelectEmbed}
+          onRequestEditEmbed={onRequestEditEmbed}
+          editingEmbedIds={editingEmbedIds}
+          onToggleEmbedEdit={onToggleEmbedEdit}
           onChangeContent={handleContentChange}
         />
       )}

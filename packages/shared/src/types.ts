@@ -89,6 +89,16 @@ export interface GenerateRequest {
   pageCardId: string;
 }
 
+/** One piece of an accepted generation's content, in stream order: either literal
+ *  text, or a nested card block to be materialized as its own standalone Card (see
+ *  generationService.persistGeneratedCard) and spliced into the parent's content as a
+ *  `[[cardId]]` embed reference — the same mechanism CardLinkPicker.tsx uses for
+ *  user-created embeds, so an accepted generation's nested cards render and behave
+ *  exactly like any other embedded Card, not literal `<card>` markup. */
+export type GeneratedCardPart =
+  | { kind: "text"; text: string }
+  | { kind: "child"; cardType: string; title: string; parts: GeneratedCardPart[] };
+
 export interface GenerateResponse {
   /** The context that was actually sent, in order, for auditability. */
   context: GenerationContextEntry[];

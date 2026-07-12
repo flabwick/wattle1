@@ -1,4 +1,4 @@
-import type { GenerationContextEntry, GenerateResponse, PageCard } from "@wattle/shared";
+import type { GeneratedCardPart, GenerationContextEntry, GenerateResponse, PageCard } from "@wattle/shared";
 import { cardTypeRegistry, defaultMetadata, modelProviderRegistry } from "@wattle/shared";
 import type { CardBlockEvent } from "@wattle/prompt-engine";
 import { CardBlockParser, compilePrompt } from "@wattle/prompt-engine";
@@ -131,6 +131,38 @@ function buildMetadata(cardType?: string): ReturnType<typeof defaultMetadata> {
   return { ...defaultMetadata(), ...(typeId ? { typeId } : {}) };
 }
 
+/**
+ * Turns a ghost card's structured parts into the root's actual `content` string,
+ * materializing every nested `<card>` block along the way as its own standalone Card
+ * (page-local scratch, same as any other freshly-generated Card — see
+ * persistGeneratedCard's savedToVault doc comment) and splicing a `[[cardId]]` embed
+ * reference in its place — the exact syntax CardEmbed.tsx/parseCardRefs.ts already
+ * render, so an accepted generation's nested cards behave like any other embedded Card
+ * (independently viewable, editable, saveable) instead of surviving as literal XML
+ * text. Recurses depth-first so a child's own nested children exist (and have real
+ * ids) before the child itself is created.
+ */
+async function materializeParts(parts: GeneratedCardPart[]): Promise<string> {
+  const pieces: string[] = [];
+  for (const part of parts) {
+    if (part.kind === "text") {
+      pieces.push(part.text);
+      continue;
+    }
+    const childContent = await materializeParts(part.parts);
+    const child = await prisma.card.create({
+      data: {
+        title: part.title,
+        content: childContent,
+        metadata: JSON.stringify(buildMetadata(part.cardType)),
+        savedToVault: false,
+      },
+    });
+    pieces.push(`[[${child.id}]]`);
+  }
+  return pieces.join("");
+}
+
 function buildResponse(
   context: GenerationContextEntry[],
   created: { id: string; pageId: string; cardId: string; order: number; draftTitle: string | null; draftContent: string | null; createdAt: Date; updatedAt: Date; card: Parameters<typeof serializeCard>[0] },
@@ -157,11 +189,12 @@ function buildResponse(
  */
 export async function persistGeneratedCard(
   pageCardId: string,
-  generated: { title: string; content: string; cardType?: string },
+  generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
 ): Promise<GenerateResponse> {
   const trigger = await prisma.pageCard.findUniqueOrThrow({ where: { id: pageCardId } });
   const context = await assembleContextForTarget({ type: "card", pageCardId });
   const metadata = buildMetadata(generated.cardType);
+  const content = await materializeParts(generated.parts);
 
   // Make room directly below the triggering card, then insert the new one there.
   await prisma.pageCard.updateMany({
@@ -176,7 +209,7 @@ export async function persistGeneratedCard(
       card: {
         create: {
           title: generated.title,
-          content: generated.content,
+          content,
           metadata: JSON.stringify(metadata),
           // Page-local scratch content like any other new Card, not yet a Vault
           // entry — see schema.prisma's Card.savedToVault doc comment.
@@ -198,10 +231,11 @@ export async function persistGeneratedCard(
  */
 export async function persistGeneratedCardToPage(
   pageId: string,
-  generated: { title: string; content: string; cardType?: string },
+  generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
 ): Promise<GenerateResponse> {
   const context = await assembleContextForTarget({ type: "page", pageId });
   const metadata = buildMetadata(generated.cardType);
+  const content = await materializeParts(generated.parts);
 
   const bottom = await prisma.pageCard.aggregate({ where: { pageId }, _max: { order: true } });
 
@@ -212,7 +246,7 @@ export async function persistGeneratedCardToPage(
       card: {
         create: {
           title: generated.title,
-          content: generated.content,
+          content,
           metadata: JSON.stringify(metadata),
           savedToVault: false,
         },

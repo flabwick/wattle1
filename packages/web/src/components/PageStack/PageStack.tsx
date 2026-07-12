@@ -17,6 +17,9 @@ interface PageCardSlotProps {
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   selectedEmbedId: string | null;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
+  onRequestEditEmbed: (cardId: string, onRemove: () => void) => void;
+  editingEmbedIds: ReadonlySet<string>;
+  onToggleEmbedEdit: (cardId: string) => void;
 }
 
 /**
@@ -36,6 +39,9 @@ function PageCardSlot({
   onChangeDraft,
   selectedEmbedId,
   onSelectEmbed,
+  onRequestEditEmbed,
+  editingEmbedIds,
+  onToggleEmbedEdit,
 }: PageCardSlotProps) {
   const typeId = getCardTypeId(pageCard.card);
   if (typeId === "note") {
@@ -49,6 +55,9 @@ function PageCardSlot({
         onChangeDraft={onChangeDraft}
         selectedEmbedId={selectedEmbedId}
         onSelectEmbed={onSelectEmbed}
+        onRequestEditEmbed={onRequestEditEmbed}
+        editingEmbedIds={editingEmbedIds}
+        onToggleEmbedEdit={onToggleEmbedEdit}
       />
     );
   }
@@ -76,6 +85,15 @@ interface PageStackProps {
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
   selectedEmbedId: string | null;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
+  /** Double-click / long-press an embedded Card to jump straight into editing it —
+   *  see CardEmbed.tsx. */
+  onRequestEditEmbed: (cardId: string, onRemove: () => void) => void;
+  /** Embedded Cards (any depth, any number) currently in their own inline edit mode —
+   *  see App.tsx's editingEmbedIds/toggleEditEmbed and CardEmbed.tsx. Independent of
+   *  editingPageCardId: a parent and any combination of its embeds can each be
+   *  editing or not, on their own. */
+  editingEmbedIds: ReadonlySet<string>;
+  onToggleEmbedEdit: (cardId: string) => void;
   /** Move Mode (App.tsx's movingPageCardId) — the PageCard id in transit, or null. */
   movingPageCardId: string | null;
   /** Tap a drop zone to place the moving Card at this index (top-to-bottom, same
@@ -133,6 +151,9 @@ export function PageStack({
   onChangeDraft,
   selectedEmbedId,
   onSelectEmbed,
+  onRequestEditEmbed,
+  editingEmbedIds,
+  onToggleEmbedEdit,
   movingPageCardId,
   onDropAt,
   ghostCard,
@@ -176,6 +197,9 @@ export function PageStack({
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
                   selectedEmbedId={selectedEmbedId}
                   onSelectEmbed={onSelectEmbed}
+                  onRequestEditEmbed={onRequestEditEmbed}
+                  editingEmbedIds={editingEmbedIds}
+                  onToggleEmbedEdit={onToggleEmbedEdit}
                 />
                 {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
                   <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />

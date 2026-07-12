@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { GeneratedCardPart } from "@wattle/shared";
 import * as api from "../api/client.js";
 
 /** One piece of a ghost card's content, in the order it streamed in: either literal
@@ -56,32 +57,30 @@ interface UseGenerationResult {
   startForPage: (pageId: string) => void;
   /** Discards the ghost card from local state. No server call, no trace left. */
   deny: () => void;
-  /** Persists the ghost card's root via POST /api/generate/accept, with any nested
-   *  ghost cards re-serialized back into literal <card> markup inside its content
-   *  (nesting is a rendering concern only — there's no separate DB entity for it). */
+  /** Persists the ghost card's root via POST /api/generate/accept. Any nested ghost
+   *  cards are sent as structured parts (not flattened back into literal <card>
+   *  markup) so the server can materialize each one as its own standalone Card and
+   *  splice a `[[cardId]]` embed reference in its place — the server ends up doing the
+   *  same thing CardLinkPicker.tsx does for a user-created embed, so an accepted
+   *  generation's nested cards render and behave like any other embedded Card. */
   accept: () => Promise<void>;
 }
 
-/** Reconstructs the literal `<card type="..." title="...">...</card>` markup for a
- *  node's content, recursively — the exact text the model streamed, minus nothing,
- *  since the parser only ever split it apart, never dropped any of it. */
-function serializeGhostContent(id: number, nodes: Record<number, GhostCardNode>): string {
+/** Converts a ghost node's parts into the structured payload persistGeneratedCard(ToPage)
+ *  expects, recursively — the exact text/nesting the model streamed, minus nothing. */
+function buildParts(id: number, nodes: Record<number, GhostCardNode>): GeneratedCardPart[] {
   const node = nodes[id];
-  if (!node) return "";
-  return node.parts
-    .map((part) => {
-      if (part.kind === "text") return part.text;
-      const child = nodes[part.id];
-      if (!child) return "";
-      const type = escapeAttr(child.cardType);
-      const title = escapeAttr(child.title);
-      return `<card type="${type}" title="${title}">${serializeGhostContent(child.id, nodes)}</card>`;
-    })
-    .join("");
-}
-
-function escapeAttr(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  if (!node) return [];
+  return node.parts.map((part): GeneratedCardPart => {
+    if (part.kind === "text") return { kind: "text", text: part.text };
+    const child = nodes[part.id];
+    return {
+      kind: "child",
+      cardType: child?.cardType ?? "note",
+      title: child?.title ?? "",
+      parts: child ? buildParts(child.id, nodes) : [],
+    };
+  });
 }
 
 /**
@@ -221,8 +220,8 @@ export function useGeneration(): UseGenerationResult {
     if (!root) return;
     const generated = {
       title: root.title,
-      content: serializeGhostContent(rootId, nodes),
       cardType: root.cardType,
+      parts: buildParts(rootId, nodes),
     };
     await api.acceptGeneration(
       target.type === "card" ? { pageCardId: target.pageCardId } : { pageId: target.pageId },

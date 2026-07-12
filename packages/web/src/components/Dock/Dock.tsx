@@ -13,10 +13,15 @@ interface DockProps {
   /** A selected Page (mutually exclusive with `selected` — see App.tsx). */
   selectedPage: PageWithCards | null;
   /** An independently-selected embedded Card's id (mutually exclusive with, and takes
-   *  priority over, `selected`/`selectedPage` — see App.tsx/CardContent.tsx). Embeds
-   *  are always already-saved vault Cards (CardLinkPicker only offers saved ones), so
-   *  there's no Edit/Save/Generate action for one here, just Remove/Delete. */
+   *  priority over, `selected`/`selectedPage` — see App.tsx/CardContent.tsx). Gets the
+   *  same Edit/Save/Remove/Delete actions a top-level Card does — Save is always
+   *  shown already-done since embeds are always already-saved vault Cards
+   *  (CardLinkPicker only offers saved ones) that write straight through on every
+   *  keystroke, so there's never anything pending to commit. There's no per-embed
+   *  Generate: Generate is only ever available with nothing selected at all (see the
+   *  `selected`/`selectedPage` branches below). */
   selectedEmbedId: string | null;
+  onEditEmbed: () => void;
   onRemoveEmbed: () => void;
   onDeleteEmbed: () => void;
   generating: boolean;
@@ -34,7 +39,6 @@ interface DockProps {
   onEdit: () => void;
   onSave: () => void;
   onRemoveFromPage: () => void;
-  onGenerate: () => void;
   onAddCardToPage: () => void;
   /** Generate with nothing selected — appends at the bottom of the current Page
    *  instead of directly below a specific Card (App.tsx/useGeneration.ts's
@@ -100,14 +104,18 @@ function supportedOperationIds(typeId: string): Set<string> {
  * genuinely temporary) ever make it taller than that one row.
  *
  * Nothing selected -> just the Vault toggle; a Page selected (and no Card) -> + Add
- * Card/Delete Page; a Card selected -> Edit/Save/Generate/Remove (X — removes this
- * Card from this Page only, the vault copy is untouched and can be reopened any
- * time; permanently deleting a Card from the vault lives in the Vault panel
- * instead, on each Card there, not here). Edit still
- * opens the same inline title/textarea editor on the Card itself (Card.tsx); the Dock
- * only triggers it, it doesn't render it. Save has no separate "unsaved" Badge
- * anywhere — the action's own icon is the indicator: a `+` while there's a draft to
- * commit, a tick once it's saved (and disabled, since there's nothing left to do).
+ * Card/Generate/Delete Page; a Card or embedded Card selected -> Edit/Save/Remove
+ * (X — removes this Card from this Page, or this embed's `[[cardId]]` token from its
+ * parent's content — only; the vault copy is untouched and can be reopened any time;
+ * permanently deleting a Card from the vault lives in the Vault panel instead, on
+ * each Card there, not here). Generate is deliberately *only* ever available with
+ * nothing selected at all — selecting any Card or embed hides it, there's no
+ * "generate below this Card" affordance any more. Edit still opens the same inline
+ * title/textarea editor on the Card itself (Card.tsx/CardEmbed.tsx); the Dock only
+ * triggers it, it doesn't render it. Save has no separate "unsaved" Badge anywhere —
+ * the action's own icon is the indicator: a `+` while there's a draft to commit, a
+ * tick once it's saved (and disabled, since there's nothing left to do; an embed is
+ * always in this disabled/done state, since it has no draft step at all).
  *
  * The Card action buttons shown are derived from the selected Card's CardType
  * (cardTypeRegistry) and the Operations it supports (operationRegistry) rather than a
@@ -118,6 +126,7 @@ export function Dock({
   selected,
   selectedPage,
   selectedEmbedId,
+  onEditEmbed,
   onRemoveEmbed,
   onDeleteEmbed,
   generating,
@@ -129,7 +138,6 @@ export function Dock({
   onEdit,
   onSave,
   onRemoveFromPage,
-  onGenerate,
   onAddCardToPage,
   onGeneratePage,
   onDeletePage,
@@ -188,6 +196,25 @@ export function Dock({
   if (selectedEmbedId) {
     modeActions = [
       {
+        key: "editEmbed",
+        operationId: null,
+        icon: "edit" as const,
+        label: t("dock.action.edit"),
+        onClick: onEditEmbed,
+      },
+      {
+        key: "saveEmbed",
+        operationId: null,
+        // Always already-done: an embed writes straight through to the vault on
+        // every keystroke (CardEmbed.tsx/editCard), so there's never a pending draft
+        // to commit — same convention as a top-level Card's tick-and-disabled state
+        // once it has nothing left to save.
+        icon: "done" as const,
+        label: t("dock.action.save"),
+        onClick: () => {},
+        disabled: true,
+      },
+      {
         key: "removeEmbed",
         operationId: null,
         icon: "close" as const,
@@ -230,15 +257,6 @@ export function Dock({
         label: t("dock.action.save"),
         onClick: onSave,
         disabled: !hasUnsavedDraft,
-      },
-      {
-        key: "generate",
-        operationId: "card.generateAccept",
-        icon: "generate" as const,
-        spin: generating,
-        label: generating ? t("dock.action.generating") : t("dock.action.generate"),
-        onClick: onGenerate,
-        disabled: generating,
       },
       {
         key: "move",

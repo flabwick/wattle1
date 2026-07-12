@@ -23,6 +23,12 @@ export function App() {
   const [selectedEmbed, setSelectedEmbed] = useState<{ cardId: string; onRemove: () => void } | null>(
     null,
   );
+  /** Embedded Cards (any depth, any number at once) currently in their own inline
+   *  edit mode — independent of both `isEditing` (the top-level Card) and of each
+   *  other, so a parent and any combination of its embeds can be editing or not,
+   *  each on its own. Keyed by the embedded Card's own id (not a PageCard id, since
+   *  embeds have no PageCard of their own) — see CardEmbed.tsx. */
+  const [editingEmbedIds, setEditingEmbedIds] = useState<Set<string>>(new Set());
   /** Move Mode (Dock's Move action) — the PageCard id currently "in transit" waiting
    *  for a drop target tap, or null when not moving. Deliberately not touched by
    *  navigateToIndex's selectPageCard(null) call, so it persists across Page
@@ -79,6 +85,38 @@ export function App() {
    *  the containing Card stays exactly as selected/editing as it was. */
   function selectEmbed(cardId: string, onRemove: () => void) {
     setSelectedEmbed((prev) => (prev?.cardId === cardId ? null : { cardId, onRemove }));
+  }
+
+  /** Double-click / long-press an embedded Card (CardEmbed.tsx) to jump straight into
+   *  editing it — selects it and turns its edit mode on in one action, same
+   *  convention as requestEditPageCard above for top-level Cards. Deliberately not a
+   *  toggle (repeat double-clicks/long-presses on an already-editing embed just leave
+   *  it as is), and deliberately doesn't touch any other Card/embed's state. */
+  function requestEditEmbed(cardId: string, onRemove: () => void) {
+    setSelectedEmbed({ cardId, onRemove });
+    setEditingEmbedIds((prev) => (prev.has(cardId) ? prev : new Set(prev).add(cardId)));
+  }
+
+  /** Toggles one embedded Card's own inline edit mode on/off — the Dock's Edit action
+   *  for a selected embed, and also what CardEmbed.tsx's click-outside effect calls to
+   *  close it (mirroring Card.tsx's "there's no separate Done action" convention).
+   *  Deliberately independent of `selectedEmbed`/`isEditing` — toggling one embed's
+   *  edit state never touches selection or any other Card's edit state. */
+  function toggleEditEmbed(cardId: string) {
+    setEditingEmbedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  }
+
+  function handleEditSelectedEmbed() {
+    if (!selectedEmbed) return;
+    toggleEditEmbed(selectedEmbed.cardId);
   }
 
   function handleRemoveEmbed() {
@@ -146,15 +184,6 @@ export function App() {
   const selectedPageForDock = selectedPageCard ? null : currentPage;
 
   const editingPageCardId = isEditing ? selectedPageCardId : null;
-
-  // The sole model call for a generation (no separate preview/persist calls any
-  // more) — streams into useGeneration's local ghost-card state, rendered directly
-  // below this Card by PageStack/GhostCard.tsx. Nothing is persisted until the Dock's
-  // Accept action below.
-  function handleGenerate() {
-    if (!selectedPageCard) return;
-    generation.start(selectedPageCard.id);
-  }
 
   // The "nothing selected" counterpart — Dock's Generate action when only a Page is
   // in view (selectedPageForDock). Appends at the bottom of the Page instead of
@@ -350,6 +379,9 @@ export function App() {
             onChangeDraft={handleChangeDraft}
             selectedEmbedId={selectedEmbed?.cardId ?? null}
             onSelectEmbed={selectEmbed}
+            onRequestEditEmbed={requestEditEmbed}
+            editingEmbedIds={editingEmbedIds}
+            onToggleEmbedEdit={toggleEditEmbed}
             movingPageCardId={movingPageCardId}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
             ghostCard={
@@ -381,6 +413,7 @@ export function App() {
         selected={selectedPageCard}
         selectedPage={selectedPageForDock}
         selectedEmbedId={selectedEmbed?.cardId ?? null}
+        onEditEmbed={handleEditSelectedEmbed}
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
         generating={generation.isStreaming}
@@ -392,7 +425,6 @@ export function App() {
         onEdit={() => setIsEditing(true)}
         onSave={handleSave}
         onRemoveFromPage={handleRemoveFromPage}
-        onGenerate={handleGenerate}
         onAddCardToPage={handleAddCardToCurrentPage}
         onGeneratePage={currentPage ? handleGeneratePage : null}
         onDeletePage={handleDeleteCurrentPage}

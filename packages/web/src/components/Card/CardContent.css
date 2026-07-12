@@ -1,15 +1,8 @@
 /* Only used once a Card's content actually contains a [[cardId]] ref (or, for a ghost
    card mid-generation — GhostCard.tsx — a nested <card> block) — plain content keeps
-   rendering as the single clamped <p class="card__preview"> from Card.css. Both
-   classes combined, rather than `.card__preview--embedded` alone, so this reliably
-   outweighs Card.css's `.card__preview` clamp regardless of which stylesheet the
-   bundler happens to emit second — a single-class selector only wins by source order,
-   which isn't guaranteed across every component that renders this combo (Card.tsx's
-   CardContent vs GhostCard.tsx). */
+   rendering as the single <p class="card__preview"> from Card.css. */
 .card__preview.card__preview--embedded {
   display: block;
-  -webkit-line-clamp: unset;
-  overflow: visible;
 }
 
 .card-content__text {

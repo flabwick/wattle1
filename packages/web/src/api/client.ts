@@ -1,6 +1,7 @@
 import type {
   Card,
   CreateCardInput,
+  GeneratedCardPart,
   GenerateResponse,
   Page,
   PageCard,
@@ -99,7 +100,7 @@ export const movePageCard = (pageCardId: string, destPageId: string, destIndex: 
 // happens here.
 export const acceptGeneration = (
   target: { pageCardId: string } | { pageId: string },
-  generated: { title: string; content: string; cardType?: string },
+  generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
 ) =>
   request<GenerateResponse>("/generate/accept", {
     method: "POST",

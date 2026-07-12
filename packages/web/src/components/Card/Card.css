@@ -97,15 +97,15 @@
   font-size: var(--font-size-md);
 }
 
+/* Not line-clamped: the Card's box has no fixed height (CardShell.css), so it grows
+   to fit however much content there is — same as the auto-growing textarea
+   CardContentEditor.tsx swaps in for editing, so a given Card is exactly the same
+   size (and shows exactly the same content) whether you're viewing or editing it. */
 .card__preview {
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   white-space: pre-wrap;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
 }
 
 /* Inline editing — box styling (border/shadow/bg) for the *card itself* comes from
