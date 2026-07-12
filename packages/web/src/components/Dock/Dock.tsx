@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
 import type { Card, PageCardWithCard, PageWithCards } from "@wattle/shared";
 import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
+import type { AnnotationProcess } from "../../api/client.js";
 import { Button, Icon } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
+import { ProcessPicker } from "./ProcessPicker.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
@@ -24,20 +26,46 @@ interface DockProps {
   onEditEmbed: () => void;
   onRemoveEmbed: () => void;
   onDeleteEmbed: () => void;
+  /** True from the moment a generation starts until it's fully saved — there is no
+   *  separate review/Accept step; while this is true the Generate action becomes a
+   *  Stop action instead (see onStopGeneration below). */
   generating: boolean;
-  /** True once a generation has finished streaming and is showing as a ghost card
-   *  (PageStack.tsx/GhostCard.tsx) awaiting Accept/Deny — a distinct Dock state that
-   *  replaces the normal Card action row, the same way Move Mode does. */
-  reviewingGeneration: boolean;
+  /** Ends a streaming generation early and saves whatever's been generated so far,
+   *  same as letting it finish naturally — see useGeneration.ts's `stop`. */
+  onStopGeneration: () => void;
   /** Set once a generation stream ends in an error (bad credentials, network failure,
    *  malformed model output — see useGeneration.ts) rather than a valid root card.
    *  Shown as a dismissible banner instead of silently doing nothing. */
   generationError: string | null;
   onDismissGenerationError: () => void;
-  onAcceptGeneration: () => void;
-  onDenyGeneration: () => void;
+  /** A one-time, non-error notice after a generation lands that wasn't a clean finish
+   *  — cut off by the model's token limit, or ended early via the Stop action (see
+   *  useGeneration.ts's `notice`). Dismissible, same as the error banners, but styled
+   *  neutrally rather than as a danger/error. */
+  generationNotice: string | null;
+  onDismissGenerationNotice: () => void;
+  /** Set when a diff/footnote/highlight run, or an accept/reject/edit-text action,
+   *  fails (useAnnotations.ts's `error`) — same dismissible-banner convention as
+   *  generationError above, kept as its own prop rather than merged with it since
+   *  they're two independent features that can each be mid-action at once. */
+  annotationError: string | null;
+  onDismissAnnotationError: () => void;
   onEdit: () => void;
   onSave: () => void;
+  /** The diff/footnote/highlight processes (a separate, parallel system from
+   *  Generate above — see annotationService.ts) — null when there's no Card/embed
+   *  context to run one against (mirrors onGeneratePage's null-when-unavailable
+   *  convention). Runs against the *whole* selected Card (root + any nested Cards);
+   *  a text-selection-scoped run instead goes through SelectionMenu.tsx directly,
+   *  not through the Dock at all. */
+  onRunProcess: ((process: AnnotationProcess) => void) | null;
+  /** True while a process run is streaming/awaiting its model response — disables
+   *  the action and spins its icon, same convention as `generating` below. */
+  processRunning: boolean;
+  /** How many pending diff annotations the selected Card/embed currently has — the
+   *  "Accept all diffs" action only appears once this is > 0. */
+  pendingDiffCount: number;
+  onAcceptAllDiffs: (() => void) | null;
   onRemoveFromPage: () => void;
   onAddCardToPage: () => void;
   /** Generate with nothing selected — appends at the bottom of the current Page
@@ -130,13 +158,19 @@ export function Dock({
   onRemoveEmbed,
   onDeleteEmbed,
   generating,
-  reviewingGeneration,
+  onStopGeneration,
   generationError,
   onDismissGenerationError,
-  onAcceptGeneration,
-  onDenyGeneration,
+  generationNotice,
+  onDismissGenerationNotice,
+  annotationError,
+  onDismissAnnotationError,
   onEdit,
   onSave,
+  onRunProcess,
+  processRunning,
+  pendingDiffCount,
+  onAcceptAllDiffs,
   onRemoveFromPage,
   onAddCardToPage,
   onGeneratePage,
@@ -153,7 +187,71 @@ export function Dock({
   onUploadFileToPage,
 }: DockProps) {
   const [vaultOpen, setVaultOpen] = useState(false);
+  const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const processButtonRef = useRef<HTMLDivElement>(null);
+
+  /** Shared by both the `selected` and `selectedEmbedId` branches below — a Card and
+   *  an embedded Card get the same process/accept-all-diffs actions, same precedent
+   *  as their existing Edit/Save/Remove set. Rendered specially in the row below
+   *  (not a plain onClick) since "process" opens ProcessPicker anchored to its own
+   *  button rather than firing immediately. */
+  const processActions: DockAction[] = [
+    ...(onRunProcess
+      ? [
+          {
+            key: "process",
+            operationId: null,
+            icon: "annotate" as const,
+            spin: processRunning,
+            label: processRunning ? t("dock.action.processRunning") : t("dock.action.process"),
+            // Computes a fixed viewport position from the button's own rect rather
+            // than anchoring via CSS position:absolute — .dock__row scrolls
+            // horizontally (overflow-x: auto), which clips an absolutely-positioned
+            // popover that escapes upward even though it still "renders" (same
+            // ancestor-overflow clipping behavior SelectionMenu.tsx's fixed
+            // positioning already sidesteps for the same reason).
+            onClick: () => {
+              // TEMP DEBUG — remove once the annotation-run-doesn't-do-anything
+              // issue is diagnosed.
+              console.debug("[annot] Dock process button clicked", {
+                hasRef: !!processButtonRef.current,
+                processRunning,
+              });
+              setProcessPickerPos((open) => {
+                if (open) {
+                  console.debug("[annot] closing ProcessPicker");
+                  return null;
+                }
+                const rect = processButtonRef.current?.getBoundingClientRect();
+                if (!rect) {
+                  console.debug("[annot] process button has no rect yet — picker will NOT open");
+                  return null;
+                }
+                console.debug("[annot] opening ProcessPicker at", rect);
+                return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+              });
+            },
+            disabled: processRunning,
+          },
+        ]
+      : []),
+    ...(onAcceptAllDiffs && pendingDiffCount > 0
+      ? [
+          {
+            key: "acceptAllDiffs",
+            operationId: null,
+            icon: "done" as const,
+            label: t("dock.action.acceptAllDiffs"),
+            // TEMP DEBUG — remove once diagnosed.
+            onClick: () => {
+              console.debug("[annot] Dock accept-all-diffs button clicked", { pendingDiffCount });
+              onAcceptAllDiffs();
+            },
+          },
+        ]
+      : []),
+  ];
 
   const vaultLabel = vaultOpen ? t("dock.vault.close") : t("dock.vault.open");
   const vaultAction: DockAction = {
@@ -164,7 +262,7 @@ export function Dock({
     onClick: () => setVaultOpen((open) => !open),
   };
 
-  const vaultPanel = vaultOpen && !movingPageCardId && !reviewingGeneration && (
+  const vaultPanel = vaultOpen && !movingPageCardId && (
     <div className="dock__vault-panel">
       <VaultView
         cards={vaultCards}
@@ -214,6 +312,7 @@ export function Dock({
         onClick: () => {},
         disabled: true,
       },
+      ...processActions,
       {
         key: "removeEmbed",
         operationId: null,
@@ -272,6 +371,7 @@ export function Dock({
         label: t("dock.action.remove"),
         onClick: onRemoveFromPage,
       },
+      ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedPage) {
     modeActions = [
@@ -293,19 +393,31 @@ export function Dock({
             },
           ]
         : []),
-      ...(onGeneratePage
+      // While generating, this becomes a Stop action instead of a disabled/spinning
+      // Generate button — there's no review step any more, so the only thing left to
+      // do mid-generation is let it run or cut it short (see useGeneration.ts's stop).
+      ...(generating
         ? [
             {
-              key: "generatePage",
+              key: "stopGeneration",
               operationId: null,
-              icon: "generate" as const,
-              spin: generating,
-              label: generating ? t("dock.action.generating") : t("dock.action.generate"),
-              onClick: onGeneratePage,
-              disabled: generating,
+              icon: "stop" as const,
+              spin: true,
+              label: t("dock.action.stopGeneration"),
+              onClick: onStopGeneration,
             },
           ]
-        : []),
+        : onGeneratePage
+          ? [
+              {
+                key: "generatePage",
+                operationId: null,
+                icon: "generate" as const,
+                label: t("dock.action.generate"),
+                onClick: onGeneratePage,
+              },
+            ]
+          : []),
       {
         key: "deletePage",
         operationId: null,
@@ -317,46 +429,38 @@ export function Dock({
     ];
   }
 
-  // A finished generation awaiting review (App.tsx/useGeneration.ts) collapses the
-  // Dock to just Accept/Deny on the ghost card — same pattern as Move Mode below —
-  // since nothing else should happen until that's resolved one way or the other.
-  const reviewActions: DockAction[] = [
-    {
-      key: "denyGeneration",
-      operationId: null,
-      icon: "close" as const,
-      label: t("dock.action.denyGeneration"),
-      onClick: onDenyGeneration,
-    },
-    {
-      key: "acceptGeneration",
-      operationId: null,
-      icon: "done" as const,
-      label: t("dock.action.acceptGeneration"),
-      onClick: onAcceptGeneration,
-    },
-  ];
-
   // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
   // action — no Vault toggle, no other Card/Page actions — so the only thing to do
   // is tap a drop target (PageStack.tsx) or back out.
-  const actions: DockAction[] = reviewingGeneration
-    ? reviewActions
-    : movingPageCardId
-      ? [
-          {
-            key: "cancelMove",
-            operationId: null,
-            icon: "close" as const,
-            label: t("dock.action.cancelMove"),
-            onClick: onCancelMove,
-          },
-        ]
-      : [vaultAction, ...modeActions];
+  const actions: DockAction[] = movingPageCardId
+    ? [
+        {
+          key: "cancelMove",
+          operationId: null,
+          icon: "close" as const,
+          label: t("dock.action.cancelMove"),
+          onClick: onCancelMove,
+        },
+      ]
+    : [vaultAction, ...modeActions];
 
   return (
     <footer className="dock">
       {vaultPanel}
+      {generationNotice && (
+        <div className="dock__notice-banner" role="status">
+          <span className="dock__error-banner-text">{generationNotice}</span>
+          <button
+            type="button"
+            className="dock__error-banner-dismiss"
+            aria-label={t("dock.action.dismiss")}
+            title={t("dock.action.dismiss")}
+            onClick={onDismissGenerationNotice}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
       {generationError && (
         <div className="dock__error-banner" role="alert">
           <span className="dock__error-banner-text">{generationError}</span>
@@ -366,6 +470,20 @@ export function Dock({
             aria-label={t("dock.action.dismiss")}
             title={t("dock.action.dismiss")}
             onClick={onDismissGenerationError}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
+      {annotationError && (
+        <div className="dock__error-banner" role="alert">
+          <span className="dock__error-banner-text">{annotationError}</span>
+          <button
+            type="button"
+            className="dock__error-banner-dismiss"
+            aria-label={t("dock.action.dismiss")}
+            title={t("dock.action.dismiss")}
+            onClick={onDismissAnnotationError}
           >
             <Icon name="close" />
           </button>
@@ -385,20 +503,47 @@ export function Dock({
         />
       )}
       <div className="dock__row">
-        {actions.map((action) => (
-          <Button
-            key={action.key}
-            iconOnly
-            variant={action.danger ? "danger" : "default"}
-            onClick={action.onClick}
-            disabled={action.disabled}
-            aria-label={action.label}
-            title={action.label}
-          >
-            <Icon name={action.icon} spin={action.spin} />
-          </Button>
-        ))}
+        {actions.map((action) =>
+          // "process" opens ProcessPicker anchored to its own button, rather than
+          // firing an action directly — needs its own positioned wrapper, unlike
+          // every other plain-click DockAction below.
+          action.key === "process" ? (
+            <div key="process" className="dock__process-wrap" ref={processButtonRef}>
+              <Button
+                iconOnly
+                onClick={action.onClick}
+                disabled={action.disabled}
+                aria-label={action.label}
+                title={action.label}
+              >
+                <Icon name={action.icon} spin={action.spin} />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              key={action.key}
+              iconOnly
+              variant={action.danger ? "danger" : "default"}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              aria-label={action.label}
+              title={action.label}
+            >
+              <Icon name={action.icon} spin={action.spin} />
+            </Button>
+          ),
+        )}
       </div>
+      {processPickerPos && (
+        <ProcessPicker
+          style={{ left: processPickerPos.left, bottom: processPickerPos.bottom }}
+          onPick={(process) => {
+            setProcessPickerPos(null);
+            onRunProcess?.(process);
+          }}
+          onClose={() => setProcessPickerPos(null)}
+        />
+      )}
     </footer>
   );
 }

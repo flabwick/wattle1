@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
+import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
 import { GhostCard } from "../Card/GhostCard.js";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
@@ -20,6 +21,18 @@ interface PageCardSlotProps {
   onRequestEditEmbed: (cardId: string, onRemove: () => void) => void;
   editingEmbedIds: ReadonlySet<string>;
   onToggleEmbedEdit: (cardId: string) => void;
+  /** Diff/footnote/highlight processes (App.tsx's useAnnotations) — only threaded
+   *  into the "note" branch below (CardView), same precedent as
+   *  selectedEmbedId/onSelectEmbed: the cardTypeUiRegistry's generic ui.View/ui.Editor
+   *  don't support per-embed selection either, so annotations don't reach them yet.
+   *  The trailing `pageCardId` on three of these is CardView's (Card.tsx's) to fill
+   *  in for its own top-level Card — see Card.tsx's wrapping closures — everything
+   *  here just forwards App.tsx's real handler through unchanged. */
+  onRunProcess: (cardId: string, process: AnnotationProcess, selectionText?: string, pageCardId?: string) => void;
+  onCreateManualHighlight: (cardId: string, anchor: string, color: string, pageCardId?: string) => void;
+  onAcceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => void;
+  onRemoveAnnotation: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
 }
 
 /**
@@ -42,6 +55,11 @@ function PageCardSlot({
   onRequestEditEmbed,
   editingEmbedIds,
   onToggleEmbedEdit,
+  onRunProcess,
+  onCreateManualHighlight,
+  onAcceptDiff,
+  onRemoveAnnotation,
+  onUpdateAnnotationText,
 }: PageCardSlotProps) {
   const typeId = getCardTypeId(pageCard.card);
   if (typeId === "note") {
@@ -58,6 +76,11 @@ function PageCardSlot({
         onRequestEditEmbed={onRequestEditEmbed}
         editingEmbedIds={editingEmbedIds}
         onToggleEmbedEdit={onToggleEmbedEdit}
+        onRunProcess={onRunProcess}
+        onCreateManualHighlight={onCreateManualHighlight}
+        onAcceptDiff={onAcceptDiff}
+        onRemoveAnnotation={onRemoveAnnotation}
+        onUpdateAnnotationText={onUpdateAnnotationText}
       />
     );
   }
@@ -94,17 +117,25 @@ interface PageStackProps {
    *  editing or not, on their own. */
   editingEmbedIds: ReadonlySet<string>;
   onToggleEmbedEdit: (cardId: string) => void;
+  /** Diff/footnote/highlight processes (App.tsx's useAnnotations) — see
+   *  PageCardSlotProps above for why only the "note" branch gets these. */
+  onRunProcess: (cardId: string, process: AnnotationProcess, selectionText?: string, pageCardId?: string) => void;
+  onCreateManualHighlight: (cardId: string, anchor: string, color: string, pageCardId?: string) => void;
+  onAcceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => void;
+  onRemoveAnnotation: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
   /** Move Mode (App.tsx's movingPageCardId) — the PageCard id in transit, or null. */
   movingPageCardId: string | null;
   /** Tap a drop zone to place the moving Card at this index (top-to-bottom, same
    *  convention as the reorder/move endpoints). */
   onDropAt: (index: number) => void;
-  /** A generation streaming or awaiting review (App.tsx/useGeneration.ts), rendered in
-   *  the same slot the real Card lands in once accepted: directly below a specific
+  /** A generation actively streaming in (App.tsx/useGeneration.ts), rendered in the
+   *  same slot the real Card lands in once it's saved: directly below a specific
    *  PageCard when `afterPageCardId` is set (generationService.persistGeneratedCard),
    *  or at the bottom of the Page when it's null — the "nothing selected" case
-   *  (generationService.persistGeneratedCardToPage). Null (the whole prop) when no
-   *  generation is in flight. */
+   *  (generationService.persistGeneratedCardToPage). Null (the whole prop) once the
+   *  stream ends — there's no review step in between, it's saved immediately and
+   *  this slot hands off to the normal Card list. */
   ghostCard: { afterPageCardId: string | null; rootId: number; nodes: Record<number, GhostCardNode> } | null;
 }
 
@@ -154,6 +185,11 @@ export function PageStack({
   onRequestEditEmbed,
   editingEmbedIds,
   onToggleEmbedEdit,
+  onRunProcess,
+  onCreateManualHighlight,
+  onAcceptDiff,
+  onRemoveAnnotation,
+  onUpdateAnnotationText,
   movingPageCardId,
   onDropAt,
   ghostCard,
@@ -200,6 +236,11 @@ export function PageStack({
                   onRequestEditEmbed={onRequestEditEmbed}
                   editingEmbedIds={editingEmbedIds}
                   onToggleEmbedEdit={onToggleEmbedEdit}
+                  onRunProcess={onRunProcess}
+                  onCreateManualHighlight={onCreateManualHighlight}
+                  onAcceptDiff={onAcceptDiff}
+                  onRemoveAnnotation={onRemoveAnnotation}
+                  onUpdateAnnotationText={onUpdateAnnotationText}
                 />
                 {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
                   <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />

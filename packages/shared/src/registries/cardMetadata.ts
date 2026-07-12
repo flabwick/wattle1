@@ -1,6 +1,50 @@
 import { z } from "zod";
 
 /**
+ * A sparse, anchor-based overlay on a Card's content — never a rewrite of the content
+ * itself (see packages/prompt-engine/prompts/{diff,footnote,highlight}/system.md for
+ * the output contract that produces these). `anchor` must be an exact substring of the
+ * Card's `content` for the entry to be trusted; anything that fails that check is
+ * dropped before it ever reaches storage (see annotationService.ts).
+ */
+const annotationBaseSchema = z.object({
+  id: z.string(),
+  anchor: z.string(),
+  createdAt: z.string(),
+});
+
+export const annotationSchema = z.discriminatedUnion("type", [
+  annotationBaseSchema.extend({
+    type: z.literal("diff"),
+    /** Proposed replacement for `anchor`, pending user accept/reject — see
+     *  annotationService.ts's acceptDiff/acceptAllDiffs/removeAnnotation. */
+    replacement: z.string(),
+  }),
+  annotationBaseSchema.extend({
+    type: z.literal("footnote"),
+    /** Plain text only (no links/card references) — user-editable after creation. */
+    text: z.string(),
+  }),
+  annotationBaseSchema.extend({
+    type: z.literal("highlight"),
+    color: z.string(),
+    /** Optional — a highlight need not carry an annotation/comment. */
+    text: z.string().optional(),
+  }),
+]);
+
+export type Annotation = z.infer<typeof annotationSchema>;
+
+/** One accepted diff's pre-change text, kept for a future undo feature (not built yet
+ *  — see annotationService.ts's acceptDiff). Append-only, never read back today. */
+const diffHistoryEntrySchema = z.object({
+  anchor: z.string(),
+  original: z.string(),
+  replacement: z.string(),
+  acceptedAt: z.string(),
+});
+
+/**
  * Versioned, extensible per-Card data — the JSON payload stored in Card.metadata
  * (see packages/api/prisma/schema.prisma). Adding a field to what a Card can carry
  * should mean adding it here (or a new version below), not a new DB column.
@@ -27,6 +71,11 @@ export const cardMetadataV1Schema = z.object({
       size: z.number(),
     })
     .optional(),
+  /** Pending/resolved diff, footnote, and highlight overlays — see annotationSchema
+   *  above. Additive and process-agnostic: all three types share this one array. */
+  annotations: z.array(annotationSchema).default([]),
+  /** Accepted diffs' pre-change text — see diffHistoryEntrySchema above. */
+  diffHistory: z.array(diffHistoryEntrySchema).default([]),
 });
 
 export type CardMetadataV1 = z.infer<typeof cardMetadataV1Schema>;
@@ -38,6 +87,8 @@ export function defaultMetadata(): CardMetadataV1 {
     version: CURRENT_METADATA_VERSION,
     links: [],
     log: [],
+    annotations: [],
+    diffHistory: [],
   };
 }
 

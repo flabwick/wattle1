@@ -101,6 +101,16 @@
   --icon-stroke-width: 1.5;
 
   --dock-height: 48px;
+
+  /* Highlight annotation palette (lib/highlightColors.ts) — fixed marker-pen colors a
+     user/model picks per highlight, independent of the app's own accent tokens above:
+     these mark content, they don't theme chrome. Muted/warm to sit inside the
+     parchment palette rather than fighting it. */
+  --annot-highlight-yellow: #e8d477;
+  --annot-highlight-green: #a8c98a;
+  --annot-highlight-blue: #93bcd6;
+  --annot-highlight-pink: #dba3b8;
+  --annot-highlight-orange: #e3ab74;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -125,5 +135,13 @@
     --color-danger-text: #201810;
 
     --color-shadow: #0e0b08;
+
+    /* Darker/more muted than the light-mode set so --color-text (light in dark mode)
+       stays readable on top of them. */
+    --annot-highlight-yellow: #6b5f2a;
+    --annot-highlight-green: #3f5c37;
+    --annot-highlight-blue: #345267;
+    --annot-highlight-pink: #5c3c47;
+    --annot-highlight-orange: #6a4a2a;
   }
 }

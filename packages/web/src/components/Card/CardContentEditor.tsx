@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import type { AnnotationProcess } from "../../api/client.js";
 import { InputField } from "../primitives/index.js";
 import { parseCardRefs } from "../../lib/parseCardRefs.js";
 import type { ContentSegment } from "../../lib/parseCardRefs.js";
@@ -37,6 +38,17 @@ interface CardContentEditorProps {
    *  cardTypeUiRegistry's NoteEditor, that don't support per-embed editing at all. */
   editingEmbedIds?: ReadonlySet<string>;
   onToggleEmbedEdit?: (cardId: string) => void;
+  /** Forwarded unchanged to every nested CardEmbed — a non-editing embed inside an
+   *  editing parent still shows its own annotations (CardEmbed.tsx decides its own
+   *  editing state independently of its ancestor's), so these need to reach it here
+   *  too, not just CardContent.tsx's own read-only tree. This component never renders
+   *  AnnotatedText itself (textareas have no span-level overlays), only passes these
+   *  through. */
+  onRunProcess?: (cardId: string, process: AnnotationProcess, selectionText?: string) => void;
+  onCreateManualHighlight?: (cardId: string, anchor: string, color: string) => void;
+  onAcceptDiff?: (cardId: string, annotationId: string) => void;
+  onRemoveAnnotation?: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText?: (cardId: string, annotationId: string, text: string) => void;
 }
 
 /** Guarantees there's always an editable (possibly empty) text segment before, between,
@@ -149,6 +161,11 @@ export const CardContentEditor = forwardRef<CardContentEditorHandle, CardContent
       onRequestEditEmbed,
       editingEmbedIds = EMPTY_EDITING_EMBED_IDS,
       onToggleEmbedEdit = noop,
+      onRunProcess,
+      onCreateManualHighlight,
+      onAcceptDiff,
+      onRemoveAnnotation,
+      onUpdateAnnotationText,
     },
     ref,
   ) {
@@ -220,6 +237,11 @@ export const CardContentEditor = forwardRef<CardContentEditorHandle, CardContent
               onRequestEditEmbed={onRequestEditEmbed}
               editingEmbedIds={editingEmbedIds}
               onToggleEmbedEdit={onToggleEmbedEdit}
+              onRunProcess={onRunProcess}
+              onCreateManualHighlight={onCreateManualHighlight}
+              onAcceptDiff={onAcceptDiff}
+              onRemoveAnnotation={onRemoveAnnotation}
+              onUpdateAnnotationText={onUpdateAnnotationText}
               onRemoveSelf={
                 onSelectEmbed
                   ? () => onChangeContent(content.slice(0, segment.start) + content.slice(segment.end))

@@ -21,7 +21,12 @@ export type IconName =
   | "down"
   | "upload"
   | "link"
-  | "move";
+  | "move"
+  | "annotate"
+  | "diff"
+  | "footnote"
+  | "highlight"
+  | "stop";
 
 interface IconProps {
   name: IconName;
@@ -116,6 +121,43 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M18 9l3 3-3 3" />
     </>
   ),
+  // A small comment/callout bubble — the Dock's "run a process" action and the
+  // text-selection context menu both use this as their trigger icon; the three
+  // process-specific icons below (diff/footnote/highlight) label the picker's own
+  // choices once that menu is open.
+  annotate: (
+    <>
+      <path d="M4 5h16v11H8l-4 4V5z" />
+      <path d="M8 10h8" />
+    </>
+  ),
+  diff: (
+    <>
+      <path d="M5 7h9" />
+      <path d="M5 12h6" />
+      <path d="M16 15l3 3 3-3" />
+      <path d="M19 4v14" />
+    </>
+  ),
+  footnote: (
+    <>
+      <path d="M4 6h16" />
+      <path d="M4 11h10" />
+      <path d="M4 16h7" />
+      <circle cx="19" cy="16" r="3" />
+      <path d="M18 15.2h2" />
+    </>
+  ),
+  highlight: (
+    <>
+      <path d="M7.5 15.5L4 19v-3.5L14 5l4 4-10 10z" />
+      <path d="M13 6.5l4 4" />
+      <path d="M4 19h4" />
+    </>
+  ),
+  // A filled square — the Dock's Generate action becomes this while a generation is
+  // streaming, standard "stop" glyph so it reads as distinct from close/cancel (X).
+  stop: <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
 };
 
 /**

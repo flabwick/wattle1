@@ -99,17 +99,40 @@ async function* streamForTarget(target: GenerationTarget): AsyncGenerator<CardBl
   const provider = modelProviderRegistry.get(providerId);
   const settings = configuredProviderSettings(providerId);
 
+  // TEMP DEBUG — remove once the truncated/unterminated-card-block issue is fully
+  // characterized. Runs server-side (Node), so it only shows up in the terminal
+  // running `npm run dev`/`npm run dev:api`, never in the browser console.
+  console.log(
+    `[gen] streamForTarget provider=${providerId} model=${settings?.model ?? "(default)"} maxTokens=${settings?.maxTokens ?? "(default)"}`,
+  );
+
   const parser = new CardBlockParser();
+  let rawText = "";
+  let sawDoneChunk = false;
   for await (const chunk of provider.generate(userMessage, {
     systemPrompt,
     model: settings?.model,
     temperature: settings?.temperature,
     maxTokens: settings?.maxTokens,
   })) {
+    rawText += chunk.text;
     for (const event of parser.push(chunk.text)) yield event;
-    if (chunk.done) break;
+    if (chunk.done) {
+      sawDoneChunk = true;
+      break;
+    }
   }
-  for (const event of parser.finish()) yield event;
+  console.log(`[gen] provider stream ended (sawDoneChunk=${sawDoneChunk}), ${rawText.length} chars received total`);
+
+  const finalEvents = parser.finish();
+  // Only dump the full raw text when something notable happened — a hard failure, or
+  // a recovered truncation — not on every ordinary successful generation, so this
+  // doesn't flood the terminal in the common case.
+  const notable = finalEvents.some((e) => e.type === "error" || (e.type === "done" && e.truncated));
+  if (notable) {
+    console.log(`[gen] raw model output (${rawText.length} chars):\n${rawText}`);
+  }
+  for (const event of finalEvents) yield event;
 }
 
 /** Card-level generation — GET /api/generate/stream/:pageCardId. */

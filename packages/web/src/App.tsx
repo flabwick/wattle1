@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { PageNav } from "./components/PageNav/PageNav.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
@@ -7,7 +8,8 @@ import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
 import { useGeneration } from "./hooks/useGeneration.js";
-import { notifySaved } from "./lib/cardStore.js";
+import { useAnnotations } from "./hooks/useAnnotations.js";
+import { getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { t } from "./i18n/index.js";
 
 export function App() {
@@ -46,7 +48,22 @@ export function App() {
     updateDraftLocally,
   } = usePages();
   const vault = useVault();
-  const generation = useGeneration();
+  // Auto-saves the moment a generation lands (cleanly or via Stop) — no separate
+  // review step. `refresh` re-fetches `pages` so the newly-saved Card shows up;
+  // useGeneration.ts awaits this before clearing its own ghost-card state, so there's
+  // no flash of "nothing there" in between.
+  const generation = useGeneration(refresh);
+  const annotations = useAnnotations();
+
+  // The currently-selected Card/embed's own live annotations, for the Dock's process/
+  // accept-all-diffs actions (pendingDiffCount) — an embed's Card only lives in
+  // cardStore (not `pages`), so it needs its own subscription; a top-level
+  // selectedPageCard's Card comes back through `pages` on every refresh() below,
+  // which every annotation mutation triggers (see the handle* wrappers).
+  const selectedEmbedCard = useSyncExternalStore(
+    (onChange) => (selectedEmbed ? subscribeToCard(selectedEmbed.cardId, onChange) : () => {}),
+    () => (selectedEmbed ? getCachedCard(selectedEmbed.cardId) : undefined),
+  );
 
   const sortedPages = useMemo(() => [...pages].sort((a, b) => b.order - a.order), [pages]);
 
@@ -185,25 +202,83 @@ export function App() {
 
   const editingPageCardId = isEditing ? selectedPageCardId : null;
 
+  // Which Card a Dock process action would run against — an embed takes priority,
+  // same convention as selectedEmbedId elsewhere (Dock.tsx/CardContent.tsx). Null
+  // when nothing's selected, matching onGeneratePage's null-when-unavailable pattern.
+  const dockAnnotationCardId = selectedEmbed?.cardId ?? selectedPageCard?.card.id ?? null;
+  // An embed never has one (embeds always write straight through to the vault, no
+  // draft step) — only a top-level selectedPageCard's own PageCard id counts here.
+  const dockAnnotationPageCardId = selectedEmbed ? undefined : selectedPageCard?.id;
+  const dockAnnotations = selectedEmbed
+    ? (selectedEmbedCard?.metadata.annotations ?? [])
+    : (selectedPageCard?.card.metadata.annotations ?? []);
+  const pendingDiffCount = dockAnnotations.filter((a) => a.type === "diff").length;
+
+  // Every annotation mutation also refreshes `pages` — same defensive convention
+  // handleSave uses, and useGeneration.ts's own auto-save does internally — so a
+  // not-yet-saved-to-vault Card's draft view (Card.tsx, which reads `pageCard.card`
+  // directly rather than through the live cardStore cache in that state) picks up
+  // the change too, and so the Dock's pendingDiffCount above stays correct for the
+  // top-level-Card case.
+  //
+  // `pageCardId` is the extra param Card.tsx's own wrapping closures (not the plain
+  // callback type threaded through CardContent/CardEmbed/AnnotatedText) supply for a
+  // top-level Card, so the API can resolve draft content instead of the vault Card's
+  // own row — see annotationService.ts's resolveDraftTarget doc comment. An embed
+  // never has one (embeds always write straight through to the vault, no draft step).
+  // TEMP DEBUG — remove once the annotation-run-doesn't-do-anything issue is
+  // diagnosed. Logs entry (with the exact args reaching App.tsx from the Dock/
+  // AnnotatedText/SelectionMenu) and confirms the post-mutation refresh() actually
+  // ran, since a silent throw inside refresh() would otherwise look identical to
+  // "nothing happened" from the UI's perspective.
+  async function handleRunProcess(
+    cardId: string,
+    process: AnnotationProcess,
+    selectionText?: string,
+    pageCardId?: string,
+  ) {
+    console.debug("[annot] App.handleRunProcess", { cardId, process, selectionText, pageCardId });
+    await annotations.runProcess(cardId, process, selectionText, pageCardId);
+    await refresh();
+    console.debug("[annot] App.handleRunProcess refresh() done");
+  }
+  async function handleCreateManualHighlight(cardId: string, anchor: string, color: string, pageCardId?: string) {
+    console.debug("[annot] App.handleCreateManualHighlight", { cardId, anchor, color, pageCardId });
+    await annotations.createManualHighlight(cardId, anchor, color, pageCardId);
+    await refresh();
+    console.debug("[annot] App.handleCreateManualHighlight refresh() done");
+  }
+  async function handleAcceptDiff(cardId: string, annotationId: string, pageCardId?: string) {
+    console.debug("[annot] App.handleAcceptDiff", { cardId, annotationId, pageCardId });
+    await annotations.acceptDiff(cardId, annotationId, pageCardId);
+    await refresh();
+    console.debug("[annot] App.handleAcceptDiff refresh() done");
+  }
+  async function handleAcceptAllDiffs(cardId: string, pageCardId?: string) {
+    console.debug("[annot] App.handleAcceptAllDiffs", { cardId, pageCardId });
+    await annotations.acceptAllDiffs(cardId, pageCardId);
+    await refresh();
+    console.debug("[annot] App.handleAcceptAllDiffs refresh() done");
+  }
+  async function handleRemoveAnnotation(cardId: string, annotationId: string) {
+    console.debug("[annot] App.handleRemoveAnnotation", { cardId, annotationId });
+    await annotations.removeAnnotation(cardId, annotationId);
+    await refresh();
+    console.debug("[annot] App.handleRemoveAnnotation refresh() done");
+  }
+  async function handleUpdateAnnotationText(cardId: string, annotationId: string, text: string) {
+    console.debug("[annot] App.handleUpdateAnnotationText", { cardId, annotationId, text });
+    await annotations.updateAnnotationText(cardId, annotationId, text);
+    await refresh();
+    console.debug("[annot] App.handleUpdateAnnotationText refresh() done");
+  }
+
   // The "nothing selected" counterpart — Dock's Generate action when only a Page is
   // in view (selectedPageForDock). Appends at the bottom of the Page instead of
   // directly below a specific Card; see generationService.persistGeneratedCardToPage.
   function handleGeneratePage() {
     if (!currentPage) return;
     generation.startForPage(currentPage.id);
-  }
-
-  // Accept persists the ghost card's finalized content via a new endpoint that does
-  // not call the model again (it already ran once during streaming); deny just drops
-  // the local state, no server call, no trace left. useGeneration tracks which target
-  // (Card or Page) the in-flight generation is anchored to, so this doesn't need to.
-  async function handleAcceptGeneration() {
-    await generation.accept();
-    await refresh();
-  }
-
-  function handleDenyGeneration() {
-    generation.deny();
   }
 
   async function handleSave() {
@@ -382,6 +457,11 @@ export function App() {
             onRequestEditEmbed={requestEditEmbed}
             editingEmbedIds={editingEmbedIds}
             onToggleEmbedEdit={toggleEditEmbed}
+            onRunProcess={handleRunProcess}
+            onCreateManualHighlight={handleCreateManualHighlight}
+            onAcceptDiff={handleAcceptDiff}
+            onRemoveAnnotation={handleRemoveAnnotation}
+            onUpdateAnnotationText={handleUpdateAnnotationText}
             movingPageCardId={movingPageCardId}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
             ghostCard={
@@ -417,13 +497,40 @@ export function App() {
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
         generating={generation.isStreaming}
-        reviewingGeneration={generation.isReviewing}
+        onStopGeneration={generation.stop}
         generationError={generation.error}
-        onDismissGenerationError={handleDenyGeneration}
-        onAcceptGeneration={handleAcceptGeneration}
-        onDenyGeneration={handleDenyGeneration}
+        onDismissGenerationError={generation.dismissError}
+        generationNotice={generation.notice}
+        onDismissGenerationNotice={generation.dismissNotice}
+        annotationError={annotations.error}
+        onDismissAnnotationError={annotations.dismissError}
         onEdit={() => setIsEditing(true)}
         onSave={handleSave}
+        onRunProcess={
+          dockAnnotationCardId
+            ? (process) => {
+                console.debug("[annot] Dock onRunProcess fired", {
+                  process,
+                  dockAnnotationCardId,
+                  dockAnnotationPageCardId,
+                });
+                handleRunProcess(dockAnnotationCardId, process, undefined, dockAnnotationPageCardId);
+              }
+            : null
+        }
+        processRunning={annotations.running}
+        pendingDiffCount={pendingDiffCount}
+        onAcceptAllDiffs={
+          dockAnnotationCardId
+            ? () => {
+                console.debug("[annot] Dock onAcceptAllDiffs fired", {
+                  dockAnnotationCardId,
+                  dockAnnotationPageCardId,
+                });
+                handleAcceptAllDiffs(dockAnnotationCardId, dockAnnotationPageCardId);
+              }
+            : null
+        }
         onRemoveFromPage={handleRemoveFromPage}
         onAddCardToPage={handleAddCardToCurrentPage}
         onGeneratePage={currentPage ? handleGeneratePage : null}

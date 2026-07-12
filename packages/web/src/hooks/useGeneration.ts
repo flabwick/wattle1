@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GeneratedCardPart } from "@wattle/shared";
 import * as api from "../api/client.js";
+import { t } from "../i18n/index.js";
 
 /** One piece of a ghost card's content, in the order it streamed in: either literal
  *  text, or a reference to a nested ghost card (rendered as an embedded sub-card —
@@ -18,9 +19,9 @@ export interface GhostCardNode {
   closed: boolean;
 }
 
-/** Where the in-flight/reviewing generation is anchored — a specific Card (insert
- *  directly below it) or a Page with nothing selected (append at the bottom). Mirrors
- *  @wattle/api's GenerationTarget. Tracked here so `accept()` knows which endpoint/
+/** Where the in-flight generation is anchored — a specific Card (insert directly
+ *  below it) or a Page with nothing selected (append at the bottom). Mirrors
+ *  @wattle/api's GenerationTarget. Tracked here so finalizing knows which endpoint/
  *  payload shape to use without the caller having to remember and re-pass it. */
 export type GenerationTarget =
   | { type: "card"; pageCardId: string }
@@ -34,14 +35,30 @@ interface CardBlockStreamEvent {
   title?: string;
   text?: string;
   message?: string;
+  /** Only set on "done" — true when the model's response was cut off (almost always
+   *  maxTokens) and the parser recovered by auto-closing whatever was still open
+   *  (@wattle/prompt-engine's CardBlockParser.finish()) rather than discarding the
+   *  whole generation. */
+  truncated?: boolean;
 }
 
-interface UseGenerationResult {
+export interface UseGenerationResult {
+  /** True from the moment a generation starts until it's fully settled — covers both
+   *  the SSE streaming phase and the brief save that follows it. There is no review
+   *  step any more: a generation that completes (or is stopped) is saved immediately
+   *  as a real Card, no separate Accept/Deny action required. */
   isStreaming: boolean;
-  /** True once the stream has finished with a valid root ghost card and is awaiting
-   *  the Dock's accept/deny review actions. */
-  isReviewing: boolean;
+  /** A one-time message set right after a generation lands, if it wasn't a clean
+   *  finish — cut off by the model's token limit, or ended early via `stop()`. Null
+   *  for an ordinary completion. Cleared on the next start()/dismissNotice(). */
+  notice: string | null;
+  dismissNotice: () => void;
+  /** Set when the stream itself fails (bad credentials, network failure, no root
+   *  card ever opened — see cardBlockParser.ts) rather than landing a Card at all.
+   *  Deliberately does *not* clear the ghost-card state on its own — the partial
+   *  ghost stays visible for inspection until dismissError() is called. */
   error: string | null;
+  dismissError: () => void;
   nodes: Record<number, GhostCardNode>;
   rootId: number | null;
   /** Where the current/last generation is anchored (see GenerationTarget) — null when
@@ -49,21 +66,17 @@ interface UseGenerationResult {
    *  whether to render it after a specific PageCard or at the bottom of the Page. */
   target: GenerationTarget | null;
   /** Opens the SSE stream for a selected Card — the sole model call for this
-   *  generation. Builds up the ghost card tree in local state only; nothing is
-   *  persisted until `accept` is called. */
+   *  generation. Builds up the ghost card tree in local state as it streams in, and
+   *  saves it automatically the moment the stream ends cleanly. */
   start: (pageCardId: string) => void;
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
   startForPage: (pageId: string) => void;
-  /** Discards the ghost card from local state. No server call, no trace left. */
-  deny: () => void;
-  /** Persists the ghost card's root via POST /api/generate/accept. Any nested ghost
-   *  cards are sent as structured parts (not flattened back into literal <card>
-   *  markup) so the server can materialize each one as its own standalone Card and
-   *  splice a `[[cardId]]` embed reference in its place — the server ends up doing the
-   *  same thing CardLinkPicker.tsx does for a user-created embed, so an accepted
-   *  generation's nested cards render and behave like any other embedded Card. */
-  accept: () => Promise<void>;
+  /** Ends the stream early and immediately saves whatever's been generated so far as
+   *  the real Card — the same save path a clean completion uses, just triggered by
+   *  the user instead of the model finishing on its own. If nothing has streamed in
+   *  yet (no root card opened), this just cancels — there's nothing to save. */
+  stop: () => void;
 }
 
 /** Converts a ghost node's parts into the structured payload persistGeneratedCard(ToPage)
@@ -87,102 +100,179 @@ function buildParts(id: number, nodes: Record<number, GhostCardNode>): Generated
  * Consumes the streaming generation endpoints (GET /api/generate/stream/:pageCardId,
  * or /stream/page/:pageId for the "nothing selected" case) via EventSource. Those
  * endpoints are the sole model invocation for a generation — there is no separate
- * preview call and persist call any more — and they forward CardBlockParser events
- * instead of raw text chunks, so this hook builds up a small local tree (root ghost
- * card + any nested ghost cards) as those events arrive, rather than just
- * accumulating a string.
+ * preview call any more — and they forward CardBlockParser events instead of raw text
+ * chunks, so this hook builds up a small local tree (root ghost card + any nested
+ * ghost cards) as those events arrive, rather than just accumulating a string. Once
+ * the stream ends (cleanly or via `stop()`), that tree is saved immediately — no
+ * separate Accept/Deny review step.
+ *
+ * `onAccepted` runs after every successful save (App.tsx passes `refresh` — the ghost
+ * card's local state is only cleared *after* this resolves, so the freshly-saved real
+ * Card is already in `pages` before the ghost slot disappears, avoiding a flash of
+ * nothing in between).
  */
-export function useGeneration(): UseGenerationResult {
+export function useGeneration(onAccepted?: () => void | Promise<void>): UseGenerationResult {
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isReviewing, setIsReviewing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Record<number, GhostCardNode>>({});
   const [rootId, setRootId] = useState<number | null>(null);
   const [target, setTarget] = useState<GenerationTarget | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => () => sourceRef.current?.close(), []);
 
   const reset = useCallback(() => {
     setNodes({});
     setRootId(null);
-    setIsReviewing(false);
-    setError(null);
     setTarget(null);
   }, []);
+
+  const dismissError = useCallback(() => {
+    setError(null);
+    reset();
+  }, [reset]);
+
+  const dismissNotice = useCallback(() => setNotice(null), []);
 
   const openStream = useCallback(
     (streamTarget: GenerationTarget, url: string) => {
       sourceRef.current?.close();
       reset();
+      setError(null);
+      setNotice(null);
       setTarget(streamTarget);
       setIsStreaming(true);
 
+      // Local mirrors of the React state above, updated in lockstep with every
+      // setNodes/setRootId call below. Needed because finalize() (and the "done"
+      // handler that calls it) live inside this same closure, created once per
+      // openStream() call — they'd otherwise see whatever `nodes`/`rootId` were at
+      // mount time (empty/null), not the live values, since this isn't a
+      // useCallback that gets recreated with fresh deps on every state update.
+      let localNodes: Record<number, GhostCardNode> = {};
+      let localRootId: number | null = null;
+      let finalized = false;
+
       const source = new EventSource(url);
       sourceRef.current = source;
+
+      /** The single save path — used both when the stream ends cleanly ("done") and
+       *  when the user hits Stop mid-stream. Guarded against running twice (e.g. Stop
+       *  clicked right as "done" arrives). */
+      async function finalize(reason: "completed" | "truncated" | "stopped") {
+        if (finalized) {
+          console.debug(`[gen] finalize(${reason}) skipped — already finalized`);
+          return;
+        }
+        finalized = true;
+        console.debug(`[gen] finalize(${reason})`, { rootId: localRootId, target: streamTarget });
+
+        const root = localRootId !== null ? localNodes[localRootId] : undefined;
+        if (!root) {
+          console.debug(`[gen] finalize(${reason}): nothing generated yet, nothing to save`);
+          setIsStreaming(false);
+          reset();
+          return;
+        }
+
+        const generated = { title: root.title, cardType: root.cardType, parts: buildParts(root.id, localNodes) };
+        try {
+          await api.acceptGeneration(
+            streamTarget.type === "card"
+              ? { pageCardId: streamTarget.pageCardId }
+              : { pageId: streamTarget.pageId },
+            generated,
+          );
+          console.debug(`[gen] finalize(${reason}) saved successfully`);
+          if (reason === "truncated") setNotice(t("generate.truncatedNotice"));
+          else if (reason === "stopped") setNotice(t("generate.stoppedNotice"));
+          await onAccepted?.();
+        } catch (err) {
+          console.debug(`[gen] finalize(${reason}) FAILED to save:`, err);
+          setError(err instanceof Error ? err.message : "Failed to save the generated card");
+        } finally {
+          setIsStreaming(false);
+          reset();
+        }
+      }
+
+      stopRef.current = () => {
+        console.debug("[gen] stop() called by user");
+        source.close();
+        void finalize("stopped");
+      };
 
       source.onmessage = (evt) => {
         let event: CardBlockStreamEvent;
         try {
           event = JSON.parse(evt.data) as CardBlockStreamEvent;
         } catch {
+          console.debug("[gen] failed to parse SSE payload:", evt.data);
           source.close();
           setIsStreaming(false);
           setError("Failed to parse stream event");
           return;
         }
+        console.debug("[gen] SSE event:", event);
 
         switch (event.type) {
           case "open": {
             const id = event.id!;
             const parentId = event.parentId ?? null;
-            setNodes((prev) => {
-              const node: GhostCardNode = {
-                id,
-                parentId,
-                cardType: event.cardType ?? "note",
-                title: event.title ?? "",
-                parts: [],
-                closed: false,
+            const node: GhostCardNode = {
+              id,
+              parentId,
+              cardType: event.cardType ?? "note",
+              title: event.title ?? "",
+              parts: [],
+              closed: false,
+            };
+            localNodes = { ...localNodes, [id]: node };
+            if (parentId !== null && localNodes[parentId]) {
+              localNodes = {
+                ...localNodes,
+                [parentId]: {
+                  ...localNodes[parentId],
+                  parts: [...localNodes[parentId].parts, { kind: "child", id }],
+                },
               };
-              const next = { ...prev, [id]: node };
-              if (parentId !== null && next[parentId]) {
-                next[parentId] = {
-                  ...next[parentId],
-                  parts: [...next[parentId].parts, { kind: "child", id }],
-                };
-              }
-              return next;
-            });
+            }
+            if (parentId === null) localRootId = id;
+            setNodes(localNodes);
             if (parentId === null) setRootId(id);
             break;
           }
           case "text": {
             const id = event.id!;
             const text = event.text ?? "";
-            setNodes((prev) => {
-              const node = prev[id];
-              if (!node) return prev;
+            const node = localNodes[id];
+            if (node) {
               const last = node.parts[node.parts.length - 1];
               const parts =
                 last && last.kind === "text"
                   ? [...node.parts.slice(0, -1), { kind: "text" as const, text: last.text + text }]
                   : [...node.parts, { kind: "text" as const, text }];
-              return { ...prev, [id]: { ...node, parts } };
-            });
+              localNodes = { ...localNodes, [id]: { ...node, parts } };
+              setNodes(localNodes);
+            }
             break;
           }
           case "close": {
             const id = event.id!;
-            setNodes((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], closed: true } } : prev));
+            if (localNodes[id]) {
+              localNodes = { ...localNodes, [id]: { ...localNodes[id], closed: true } };
+              setNodes(localNodes);
+            }
             break;
           }
           case "done":
             source.close();
-            setIsStreaming(false);
-            setIsReviewing(true);
+            void finalize(event.truncated ? "truncated" : "completed");
             break;
           case "error":
+            console.debug("[gen] generation FAILED:", event.message);
             source.close();
             setIsStreaming(false);
             setError(event.message ?? "Generation failed");
@@ -190,13 +280,14 @@ export function useGeneration(): UseGenerationResult {
         }
       };
 
-      source.onerror = () => {
+      source.onerror = (err) => {
+        console.debug("[gen] EventSource transport error:", err);
         source.close();
         setIsStreaming(false);
         setError((prev) => prev ?? "Streaming connection failed");
       };
     },
-    [reset],
+    [reset, onAccepted],
   );
 
   const start = useCallback(
@@ -209,26 +300,21 @@ export function useGeneration(): UseGenerationResult {
     [openStream],
   );
 
-  const deny = useCallback(() => {
-    sourceRef.current?.close();
-    reset();
-  }, [reset]);
+  const stop = useCallback(() => {
+    stopRef.current?.();
+  }, []);
 
-  const accept = useCallback(async () => {
-    if (rootId === null || !target) return;
-    const root = nodes[rootId];
-    if (!root) return;
-    const generated = {
-      title: root.title,
-      cardType: root.cardType,
-      parts: buildParts(rootId, nodes),
-    };
-    await api.acceptGeneration(
-      target.type === "card" ? { pageCardId: target.pageCardId } : { pageId: target.pageId },
-      generated,
-    );
-    reset();
-  }, [nodes, rootId, target, reset]);
-
-  return { isStreaming, isReviewing, error, nodes, rootId, target, start, startForPage, deny, accept };
+  return {
+    isStreaming,
+    notice,
+    dismissNotice,
+    error,
+    dismissError,
+    nodes,
+    rootId,
+    target,
+    start,
+    startForPage,
+    stop,
+  };
 }

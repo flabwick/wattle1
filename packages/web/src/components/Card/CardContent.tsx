@@ -1,13 +1,36 @@
+import type { Annotation } from "@wattle/shared";
+import type { AnnotationProcess } from "../../api/client.js";
 import { parseCardRefs } from "../../lib/parseCardRefs.js";
 import { CardEmbed } from "./CardEmbed.js";
+import { AnnotatedText } from "./AnnotatedText.js";
 import { t } from "../../i18n/index.js";
 import "./CardContent.css";
 
 const EMPTY_EDITING_EMBED_IDS: ReadonlySet<string> = new Set();
+const EMPTY_ANNOTATIONS: readonly Annotation[] = [];
 function noop() {}
 
 interface CardContentProps {
   content: string;
+  /** The real Card id this exact `content` belongs to — Card.tsx's own PageCard.card.id
+   *  at the top level, or CardEmbed.tsx's own `cardId` when this is an embed's content.
+   *  Threaded into AnnotatedText so every diff/footnote/highlight action below is
+   *  scoped to the right Card even when nested several embeds deep. */
+  cardId: string;
+  /** This exact Card's own diff/footnote/highlight overlays (Card.metadata.annotations
+   *  — cardMetadata.ts) — never a parent's or a nested embed's, each of those reads
+   *  its own via its own `useCard` in CardEmbed.tsx. */
+  annotations?: readonly Annotation[];
+  /** Diff/footnote scoped to a text selection inside this Card (SelectionMenu.tsx via
+   *  AnnotatedText.tsx) — undefined `onRunProcess`/`onCreateManualHighlight` (the
+   *  cardTypeUiRegistry views that don't support annotations at all) simply renders
+   *  no SelectionMenu and no diff/highlight/footnote interactivity, matching how
+   *  onSelectEmbed/onRequestEditEmbed already degrade when omitted. */
+  onRunProcess?: (cardId: string, process: AnnotationProcess, selectionText?: string) => void;
+  onCreateManualHighlight?: (cardId: string, anchor: string, color: string) => void;
+  onAcceptDiff?: (cardId: string, annotationId: string) => void;
+  onRemoveAnnotation?: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText?: (cardId: string, annotationId: string, text: string) => void;
   ancestorIds: ReadonlySet<string>;
   depth: number;
   /** Which embedded Card, if any, is independently selected right now (App.tsx state)
@@ -46,6 +69,13 @@ interface CardContentProps {
  */
 export function CardContent({
   content,
+  cardId,
+  annotations = EMPTY_ANNOTATIONS,
+  onRunProcess,
+  onCreateManualHighlight,
+  onAcceptDiff,
+  onRemoveAnnotation,
+  onUpdateAnnotationText,
   ancestorIds,
   depth,
   selectedEmbedId,
@@ -59,7 +89,19 @@ export function CardContent({
   const hasRefs = segments.some((segment) => segment.type === "ref");
 
   if (!hasRefs) {
-    return <p className="card__preview">{content || t("card.emptyContent")}</p>;
+    if (!content) return <p className="card__preview">{t("card.emptyContent")}</p>;
+    return (
+      <AnnotatedText
+        cardId={cardId}
+        text={content}
+        annotations={annotations}
+        onRunProcess={onRunProcess}
+        onCreateManualHighlight={onCreateManualHighlight}
+        onAcceptDiff={onAcceptDiff}
+        onRemoveAnnotation={onRemoveAnnotation}
+        onUpdateAnnotationText={onUpdateAnnotationText}
+      />
+    );
   }
 
   return (
@@ -67,9 +109,18 @@ export function CardContent({
       {segments.map((segment, i) =>
         segment.type === "text" ? (
           segment.value.trim() && (
-            <p key={i} className="card-content__text">
-              {segment.value}
-            </p>
+            <AnnotatedText
+              key={i}
+              cardId={cardId}
+              text={segment.value}
+              annotations={annotations}
+              className="card-content__text"
+              onRunProcess={onRunProcess}
+              onCreateManualHighlight={onCreateManualHighlight}
+              onAcceptDiff={onAcceptDiff}
+              onRemoveAnnotation={onRemoveAnnotation}
+              onUpdateAnnotationText={onUpdateAnnotationText}
+            />
           )
         ) : (
           <CardEmbed
@@ -82,6 +133,11 @@ export function CardContent({
             onRequestEditEmbed={onRequestEditEmbed}
             editingEmbedIds={editingEmbedIds}
             onToggleEmbedEdit={onToggleEmbedEdit}
+            onRunProcess={onRunProcess}
+            onCreateManualHighlight={onCreateManualHighlight}
+            onAcceptDiff={onAcceptDiff}
+            onRemoveAnnotation={onRemoveAnnotation}
+            onUpdateAnnotationText={onUpdateAnnotationText}
             onRemoveSelf={
               onChangeContent
                 ? () => onChangeContent(content.slice(0, segment.start) + content.slice(segment.end))

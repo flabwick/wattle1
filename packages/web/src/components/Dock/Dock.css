@@ -70,10 +70,33 @@
   display: flex;
 }
 
+/* A generation that landed but wasn't a clean finish (cut off by the model's token
+   limit, or stopped early — useGeneration.ts's `notice`) — same shape as
+   .dock__error-banner but neutral, not danger-colored: the Card was still saved fine,
+   this is informational, not a failure. */
+.dock__notice-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
 .dock__row {
   display: flex;
   gap: var(--space-1);
   overflow-x: auto;
+}
+
+/* Wraps the process button so Dock.tsx can hold a ref to it — ProcessPicker itself
+   renders as a position: fixed sibling outside .dock__row (see Dock.tsx), not
+   anchored via CSS, since this row's overflow-x: auto would clip an
+   absolutely-positioned popover that escapes it upward. */
+.dock__process-wrap {
+  display: flex;
 }
 
 /* Triggered via the upload DockAction's icon button (fileInputRef.current.click()),

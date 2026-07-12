@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TouchEvent } from "react";
+import type { AnnotationProcess } from "../../api/client.js";
 import { Icon, InputField } from "../primitives/index.js";
 import { useCard } from "../../hooks/useCard.js";
 import { editCard } from "../../lib/cardStore.js";
@@ -38,6 +39,15 @@ interface CardEmbedProps {
    *  require its ancestor to be editing either. Any combination is possible. */
   editingEmbedIds: ReadonlySet<string>;
   onToggleEmbedEdit: (cardId: string) => void;
+  /** Forwarded unchanged to both this embed's own CardContent/CardContentEditor and
+   *  every embed nested further inside it — see CardContent.tsx's doc comment. This
+   *  embed's own diff/footnote/highlight overlays come from its own `useCard(cardId)`
+   *  below (`card.metadata.annotations`), not a prop from its parent. */
+  onRunProcess?: (cardId: string, process: AnnotationProcess, selectionText?: string) => void;
+  onCreateManualHighlight?: (cardId: string, anchor: string, color: string) => void;
+  onAcceptDiff?: (cardId: string, annotationId: string) => void;
+  onRemoveAnnotation?: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText?: (cardId: string, annotationId: string, text: string) => void;
   /** Strips *this* embed's own `[[cardId]]` token out of its immediate parent's
    *  content — undefined only when there's nowhere to route a removal (no onSelectEmbed
    *  wired in from above). */
@@ -67,6 +77,11 @@ export function CardEmbed({
   onRequestEditEmbed,
   editingEmbedIds,
   onToggleEmbedEdit,
+  onRunProcess,
+  onCreateManualHighlight,
+  onAcceptDiff,
+  onRemoveAnnotation,
+  onUpdateAnnotationText,
   onRemoveSelf,
 }: CardEmbedProps) {
   const circular = ancestorIds.has(cardId);
@@ -236,10 +251,17 @@ export function CardEmbed({
             onRequestEditEmbed={onRequestEditEmbed}
             editingEmbedIds={editingEmbedIds}
             onToggleEmbedEdit={onToggleEmbedEdit}
+            onRunProcess={onRunProcess}
+            onCreateManualHighlight={onCreateManualHighlight}
+            onAcceptDiff={onAcceptDiff}
+            onRemoveAnnotation={onRemoveAnnotation}
+            onUpdateAnnotationText={onUpdateAnnotationText}
           />
         ) : (
           <CardContent
             content={card.content}
+            cardId={cardId}
+            annotations={card.metadata.annotations}
             ancestorIds={childAncestorIds}
             depth={depth + 1}
             selectedEmbedId={selectedEmbedId}
@@ -247,6 +269,11 @@ export function CardEmbed({
             onRequestEditEmbed={onRequestEditEmbed}
             editingEmbedIds={editingEmbedIds}
             onToggleEmbedEdit={onToggleEmbedEdit}
+            onRunProcess={onRunProcess}
+            onCreateManualHighlight={onCreateManualHighlight}
+            onAcceptDiff={onAcceptDiff}
+            onRemoveAnnotation={onRemoveAnnotation}
+            onUpdateAnnotationText={onUpdateAnnotationText}
             onChangeContent={(next) => editCard(cardId, { content: next })}
           />
         ))}

@@ -1,0 +1,43 @@
+.annot-run {
+  display: inline;
+}
+
+.annot {
+  cursor: pointer;
+}
+
+/* Diff: a Grammarly-style wavy underline on the original text only — the suggested
+   replacement stays hidden until clicked (DiffPopover), not shown inline alongside a
+   struck-through original. The card's real text never visibly changes on its own
+   until the suggestion is explicitly accepted. */
+.annot--diff {
+  text-decoration: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--color-danger);
+  text-underline-offset: 2px;
+}
+
+/* Highlight: a plain <mark> reset to sit inside the parchment palette instead of the
+   browser default yellow, colored per-entry via inline style (highlightColors.ts). */
+.annot--highlight {
+  padding: 0 2px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+.annot__footnote-marker {
+  margin-left: 1px;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: 0.7em;
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  user-select: none;
+}
+
+.annot__footnote-marker:hover,
+.annot__footnote-marker:focus-visible {
+  background: var(--color-surface);
+  outline: none;
+}

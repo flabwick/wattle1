@@ -1,0 +1,59 @@
+/* Positioned at the selection's own bounding rect (SelectionMenu.tsx passes
+   viewport-relative top/left inline) — position: fixed, not absolute, since that rect
+   is already viewport-relative and the selection can be anywhere on the page,
+   independent of any single Card's own box. */
+.selection-menu {
+  position: fixed;
+  z-index: 20;
+  transform: translate(-50%, calc(-100% - var(--space-2)));
+  display: flex;
+  background: var(--color-surface-raised);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.selection-menu__actions,
+.selection-menu__colors {
+  display: flex;
+}
+
+.selection-menu__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target-sm);
+  height: var(--touch-target-sm);
+  border: none;
+  border-right: var(--border-width-thin) solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.selection-menu__action:last-child {
+  border-right: none;
+}
+
+.selection-menu__action:hover {
+  background: var(--color-surface);
+}
+
+.selection-menu__action .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.selection-menu__swatch {
+  width: var(--touch-target-sm);
+  height: var(--touch-target-sm);
+  border: none;
+  border-right: var(--border-width-thin) solid var(--color-border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.selection-menu__swatch:last-child {
+  border-right: none;
+}

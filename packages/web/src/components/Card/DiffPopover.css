@@ -1,0 +1,64 @@
+/* position: fixed with top/left computed in AnnotatedText.tsx from the triggering
+   span's own rect (this portals to document.body, so it can't anchor via
+   position:absolute against a DOM ancestor — see DiffPopover.tsx). */
+.diff-popover {
+  position: fixed;
+  z-index: 10;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  cursor: default;
+  white-space: normal;
+}
+
+.diff-popover__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+}
+
+.diff-popover__original {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-danger);
+}
+
+.diff-popover__replacement {
+  color: var(--color-accent-secondary);
+  font-weight: var(--font-weight-bold);
+}
+
+.diff-popover__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.diff-popover__reject,
+.diff-popover__accept {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target-sm);
+  height: var(--touch-target-sm);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.diff-popover__reject {
+  color: var(--color-danger);
+}
+
+.diff-popover__accept {
+  color: var(--color-accent-secondary);
+}

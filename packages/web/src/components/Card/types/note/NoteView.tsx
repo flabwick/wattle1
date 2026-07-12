@@ -41,7 +41,12 @@ export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
         </div>
       </div>
       {!collapsed && (
-        <CardContent content={content} ancestorIds={new Set([pageCard.card.id])} depth={0} />
+        <CardContent
+          content={content}
+          cardId={pageCard.card.id}
+          ancestorIds={new Set([pageCard.card.id])}
+          depth={0}
+        />
       )}
     </CardShell>
   );

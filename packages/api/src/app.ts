@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type ErrorRequestHandler } from "express";
 import "express-async-errors";
 import { ZodError } from "zod";
+import { annotationsRouter } from "./routes/annotations.js";
 import { cardsRouter } from "./routes/cards.js";
 import { generateRouter } from "./routes/generate.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
@@ -19,6 +20,7 @@ export function createApp() {
   app.use("/api/pages", pagesRouter);
   app.use("/api/page-cards", pageCardsRouter);
   app.use("/api/generate", generateRouter);
+  app.use("/api/annotations", annotationsRouter);
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     if (err instanceof ZodError) {

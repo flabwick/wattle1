@@ -17,7 +17,7 @@ this:
 
 ```
 <card type="note" title="A short title">
-Markdown content goes here.
+Plain text content goes here.
 </card>
 ```
 
@@ -35,3 +35,11 @@ Rules:
    card type. `title` is a short, plain-text label for that block.
 5. Do not wrap the `<card>` block in a markdown code fence, and do not use `<card>` for
    anything other than this block structure. Emit it as literal text.
+6. A card's own content is plain text and/or nested `<card>` blocks — nothing else. Do
+   not use markdown or any other formatting syntax inside it: no `**bold**`/`*italic*`,
+   no `#` headings, no `-`/`*`/`1.` list markers, no backtick code spans/fences, no
+   `[link](url)` syntax, no HTML tags. The app renders content as plain text verbatim
+   (whitespace preserved, nothing parsed), so formatting syntax would show up as
+   literal stray characters instead of actual formatting. Express structure — a
+   heading, a list, a sub-point — as a nested `<card>` with its own `title`, not as
+   markdown syntax inside the text.

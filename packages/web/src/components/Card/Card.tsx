@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import type { Card, PageCardWithCard } from "@wattle/shared";
+import type { AnnotationProcess } from "../../api/client.js";
 import { CardShell, Icon, InputField } from "../primitives/index.js";
 import { CardContent } from "./CardContent.js";
 import { CardContentEditor } from "./CardContentEditor.js";
@@ -42,6 +43,18 @@ interface CardProps {
    *  embeds can each be editing or not, on their own (App.tsx/CardEmbed.tsx). */
   editingEmbedIds: ReadonlySet<string>;
   onToggleEmbedEdit: (cardId: string) => void;
+  /** Diff/footnote/highlight processes (App.tsx's useAnnotations) — forwarded (via
+   *  this component's own wrapping closures below, which inject `pageCard.id` as the
+   *  trailing `pageCardId` whenever the call is about *this* Card, not a nested
+   *  embed — see resolveDraftTarget's doc comment in annotationService.ts for why a
+   *  not-yet-saved top-level Card needs that) to this Card's own CardContent (read
+   *  view only; the editing view below has no overlays, see CardContentEditor.tsx)
+   *  and, unwrapped, to every embed nested inside it. */
+  onRunProcess?: (cardId: string, process: AnnotationProcess, selectionText?: string, pageCardId?: string) => void;
+  onCreateManualHighlight?: (cardId: string, anchor: string, color: string, pageCardId?: string) => void;
+  onAcceptDiff?: (cardId: string, annotationId: string, pageCardId?: string) => void;
+  onRemoveAnnotation?: (cardId: string, annotationId: string) => void;
+  onUpdateAnnotationText?: (cardId: string, annotationId: string, text: string) => void;
 }
 
 /**
@@ -76,6 +89,11 @@ export function CardView({
   onRequestEditEmbed,
   editingEmbedIds,
   onToggleEmbedEdit,
+  onRunProcess,
+  onCreateManualHighlight,
+  onAcceptDiff,
+  onRemoveAnnotation,
+  onUpdateAnnotationText,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
@@ -107,6 +125,54 @@ export function CardView({
       onChangeDraft({ content: value });
     }
   }
+
+  // Injects this Card's own `pageCard.id` as the trailing pageCardId whenever the
+  // call is about this Card's own cardId (as opposed to a nested embed's, which these
+  // same wrapped closures also get passed to unchanged — an embed's cardId never
+  // matches pageCard.card.id, so the injection is a no-op for it, correctly leaving
+  // annotationService.ts to resolve straight from the embed's own vault Card row).
+  // TEMP DEBUG — remove once the annotation-run-doesn't-do-anything issue is
+  // diagnosed. This is exactly where the earlier "unsaved Card content is empty"
+  // bug lived — logging the resolved pageCardId on every call makes it obvious
+  // whether a not-yet-saved Card is (or isn't) getting its draft resolved.
+  const wrappedOnRunProcess = onRunProcess
+    ? (cardId: string, process: AnnotationProcess, selectionText?: string) => {
+        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
+        console.debug("[annot] Card.wrappedOnRunProcess", {
+          cardId,
+          process,
+          selectionText,
+          pageCardId,
+          savedToVault: pageCard.card.savedToVault,
+        });
+        onRunProcess(cardId, process, selectionText, pageCardId);
+      }
+    : undefined;
+  const wrappedOnCreateManualHighlight = onCreateManualHighlight
+    ? (cardId: string, anchor: string, color: string) => {
+        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
+        console.debug("[annot] Card.wrappedOnCreateManualHighlight", {
+          cardId,
+          anchor,
+          color,
+          pageCardId,
+          savedToVault: pageCard.card.savedToVault,
+        });
+        onCreateManualHighlight(cardId, anchor, color, pageCardId);
+      }
+    : undefined;
+  const wrappedOnAcceptDiff = onAcceptDiff
+    ? (cardId: string, annotationId: string) => {
+        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
+        console.debug("[annot] Card.wrappedOnAcceptDiff", {
+          cardId,
+          annotationId,
+          pageCardId,
+          savedToVault: pageCard.card.savedToVault,
+        });
+        onAcceptDiff(cardId, annotationId, pageCardId);
+      }
+    : undefined;
 
   const editorRef = useRef<HTMLDivElement>(null);
   const contentEditorRef = useRef<CardContentEditorHandle>(null);
@@ -214,6 +280,11 @@ export function CardView({
           onRequestEditEmbed={onRequestEditEmbed}
           editingEmbedIds={editingEmbedIds}
           onToggleEmbedEdit={onToggleEmbedEdit}
+          onRunProcess={wrappedOnRunProcess}
+          onCreateManualHighlight={wrappedOnCreateManualHighlight}
+          onAcceptDiff={wrappedOnAcceptDiff}
+          onRemoveAnnotation={onRemoveAnnotation}
+          onUpdateAnnotationText={onUpdateAnnotationText}
         />
       </div>
     );
@@ -254,6 +325,8 @@ export function CardView({
       {!collapsed && (
         <CardContent
           content={content}
+          cardId={pageCard.card.id}
+          annotations={canonicalCard.metadata.annotations}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
           selectedEmbedId={selectedEmbedId}
@@ -261,6 +334,11 @@ export function CardView({
           onRequestEditEmbed={onRequestEditEmbed}
           editingEmbedIds={editingEmbedIds}
           onToggleEmbedEdit={onToggleEmbedEdit}
+          onRunProcess={wrappedOnRunProcess}
+          onCreateManualHighlight={wrappedOnCreateManualHighlight}
+          onAcceptDiff={wrappedOnAcceptDiff}
+          onRemoveAnnotation={onRemoveAnnotation}
+          onUpdateAnnotationText={onUpdateAnnotationText}
           onChangeContent={handleContentChange}
         />
       )}

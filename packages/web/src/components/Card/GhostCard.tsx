@@ -78,10 +78,14 @@ function GhostCardEmbed({ nodeId, nodes }: GhostCardTreeProps) {
 }
 
 /**
- * The root ghost card: a generation streaming or awaiting review, held in local state
- * only (useGeneration.ts) — never written to a Page or the vault until the Dock's
- * Accept action. Fills in progressively as parse events arrive; any nested `<card>`
- * blocks in its content render as embedded sub-cards via GhostCardEmbed above.
+ * The root ghost card: a generation actively streaming in, held in local state only
+ * (useGeneration.ts) until the stream ends — at which point it's saved immediately as
+ * a real Card, no separate review/Accept step. Fills in progressively as parse events
+ * arrive; any nested `<card>` blocks in its content render as embedded sub-cards via
+ * GhostCardEmbed above. A cut-off-or-stopped generation is still saved the same way;
+ * that's surfaced afterward as a Dock notice (App.tsx/useGeneration.ts's `notice`),
+ * not shown here, since this component is gone (replaced by the real, saved Card) by
+ * the time there'd be anything to show.
  */
 export function GhostCard({ nodeId, nodes }: GhostCardTreeProps) {
   const node = nodes[nodeId];

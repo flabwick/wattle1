@@ -1,0 +1,50 @@
+/* position: fixed with `left`/`bottom` computed in Dock.tsx from the trigger button's
+   own rect, not CSS-anchored — .dock__row scrolls horizontally (overflow-x: auto),
+   which clips an absolutely-positioned popover that escapes it upward even though it
+   still mounts. Opens *upward* from the button (Dock.tsx computes `bottom`, not
+   `top`): the Dock sits pinned to the bottom of the screen, so a downward popover
+   would routinely run off-viewport. */
+.process-picker {
+  position: fixed;
+  z-index: 10;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-raised);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.process-picker__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-target-sm);
+  padding: 0 var(--space-3);
+  border: none;
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.process-picker__item:last-child {
+  border-bottom: none;
+}
+
+.process-picker__item:hover {
+  background: var(--color-surface);
+}
+
+.process-picker__item-icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}

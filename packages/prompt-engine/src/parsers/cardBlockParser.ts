@@ -43,6 +43,12 @@ export interface CardBlockCloseEvent {
 
 export interface CardBlockDoneEvent {
   type: "done";
+  /** True when the stream ended before every opened `<card>` was properly closed
+   *  (almost always the model hitting its maxTokens limit mid-response, not a parsing
+   *  bug) and finish() recovered by auto-closing whatever was still open — see
+   *  finish()'s doc comment. The consumer still gets a complete, acceptable ghost
+   *  card; this only flags that it may be cut off content-wise. */
+  truncated: boolean;
 }
 
 export interface CardBlockErrorEvent {
@@ -78,25 +84,68 @@ export class CardBlockParser {
   push(chunk: string): CardBlockEvent[] {
     if (this.errored) return [];
     this.buffer += chunk;
+    // TEMP DEBUG — remove once the truncated/unterminated-card-block issue is fully
+    // characterized. Runs server-side (generationService.ts calls push() per model
+    // chunk), so this only shows up in the terminal running `npm run dev`/`npm run
+    // dev:api`, never in the browser console.
+    console.debug(`[gen] push(): +${chunk.length} chars, buffer now ${this.buffer.length} chars`);
     return this.drain();
   }
 
-  /** Call once the underlying stream has ended. Returns a final `done` event, or an
-   *  `error` if a card block was left open or a tag was left incomplete. */
+  /**
+   * Call once the underlying stream has ended.
+   *
+   * Used to hard-fail whenever the stream ended mid-tag or with any `<card>` block
+   * still open, discarding everything generated so far. In practice that state is
+   * overwhelmingly caused by the model simply hitting its `maxTokens` limit
+   * mid-response, not a genuine parsing bug — and failing outright meant the user
+   * lost the entire generation over what's usually just "the response ran a little
+   * long." Now: a dangling partial tag fragment is dropped (it can't be recovered —
+   * we don't even know what tag it was going to be) and any still-open `<card>`
+   * blocks are auto-closed in place, so whatever text *did* stream in survives as a
+   * normal, acceptable ghost card. The `done` event's `truncated` flag tells the
+   * caller this happened, in case it wants to surface that (GhostCard.tsx does).
+   * The one case that still hard-fails is no root `<card>` ever opening at all —
+   * there's nothing to recover there, not even a partial card to show.
+   */
   finish(): CardBlockEvent[] {
     if (this.errored) return [];
+    console.debug(
+      `[gen] finish(): bufferLen=${this.buffer.length} stackDepth=${this.stack.length} rootOpened=${this.rootOpened}`,
+    );
+
+    const events: CardBlockEvent[] = [];
+    let truncated = false;
+
     if (this.buffer.length > 0) {
-      return [
-        this.fail(`Stream ended with an incomplete <card> tag: ${JSON.stringify(this.buffer)}`),
-      ];
+      // drain() only ever leaves a partial-tag prefix in the buffer (see
+      // findPartialTagStart) — plain text is always flushed immediately. So this is
+      // always a dangling `<card ...` or `</card` fragment cut off mid-tag, never
+      // recoverable content.
+      console.debug(`[gen] finish(): dropping dangling partial tag fragment: ${JSON.stringify(this.buffer)}`);
+      this.buffer = "";
+      truncated = true;
     }
+
     if (this.stack.length > 0) {
-      return [this.fail(`Stream ended with ${this.stack.length} unterminated <card> block(s)`)];
+      console.debug(
+        `[gen] finish(): auto-closing ${this.stack.length} unterminated <card> block(s) (ids: ${this.stack.map((f) => f.id).join(", ")}) — recovering rather than discarding the generation`,
+      );
+      while (this.stack.length > 0) {
+        const frame = this.stack.pop()!;
+        events.push({ type: "close", id: frame.id });
+      }
+      truncated = true;
     }
+
     if (!this.rootOpened) {
+      console.debug("[gen] finish(): FAILING — no root <card> block ever opened, nothing to recover");
       return [this.fail("Stream ended with no root <card> block")];
     }
-    return [{ type: "done" }];
+
+    events.push({ type: "done", truncated });
+    console.debug(`[gen] finish(): done, truncated=${truncated}`);
+    return events;
   }
 
   private drain(): CardBlockEvent[] {
@@ -161,18 +210,24 @@ export class CardBlockParser {
     const title = attrs.title ?? "";
     this.stack.push({ id, cardType, title });
     if (parentId === null) this.rootOpened = true;
+    console.debug(
+      `[gen] open id=${id} parentId=${parentId} type=${cardType} title=${JSON.stringify(title)} — stack depth now ${this.stack.length}`,
+    );
     return { type: "open", id, parentId, cardType, title };
   }
 
   private handleClose(): CardBlockEvent {
     const frame = this.stack.pop();
     if (!frame) {
+      console.debug("[gen] close FAILED — no open <card> block to close");
       return this.fail("Unexpected </card> with no open <card> block");
     }
+    console.debug(`[gen] close id=${frame.id} — stack depth now ${this.stack.length}`);
     return { type: "close", id: frame.id };
   }
 
   private fail(message: string): CardBlockErrorEvent {
+    console.debug(`[gen] fail(): ${message}`);
     this.errored = true;
     return { type: "error", message };
   }
