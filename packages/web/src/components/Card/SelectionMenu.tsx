@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
+import type { Editor } from "@tiptap/core";
+import { flattenToPlainText } from "@wattle/shared";
 import { Icon } from "../primitives/index.js";
 import { HIGHLIGHT_COLORS, highlightColorValue } from "../../lib/highlightColors.js";
 import { t } from "../../i18n/index.js";
 import "./SelectionMenu.css";
+
+/** First plain-text index whose ProseMirror doc position is >= `docPos` — the
+ *  reverse of flattenToPlainText's own charDocPos[textIndex] -> doc position
+ *  mapping. A linear scan, not a binary search: Card content is small, and
+ *  charDocPos is only non-decreasing (a block separator's two "\n" characters
+ *  legitimately share one position), which a naive binary search would need extra
+ *  care to handle correctly anyway. */
+function plainTextIndexForDocPos(charDocPos: readonly number[], docPos: number): number {
+  for (let i = 0; i < charDocPos.length; i++) {
+    if (charDocPos[i] >= docPos) return i;
+  }
+  return charDocPos.length;
+}
 
 interface SelectionMenuProps {
   /** The Card content element this menu watches selections inside of — a selection
@@ -12,6 +27,15 @@ interface SelectionMenuProps {
    *  is elsewhere on the page entirely) is ignored, so each Card's own menu only ever
    *  reacts to a selection genuinely inside its own text. */
   containerRef: RefObject<HTMLElement>;
+  /** The same TipTap instance CardRichText.tsx renders — used to translate the raw
+   *  DOM selection (still native browser Selection/Range, since this menu only shows
+   *  in read mode where the ProseMirror view itself isn't editable — see
+   *  CardRichText.tsx) into the exact plain-text substring findAnchorRange will
+   *  later resolve server-side (richText/plainText.ts), rather than raw
+   *  `selection.toString()`: a selection spanning two paragraphs has no separator in
+   *  the DOM/native-selection text, while flattenToPlainText inserts "\n\n" between
+   *  blocks — without this, that anchor would never match server-side. */
+  editor: Editor | null;
   /** Diff/footnote scoped to the selected text — calls the AI process, same as the
    *  Dock's whole-card run but anchored to just this span (see annotationService.ts's
    *  `selection` parameter). */
@@ -33,7 +57,7 @@ interface MenuState {
  * in the Dock action"). Positioned at the selection's own bounding rect, dismissed on
  * any further selection change, click-away, or Escape.
  */
-export function SelectionMenu({ containerRef, onRunProcess, onCreateManualHighlight }: SelectionMenuProps) {
+export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManualHighlight }: SelectionMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
 
@@ -41,7 +65,7 @@ export function SelectionMenu({ containerRef, onRunProcess, onCreateManualHighli
     function handleSelectionChange() {
       const selection = document.getSelection();
       const container = containerRef.current;
-      if (!selection || selection.isCollapsed || !container) {
+      if (!selection || selection.isCollapsed || !container || !editor) {
         setMenu(null);
         setColorPickerOpen(false);
         return;
@@ -52,7 +76,18 @@ export function SelectionMenu({ containerRef, onRunProcess, onCreateManualHighli
         setColorPickerOpen(false);
         return;
       }
-      const text = selection.toString();
+      // Not selection.toString(): a selection spanning two paragraphs has no
+      // separator there, while flattenToPlainText inserts "\n\n" between blocks —
+      // this maps the DOM range to ProseMirror positions first, then slices the
+      // *same* flattened plain text findAnchorRange resolves anchors against, so a
+      // multi-paragraph highlight/diff/footnote anchor still matches server-side.
+      const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+      const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+      const { text: flattened, charDocPos } = flattenToPlainText(editor.state.doc);
+      const text = flattened.slice(
+        plainTextIndexForDocPos(charDocPos, from),
+        plainTextIndexForDocPos(charDocPos, to),
+      );
       if (!text.trim()) {
         setMenu(null);
         return;
@@ -66,7 +101,7 @@ export function SelectionMenu({ containerRef, onRunProcess, onCreateManualHighli
 
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [containerRef]);
+  }, [containerRef, editor]);
 
   useEffect(() => {
     function handlePointerDown(e: PointerEvent) {

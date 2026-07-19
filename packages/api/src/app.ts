@@ -4,10 +4,12 @@ import "express-async-errors";
 import { ZodError } from "zod";
 import { annotationsRouter } from "./routes/annotations.js";
 import { cardsRouter } from "./routes/cards.js";
+import { dockCardsRouter } from "./routes/dockCards.js";
 import { foldersRouter } from "./routes/folders.js";
 import { generateRouter } from "./routes/generate.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
 import { pagesRouter } from "./routes/pages.js";
+import { tabsRouter } from "./routes/tabs.js";
 
 export function createApp() {
   const app = express();
@@ -19,8 +21,10 @@ export function createApp() {
 
   app.use("/api/cards", cardsRouter);
   app.use("/api/folders", foldersRouter);
+  app.use("/api/tabs", tabsRouter);
   app.use("/api/pages", pagesRouter);
   app.use("/api/page-cards", pageCardsRouter);
+  app.use("/api/dock-cards", dockCardsRouter);
   app.use("/api/generate", generateRouter);
   app.use("/api/annotations", annotationsRouter);
 

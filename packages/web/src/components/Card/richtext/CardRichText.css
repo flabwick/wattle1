@@ -1,0 +1,59 @@
+/* Same "quiet prose" typography .card__preview always used (Card.css) — this replaces
+   that plain <p>, so the visual baseline (muted color, small size, preserved
+   whitespace) needs to carry over exactly, whether this content is currently editable
+   or not. */
+.card-rich-text .ProseMirror {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  outline: none;
+}
+
+.card-rich-text .ProseMirror p {
+  margin: 0 0 var(--space-2);
+  white-space: pre-wrap;
+}
+
+.card-rich-text .ProseMirror p:last-child {
+  margin-bottom: 0;
+}
+
+.card-rich-text .ProseMirror h1,
+.card-rich-text .ProseMirror h2,
+.card-rich-text .ProseMirror h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-rich-text .ProseMirror ul,
+.card-rich-text .ProseMirror ol {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.card-rich-text .ProseMirror li p {
+  margin: 0;
+}
+
+.card-rich-text .ProseMirror blockquote {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: var(--border-width-bold) solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* A cardEmbed node's own CardEmbed component already carries its full box styling
+   (card-shell) — just spacing between it and whatever sits next to it, same margin
+   the old string-splice version (CardContentEditor.css) used. */
+.card-rich-text .ProseMirror [data-card-embed-id] {
+  margin-bottom: var(--space-2);
+}
+
+.card-rich-text .ProseMirror [data-card-embed-id]:last-child {
+  margin-bottom: 0;
+}
+
+.card-rich-text__empty {
+  pointer-events: none;
+}

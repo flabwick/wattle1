@@ -31,13 +31,63 @@
   height: var(--icon-size-sm);
 }
 
-.dock__vault-panel {
-  max-height: 50vh;
+/* The Extended Panel (Step 6 spec §3.2) — a slide-open drawer directly above the
+   Dock's own rows, no gap in between, so it reads as attached to the Dock rather
+   than a separate floating box elsewhere on screen. Only one of Vault/Dock
+   Cards/Pages/Tabs is ever open at once (a single `openPanel` value, not
+   independent booleans — see App.tsx). Always mounted (even fully closed) so the
+   max-height/opacity/transform transition below has something to animate between —
+   Dock.tsx keeps the last-open view's content rendered until onTransitionEnd fires,
+   rather than unmounting it the instant `openPanel` goes null. */
+.dock__extended-panel {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: max-height 200ms ease, opacity 150ms ease, transform 200ms ease;
+}
+
+/* Deliberately modest — a quick-glance drawer, not a second screen. */
+.dock__extended-panel--open {
+  max-height: 30vh;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Pages/Tabs are short lists — smaller still than Vault/Dock Cards, which can hold a
+   lot more content, so they don't take up more space than they need. */
+.dock__extended-panel--open.dock__extended-panel--compact {
+  max-height: 20vh;
+}
+
+.dock__extended-panel--compact .dock__extended-panel-view {
+  max-height: calc(20vh - 20px);
+}
+
+/* styling.md §5/§8: the same "thick stock" card treatment (bold espresso border,
+   solid warm-offset shadow, medium rounded corners) every Card in the app already
+   uses (see CardShell.css) — a proper folio resting just above the Dock, not a flat
+   blended strip. Square bottom corners since it sits flush against the Dock's own
+   row directly beneath it, with no gap between them. */
+.dock__extended-panel-view {
+  max-height: calc(30vh - 20px);
   overflow-y: auto;
+  /* Explicit, not left to default: leaving overflow-x unset while overflow-y is
+     non-visible makes browsers compute it as `auto` too (CSS Overflow spec), so any
+     content that's ever even a hair wider than this box (e.g. the Dock Cards panel's
+     right nav arrow, flush against this edge) silently becomes horizontally
+     scrollable and slides that arrow out of view instead of just clipping/wrapping
+     in place. */
+  overflow-x: hidden;
+  /* Reserves the scrollbar's track at all times, whether or not it's actually
+     scrolling right now — without this, a scrollbar that only appears once content
+     grows tall enough shifts in over whatever was sitting at the right edge and
+     swallows its clicks. */
+  scrollbar-gutter: stable;
   border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
   box-shadow: var(--shadow-card);
+  background: var(--color-surface);
 }
 
 /* A generation that ended in an error (bad credentials, network failure, malformed
@@ -85,10 +135,91 @@
   color: var(--color-text);
 }
 
+.dock__bottom-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .dock__row {
   display: flex;
   gap: var(--space-1);
   overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The Page nav cluster (merged up/down/add + Pages panel toggle — formerly the
+   standalone PageNav component) — pinned to the bottom-right corner of the Dock,
+   smaller than the main action buttons since it's reached constantly. */
+.dock__page-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* Icon stays small (--icon-size-sm below), but the tappable box itself is a full
+   --touch-target-sm so this is still comfortable to hit on mobile. */
+.dock__page-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-sm);
+  min-height: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.dock__page-nav button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.dock__page-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.dock__page-nav .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+/* The Tabs toggle rides along in the same cluster but reads as a clearly minor,
+   secondary option next to page manipulation (up/down/add/Pages) — smaller, dimmer,
+   and set off with a little extra space rather than sized/weighted the same. */
+.dock__page-nav button.dock__page-nav-tabs {
+  margin-left: var(--space-1);
+  opacity: 0.55;
+}
+
+.dock__page-nav button.dock__page-nav-tabs:hover {
+  opacity: 1;
+}
+
+.dock__page-nav-tabs .icon {
+  width: calc(var(--icon-size-sm) * 0.7);
+  height: calc(var(--icon-size-sm) * 0.7);
+}
+
+/* "1/5" style counters — plain text, not a button, so they read as a status readout
+   rather than another tappable target crowding this already-small cluster. */
+.dock__page-nav-count {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The Tab counter rides along after the (already deliberately subtle) Tabs toggle —
+   smaller still, matching that toggle's own reduced weight. */
+.dock__page-nav-count--tabs {
+  margin-left: calc(var(--space-1) * -1);
+  font-size: calc(var(--font-size-sm) * 0.85);
+  opacity: 0.55;
 }
 
 /* Wraps the process button so Dock.tsx can hold a ref to it — ProcessPicker itself
@@ -99,11 +230,6 @@
   display: flex;
 }
 
-/* Triggered via the upload DockAction's icon button (fileInputRef.current.click()),
-   never shown itself — the OS file picker is the actual UI. */
-.dock__file-input {
-  display: none;
-}
 
 /* Button box styling now lives in components/primitives/Button.css; .dock__row only
    needs the flex layout above. Text editing (title/content inputs) now happens inline

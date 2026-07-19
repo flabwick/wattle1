@@ -1,9 +1,0 @@
-/* .card__content-input's box styling, including the auto-grow-friendly resize/overflow
-   reset, lives in Card.css (its rule needs the higher `.input-field.card__content-input`
-   specificity) — this file only has the spacing between stacked text/embed segments. */
-.card__content-input + .card__content-input,
-.card__content-input + .card-embed,
-.card-embed + .card__content-input,
-.card-embed + .card-embed {
-  margin-top: var(--space-2);
-}

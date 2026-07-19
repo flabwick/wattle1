@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CardShell, Icon } from "../../../primitives/index.js";
-import { CardContent } from "../../CardContent.js";
+import { CardRichText } from "../../richtext/CardRichText.js";
 import { t } from "../../../../i18n/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import "../../Card.css";
@@ -41,8 +41,10 @@ export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
         </div>
       </div>
       {!collapsed && (
-        <CardContent
+        <CardRichText
           content={content}
+          onChangeContent={() => {}}
+          editable={false}
           cardId={pageCard.card.id}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}

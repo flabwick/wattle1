@@ -5,8 +5,7 @@ import { Icon, InputField } from "../primitives/index.js";
 import { useCard } from "../../hooks/useCard.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
-import { CardContent } from "./CardContent.js";
-import { CardContentEditor } from "./CardContentEditor.js";
+import { CardRichText } from "./richtext/CardRichText.js";
 import "./CardEmbed.css";
 
 /** Hard cap on nesting depth — a genuine cycle (A embeds B embeds A) is caught by
@@ -52,6 +51,10 @@ interface CardEmbedProps {
    *  content — undefined only when there's nowhere to route a removal (no onSelectEmbed
    *  wired in from above). */
   onRemoveSelf?: () => void;
+  /** Hides the header's collapse/expand caret entirely and always renders content in
+   *  full — used by DockCardsPanel's single-card view, which is the only thing on
+   *  screen there and has no need for a local collapse toggle. */
+  hideFoldButton?: boolean;
 }
 
 /**
@@ -83,6 +86,7 @@ export function CardEmbed({
   onRemoveAnnotation,
   onUpdateAnnotationText,
   onRemoveSelf,
+  hideFoldButton,
 }: CardEmbedProps) {
   const circular = ancestorIds.has(cardId);
   const tooDeep = depth > MAX_EMBED_DEPTH;
@@ -208,20 +212,22 @@ export function CardEmbed({
     >
       <div className="card__header">
         <div className="card__header-start">
-          <button
-            type="button"
-            className="card__caret-btn"
-            aria-label={folded ? t("card.expand") : t("card.collapse")}
-            title={folded ? t("card.expand") : t("card.collapse")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setFolded((f) => !f);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
-          </button>
+          {!hideFoldButton && (
+            <button
+              type="button"
+              className="card__caret-btn"
+              aria-label={folded ? t("card.expand") : t("card.collapse")}
+              title={folded ? t("card.expand") : t("card.collapse")}
+              onClick={(e) => {
+                e.stopPropagation();
+                setFolded((f) => !f);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
+            </button>
+          )}
           {editing ? (
             <InputField
               className="card__title-input"
@@ -239,44 +245,28 @@ export function CardEmbed({
           )}
         </div>
       </div>
-      {!folded &&
-        (editing ? (
-          <CardContentEditor
-            content={card.content}
-            onChangeContent={(next) => editCard(cardId, { content: next })}
-            ancestorIds={childAncestorIds}
-            depth={depth + 1}
-            selectedEmbedId={selectedEmbedId}
-            onSelectEmbed={onSelectEmbed}
-            onRequestEditEmbed={onRequestEditEmbed}
-            editingEmbedIds={editingEmbedIds}
-            onToggleEmbedEdit={onToggleEmbedEdit}
-            onRunProcess={onRunProcess}
-            onCreateManualHighlight={onCreateManualHighlight}
-            onAcceptDiff={onAcceptDiff}
-            onRemoveAnnotation={onRemoveAnnotation}
-            onUpdateAnnotationText={onUpdateAnnotationText}
-          />
-        ) : (
-          <CardContent
-            content={card.content}
-            cardId={cardId}
-            annotations={card.metadata.annotations}
-            ancestorIds={childAncestorIds}
-            depth={depth + 1}
-            selectedEmbedId={selectedEmbedId}
-            onSelectEmbed={onSelectEmbed}
-            onRequestEditEmbed={onRequestEditEmbed}
-            editingEmbedIds={editingEmbedIds}
-            onToggleEmbedEdit={onToggleEmbedEdit}
-            onRunProcess={onRunProcess}
-            onCreateManualHighlight={onCreateManualHighlight}
-            onAcceptDiff={onAcceptDiff}
-            onRemoveAnnotation={onRemoveAnnotation}
-            onUpdateAnnotationText={onUpdateAnnotationText}
-            onChangeContent={(next) => editCard(cardId, { content: next })}
-          />
-        ))}
+      {(hideFoldButton || !folded) && (
+        <CardRichText
+          key={cardId}
+          content={card.content}
+          onChangeContent={(next) => editCard(cardId, { content: next })}
+          editable={editing}
+          cardId={cardId}
+          annotations={card.metadata.annotations}
+          ancestorIds={childAncestorIds}
+          depth={depth + 1}
+          selectedEmbedId={selectedEmbedId}
+          onSelectEmbed={onSelectEmbed}
+          onRequestEditEmbed={onRequestEditEmbed}
+          editingEmbedIds={editingEmbedIds}
+          onToggleEmbedEdit={onToggleEmbedEdit}
+          onRunProcess={onRunProcess}
+          onCreateManualHighlight={onCreateManualHighlight}
+          onAcceptDiff={onAcceptDiff}
+          onRemoveAnnotation={onRemoveAnnotation}
+          onUpdateAnnotationText={onUpdateAnnotationText}
+        />
+      )}
     </div>
   );
 }

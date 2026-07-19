@@ -15,3 +15,37 @@
 .card-content__text:last-child {
   margin-bottom: 0;
 }
+
+/* GhostCard.tsx's renderGhostFragment turns rule 6's tag set into real elements
+   inside .card-content__text (a <div> now, not a bare <p>, since it may contain
+   these block children) — same typography CardRichText.css's ".ProseMirror" rules
+   give the genuine, saved-Card version of this same content, kept in sync by hand
+   since a ghost card renders through this lightweight allowlist walk instead of a
+   live TipTap instance. */
+.card-content__text p {
+  margin: 0 0 var(--space-2);
+  white-space: pre-wrap;
+}
+
+.card-content__text p:last-child {
+  margin-bottom: 0;
+}
+
+.card-content__text h1,
+.card-content__text h2,
+.card-content__text h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-content__text ul,
+.card-content__text ol {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+}
+
+.card-content__text li p {
+  margin: 0;
+}

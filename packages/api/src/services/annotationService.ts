@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { Annotation, Card } from "@wattle/shared";
-import { annotationSchema, cardMetadataV1Schema, migrateMetadata, modelProviderRegistry } from "@wattle/shared";
+import {
+  annotationSchema,
+  cardMetadataV1Schema,
+  migrateMetadata,
+  modelProviderRegistry,
+  htmlToDoc,
+  flattenToPlainText,
+  findAnchorRange,
+  findEmbeddedCardIds,
+  replaceAnchorInHtml,
+} from "@wattle/shared";
 import type { AnnotationProcess, AnnotationTargetCard, RawAnnotationEntry } from "@wattle/prompt-engine";
 import { compileAnnotationPrompt, parseAnnotationResponse } from "@wattle/prompt-engine";
 import { prisma } from "../db.js";
@@ -17,11 +27,6 @@ export interface AnnotationSelection {
   cardId: string;
   text: string;
 }
-
-/** Same `[[cardId]]` token CardEmbed.tsx renders and parseCardRefs.ts (web-only)
- *  parses — duplicated server-side, same reasoning as generationService.ts's own
- *  standalone materialization logic: no shared parsing lib between web/api today. */
-const CARD_REF_PATTERN = /\[\[([a-zA-Z0-9_-]+)\]\]/g;
 
 /** Hard cap on nesting depth for scope resolution — mirrors CardEmbed.tsx's
  *  MAX_EMBED_DEPTH, so a whole-card annotation run's scope matches what a user would
@@ -127,12 +132,16 @@ async function resolveScopeCards(
     const row = await prisma.card.findUnique({ where: { id: cardId } });
     if (!row) return;
 
-    const content =
-      depth === 0 ? await resolveRootContent(cardId, row.content, rootPageCardId) : row.content;
+    const html = depth === 0 ? await resolveRootContent(cardId, row.content, rootPageCardId) : row.content;
+    const doc = htmlToDoc(html);
+    // The model (and every anchor it's given) only ever sees plain text, never raw
+    // HTML — see richText/plainText.ts's doc comment on why this same flattening
+    // pass has to be the one shared source of truth for offsets on both sides.
+    const content = flattenToPlainText(doc).text;
     targets.push({ cardId: row.id, title: row.title, content });
     contentByCardId.set(row.id, content);
 
-    const childIds = new Set([...content.matchAll(CARD_REF_PATTERN)].map((m) => m[1]));
+    const childIds = new Set(findEmbeddedCardIds(doc));
     const childAncestors = new Set([...ancestorIds, cardId]);
     for (const childId of childIds) {
       await visit(childId, childAncestors, depth + 1);
@@ -322,7 +331,7 @@ export async function createManualHighlight(
 ): Promise<Card> {
   const row = await loadCard(cardId);
   const effectiveContent = await resolveRootContent(cardId, row.content, pageCardId);
-  if (!effectiveContent.includes(anchor)) {
+  if (!findAnchorRange(htmlToDoc(effectiveContent), anchor)) {
     throw new Error("Selected text no longer matches this Card's content");
   }
   const annotation: Annotation = {
@@ -358,11 +367,11 @@ export async function acceptDiff(
   }
 
   const draft = await resolveDraftTarget(cardId, row.content, pageCardId);
-  if (!draft.content.includes(annotation.anchor)) {
+  const content = replaceAnchorInHtml(draft.content, annotation.anchor, annotation.replacement);
+  if (content === null) {
     throw new Error("This diff's anchor no longer matches the Card's content");
   }
 
-  const content = draft.content.replace(annotation.anchor, annotation.replacement);
   const nextMetadata = {
     ...metadata,
     annotations: metadata.annotations.filter((a) => a.id !== annotationId),
@@ -394,18 +403,23 @@ export async function acceptAllDiffs(cardId: string, pageCardId?: string): Promi
 
   const draft = await resolveDraftTarget(cardId, row.content, pageCardId);
 
+  // Back-to-front by document position, same reasoning as before (applying one
+  // diff's replacement must never shift another still-pending diff's own anchor
+  // position before its turn comes) — findAnchorRange's positions are monotonic with
+  // plain-text offset, so this ordering is equivalent to the old raw indexOf sort.
   const positioned = diffs
-    .map((d) => ({ diff: d, index: draft.content.indexOf(d.anchor) }))
-    .filter((d) => d.index !== -1)
-    .sort((a, b) => b.index - a.index);
+    .map((d) => ({ diff: d, range: findAnchorRange(htmlToDoc(draft.content), d.anchor) }))
+    .filter((d): d is { diff: (typeof diffs)[number]; range: { from: number; to: number } } => d.range !== null)
+    .sort((a, b) => b.range.from - a.range.from);
 
   let content = draft.content;
   const acceptedIds = new Set<string>();
   const newHistory: (typeof metadata.diffHistory)[number][] = [];
   for (const { diff } of positioned) {
     if (diff.type !== "diff") continue;
-    if (!content.includes(diff.anchor)) continue; // may have been invalidated by an earlier replacement
-    content = content.replace(diff.anchor, diff.replacement);
+    const replaced = replaceAnchorInHtml(content, diff.anchor, diff.replacement);
+    if (replaced === null) continue; // may have been invalidated by an earlier replacement
+    content = replaced;
     acceptedIds.add(diff.id);
     newHistory.push({
       anchor: diff.anchor,

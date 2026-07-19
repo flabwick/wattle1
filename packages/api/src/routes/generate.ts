@@ -38,20 +38,33 @@ async function pipeGenerationEvents(res: Response, events: AsyncGenerator<CardBl
   res.end();
 }
 
+/** The Feed Input Button's optional guided-generation text (Step 6 spec §2.2) — an
+ *  EventSource GET can't carry a body, so it rides along as a query param instead. */
+function instructionParam(req: { query: Record<string, unknown> }): string | undefined {
+  const raw = req.query.instruction;
+  return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
 // GET /api/generate/stream/:pageCardId — the sole model invocation for a generation
 // triggered from a selected Card (there is no separate preview call and persist call
 // any more). Read-only: it does not create a PageCard or persist anything — the
 // frontend holds the result as a local "ghost card" until the user explicitly accepts
 // it via POST /api/generate/accept below.
 generateRouter.get("/stream/:pageCardId", async (req, res) => {
-  await pipeGenerationEvents(res, generationService.streamGeneration(req.params.pageCardId));
+  await pipeGenerationEvents(
+    res,
+    generationService.streamGeneration(req.params.pageCardId, instructionParam(req)),
+  );
 });
 
 // GET /api/generate/stream/page/:pageId — the "nothing selected" counterpart: appends
 // at the bottom of the Page instead of directly below a specific Card, using
 // everything already on that Page (and every Page above it) as context.
 generateRouter.get("/stream/page/:pageId", async (req, res) => {
-  await pipeGenerationEvents(res, generationService.streamGenerationForPage(req.params.pageId));
+  await pipeGenerationEvents(
+    res,
+    generationService.streamGenerationForPage(req.params.pageId, instructionParam(req)),
+  );
 });
 
 // POST /api/generate/accept  { pageCardId | pageId, title, content, cardType? } —

@@ -1,5 +1,5 @@
 import { Icon, InputField } from "../../../primitives/index.js";
-import { CardContentEditor } from "../../CardContentEditor.js";
+import { CardRichText } from "../../richtext/CardRichText.js";
 import { t } from "../../../../i18n/index.js";
 import type { CardTypeEditorProps } from "../../../../registries/cardTypeUi.js";
 import "../../Card.css";
@@ -31,9 +31,11 @@ export function NoteEditor({ pageCard, onChangeDraft }: CardTypeEditorProps) {
           />
         </div>
       </div>
-      <CardContentEditor
+      <CardRichText
         content={content}
         onChangeContent={(next) => onChangeDraft({ content: next })}
+        editable
+        cardId={pageCard.card.id}
         ancestorIds={new Set([pageCard.card.id])}
         depth={0}
       />

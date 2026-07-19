@@ -38,7 +38,21 @@ export interface UpdateCardInput {
   metadata?: unknown;
 }
 
-/** A Page — an ordered stack slot. `order` is ascending from bottom (0) to top. */
+/**
+ * A Tab — a horizontal slot holding its own independent stack of Pages (Step 6 spec
+ * §1.1). Tabs don't share Pages or generation context with each other. `order` is
+ * ascending left (0) to right.
+ */
+export interface Tab {
+  id: string;
+  order: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A Page — an ordered stack slot within a Tab. `order` is ascending from bottom (0)
+ *  to top. */
 export interface Page {
   id: string;
   order: number;
@@ -72,6 +86,25 @@ export interface PageCardWithCard extends PageCard {
 
 export interface PageWithCards extends Page {
   pageCards: PageCardWithCard[];
+}
+
+/**
+ * A Card living outside any Page/Tab — the persistent Dock scratchpad layer (Step 6
+ * spec §1.2). Never part of generation context. `order` positions it in the Dock's
+ * horizontal scroll row. Unlike PageCard, there's no draft staging: editing a Dock
+ * Card writes straight through to its Card row, same convention as an embedded Card
+ * (CardEmbed.tsx) — there's no separate vault-sync step to distinguish it from.
+ */
+export interface DockCard {
+  id: string;
+  cardId: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DockCardWithCard extends DockCard {
+  card: Card;
 }
 
 /**

@@ -3,6 +3,7 @@ import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
 import { GhostCard } from "../Card/GhostCard.js";
+import { FeedInputButton } from "../FeedInputButton/FeedInputButton.js";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import { cardTypeUiRegistry } from "../../registries/cardTypeUi.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
@@ -14,6 +15,7 @@ interface PageCardSlotProps {
   selected: boolean;
   editing: boolean;
   onSelect: () => void;
+  onCloseEditor: () => void;
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   selectedEmbedId: string | null;
@@ -48,6 +50,7 @@ function PageCardSlot({
   selected,
   editing,
   onSelect,
+  onCloseEditor,
   onRequestEdit,
   onChangeDraft,
   selectedEmbedId,
@@ -69,6 +72,7 @@ function PageCardSlot({
         selected={selected}
         editing={editing}
         onSelect={onSelect}
+        onCloseEditor={onCloseEditor}
         onRequestEdit={onRequestEdit}
         onChangeDraft={onChangeDraft}
         selectedEmbedId={selectedEmbedId}
@@ -95,15 +99,27 @@ function PageCardSlot({
 
 interface PageStackProps {
   /** The single Page currently in view (spec1.md Part 2 "Pages" — one Page fills the
-   *  whole screen now, navigated with PageNav's up/down arrows, rather than all
-   *  Pages stacked in one scrolling column). Null if there are no Pages yet. */
+   *  whole screen now, navigated with the Dock's merged page-nav cluster's up/down
+   *  arrows, rather than all Pages stacked in one scrolling column). Null if there
+   *  are no Pages yet. */
   currentPage: PageWithCards | null;
   /** Which way the last navigation moved (App.tsx's navDirection) — drives the slide
    *  animation below. Null on first load, so there's no animation on initial mount. */
   direction: "up" | "down" | null;
-  selectedPageCardId: string | null;
-  editingPageCardId: string | null;
-  onSelectPageCard: (id: string | null) => void;
+  /** Only one Card selected at a time — tapping a Card replaces whatever was
+   *  selected with it (App.tsx's toggleSelectPageCard). */
+  selectedPageCardIds: ReadonlySet<string>;
+  /** A Card only ever edits if it's also selected (App.tsx's exitEditPageCard/the
+   *  Dock's own back-caret action both clear a Card from this set and
+   *  selectedPageCardIds together), but not every selected Card is necessarily
+   *  editing — same independent-per-Card convention as editingEmbedIds. */
+  editingPageCardIds: ReadonlySet<string>;
+  /** A tap — selects if not already selected, or (if it already was) jumps into
+   *  edit mode instead (App.tsx's toggleSelectPageCard). */
+  onTogglePageCard: (id: string) => void;
+  /** The click-outside-to-close effect (Card.tsx) calls this instead — fully exits
+   *  editing and deselects just this one Card (App.tsx's exitEditPageCard). */
+  onCloseEditor: (id: string) => void;
   onRequestEditPageCard: (id: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
   selectedEmbedId: string | null;
@@ -124,11 +140,26 @@ interface PageStackProps {
   onAcceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => void;
   onRemoveAnnotation: (cardId: string, annotationId: string) => void;
   onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
-  /** Move Mode (App.tsx's movingPageCardId) — the PageCard id in transit, or null. */
-  movingPageCardId: string | null;
+  /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
+   *  transit as one batch (Step 6 spec §4.2's "Move" on a multi-selection), or empty
+   *  when not moving. */
+  movingPageCardIds: ReadonlySet<string>;
   /** Tap a drop zone to place the moving Card at this index (top-to-bottom, same
    *  convention as the reorder/move endpoints). */
   onDropAt: (index: number) => void;
+  /** The Dock Card panel's own Move Mode (App.tsx's movingDockCardIds) — true while
+   *  one or more Dock Cards are in transit to a Page. Unlike movingPageCardIds, none
+   *  of the moving Cards are already rendered in *this* list (they're coming from
+   *  the Dock, not from among currentPage.pageCards), so there's no ghosted slot to
+   *  skip and no toDestIndex adjustment needed — the drop zones' plain gap index is
+   *  already the right destIndex. */
+  dockCardMoving: boolean;
+  onDropDockCardAt: (index: number) => void;
+  /** The embed action row's own Move Mode (App.tsx's movingEmbedCard) — true while a
+   *  selected embed is in transit to a Page position. Same "not already rendered in
+   *  this list, no toDestIndex adjustment needed" shape as dockCardMoving above. */
+  embedMoving: boolean;
+  onDropEmbedAt: (index: number) => void;
   /** A generation actively streaming in (App.tsx/useGeneration.ts), rendered in the
    *  same slot the real Card lands in once it's saved: directly below a specific
    *  PageCard when `afterPageCardId` is set (generationService.persistGeneratedCard),
@@ -137,17 +168,31 @@ interface PageStackProps {
    *  stream ends — there's no review step in between, it's saved immediately and
    *  this slot hands off to the normal Card list. */
   ghostCard: { afterPageCardId: string | null; rootId: number; nodes: Record<number, GhostCardNode> } | null;
+  /** The Feed Input Button (Step 6 spec §2) — lives at the end of the Page's own
+   *  content (below the lowest Card, or in a blank Page's empty space), not as an
+   *  extension of the Dock's fixed footer chrome. Null when there's no current Page
+   *  to generate into/add a Card to. */
+  feedInput: {
+    generating: boolean;
+    onStopGeneration: () => void;
+    onGenerate: (instruction?: string) => void;
+    onAddCard: (content: string) => void;
+    onOpenVault: () => void;
+    onUploadFile: (file: File) => void;
+  } | null;
 }
 
 /** Converts a "gap" position in the full rendered list (0..pageCards.length, where
- *  the moving Card's own ghosted slot still counts as one of the list's items) into
- *  the `destIndex` the move API expects — a position among *siblings only* (the
- *  moving Card excluded), since pageCardService.movePageCard splices it back in by
- *  destIndex against the destination's other PageCards. No-op when the moving Card
- *  isn't on this Page (movingIndex -1): every gap already only counts siblings. */
-function toDestIndex(gap: number, movingIndex: number): number {
-  if (movingIndex === -1 || gap <= movingIndex) return gap;
-  return gap - 1;
+ *  every moving Card's own ghosted slot still counts as one of the list's items) into
+ *  the `destIndex` the move API expects — a position among *siblings only* (every
+ *  moving Card excluded), since pageCardService.movePageCard splices each one back in
+ *  by destIndex against the destination's other PageCards. Generalizes the
+ *  single-Card case to a whole batch (Step 6 spec §4.2): each moving Card whose
+ *  current index falls before this gap has already been "removed" from the sibling
+ *  list, shifting the gap left by one for each. */
+function toDestIndex(gap: number, movingIndices: number[]): number {
+  const removedBefore = movingIndices.filter((idx) => idx !== -1 && idx < gap).length;
+  return gap - removedBefore;
 }
 
 /** A single tappable insertion point between Cards (or before the first/after the
@@ -168,16 +213,17 @@ function DropZone({ onClick }: { onClick: () => void }) {
 
 /**
  * One full-screen Page's Cards at a time — no title, no border/shadow "folio" box,
- * it IS the screen. Navigating between Pages and adding new ones lives in
- * `PageNav`/App.tsx now, not here — this component only renders whichever Page is
- * currently in view.
+ * it IS the screen. Navigating between Pages and adding new ones lives in the Dock's
+ * merged page-nav cluster/App.tsx now, not here — this component only renders
+ * whichever Page is currently in view.
  */
 export function PageStack({
   currentPage,
   direction,
-  selectedPageCardId,
-  editingPageCardId,
-  onSelectPageCard,
+  selectedPageCardIds,
+  editingPageCardIds,
+  onTogglePageCard,
+  onCloseEditor,
   onRequestEditPageCard,
   onChangeDraft,
   selectedEmbedId,
@@ -190,13 +236,30 @@ export function PageStack({
   onAcceptDiff,
   onRemoveAnnotation,
   onUpdateAnnotationText,
-  movingPageCardId,
+  movingPageCardIds,
   onDropAt,
+  dockCardMoving,
+  onDropDockCardAt,
+  embedMoving,
+  onDropEmbedAt,
   ghostCard,
+  feedInput,
 }: PageStackProps) {
-  const movingIndex = currentPage
-    ? currentPage.pageCards.findIndex((pc) => pc.id === movingPageCardId)
-    : -1;
+  const moving = movingPageCardIds.size > 0;
+  const movingIndices = currentPage
+    ? currentPage.pageCards
+        .map((pc, i) => (movingPageCardIds.has(pc.id) ? i : -1))
+        .filter((i) => i !== -1)
+    : [];
+  // Whichever kind of move is active, drop zones render the same way — the three are
+  // mutually exclusive in practice (selection is already mutually exclusive across
+  // Page Cards/Dock Cards/embeds, and Move is only reachable from a selection).
+  const anyMoving = moving || dockCardMoving || embedMoving;
+  const onDropAtGap = dockCardMoving
+    ? onDropDockCardAt
+    : embedMoving
+      ? onDropEmbedAt
+      : (gap: number) => onDropAt(toDestIndex(gap, movingIndices));
 
   return (
     <div className="page-stack">
@@ -209,26 +272,23 @@ export function PageStack({
           key={currentPage.id}
           className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
         >
-          {currentPage.pageCards.length === 0 && !movingPageCardId && (
+          {currentPage.pageCards.length === 0 && !anyMoving && (
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
-          {movingPageCardId && movingIndex !== 0 && (
-            <DropZone onClick={() => onDropAt(toDestIndex(0, movingIndex))} />
-          )}
+          {anyMoving && <DropZone onClick={() => onDropAtGap(0)} />}
           {currentPage.pageCards.map((pageCard, index) => (
             <Fragment key={pageCard.id}>
               <div
                 className={
-                  pageCard.id === movingPageCardId ? "page-stack__slot page-stack__slot--moving" : undefined
+                  movingPageCardIds.has(pageCard.id) ? "page-stack__slot page-stack__slot--moving" : undefined
                 }
               >
                 <PageCardSlot
                   pageCard={pageCard}
-                  selected={pageCard.id === selectedPageCardId}
-                  editing={pageCard.id === editingPageCardId}
-                  onSelect={() =>
-                    onSelectPageCard(pageCard.id === selectedPageCardId ? null : pageCard.id)
-                  }
+                  selected={selectedPageCardIds.has(pageCard.id)}
+                  editing={editingPageCardIds.has(pageCard.id)}
+                  onSelect={() => onTogglePageCard(pageCard.id)}
+                  onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
                   selectedEmbedId={selectedEmbedId}
@@ -242,9 +302,7 @@ export function PageStack({
                   onRemoveAnnotation={onRemoveAnnotation}
                   onUpdateAnnotationText={onUpdateAnnotationText}
                 />
-                {movingPageCardId && index !== movingIndex && index + 1 !== movingIndex && (
-                  <DropZone onClick={() => onDropAt(toDestIndex(index + 1, movingIndex))} />
-                )}
+                {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}
               </div>
               {ghostCard && ghostCard.afterPageCardId === pageCard.id && (
                 <div className="page-stack__slot">
@@ -259,6 +317,21 @@ export function PageStack({
             <div className="page-stack__slot">
               <GhostCard nodeId={ghostCard.rootId} nodes={ghostCard.nodes} />
             </div>
+          )}
+          {/* The Feed Input Button lives here — at the end of the Page's own content,
+              below the lowest Card (or right below the empty-page message, for a
+              blank Page) — not as part of the Dock's fixed footer chrome. Hidden
+              during Move Mode, same as the row of DropZones it would otherwise sit
+              below: there's nothing to generate/add into a Page mid-move. */}
+          {feedInput && !anyMoving && (
+            <FeedInputButton
+              generating={feedInput.generating}
+              onStopGeneration={feedInput.onStopGeneration}
+              onGenerate={feedInput.onGenerate}
+              onAddCard={feedInput.onAddCard}
+              onOpenVault={feedInput.onOpenVault}
+              onUploadFile={feedInput.onUploadFile}
+            />
           )}
         </div>
       ) : (

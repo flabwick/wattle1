@@ -6,14 +6,21 @@ import { fileUpload } from "../uploads.js";
 
 export const pagesRouter = Router();
 
-// GET /api/pages — the full stack, bottom to top, each with its Cards.
-pagesRouter.get("/", async (_req, res) => {
-  res.json(await pageService.listPages());
+// GET /api/pages?tabId=X — the full stack for that Tab, bottom to top, each with its Cards.
+pagesRouter.get("/", async (req, res) => {
+  const { tabId } = req.query;
+  if (typeof tabId !== "string") {
+    return res.status(400).json({ error: "tabId is required" });
+  }
+  res.json(await pageService.listPages(tabId));
 });
 
 pagesRouter.post("/", async (req, res) => {
-  const { order } = req.body ?? {};
-  res.status(201).json(await pageService.createPage(typeof order === "number" ? order : undefined));
+  const { tabId, order } = req.body ?? {};
+  if (typeof tabId !== "string") {
+    return res.status(400).json({ error: "tabId is required" });
+  }
+  res.status(201).json(await pageService.createPage(tabId, typeof order === "number" ? order : undefined));
 });
 
 pagesRouter.delete("/:id", async (req, res) => {

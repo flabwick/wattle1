@@ -1,18 +1,67 @@
-import { useEffect, useState } from "react";
+import { Fragment, createElement, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import { Icon } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
 import "./CardEmbed.css";
+import "./CardContent.css";
 
 interface GhostCardTreeProps {
   nodeId: number;
   nodes: Record<number, GhostCardNode>;
 }
 
-/** Renders one ghost card node's parts — literal streamed text interleaved with any
- *  nested ghost cards — with the same classes CardContent.tsx uses for a real Card, so
- *  a ghost card looks exactly like what it becomes once accepted. */
+/** The exact tag allowlist the generate/selection/interactive system prompts are told
+ *  to use (prompt-engine/prompts/generate/system.md rule 6) — anything else a model
+ *  emits (a disallowed tag, or any attribute at all) is unwrapped to its own text
+ *  content below, never rendered as a real element and never passed through
+ *  `dangerouslySetInnerHTML`. This is the same "only known-safe markup ever becomes a
+ *  real element" guarantee the saved Card gets from TipTap's own schema-filtered HTML
+ *  parsing (richText/plainText.ts's htmlToDoc doc comment), just implemented directly
+ *  here since a ghost card's streamed, possibly mid-tag text isn't a real editor
+ *  document. */
+const GHOST_ALLOWED_TAGS = new Set(["p", "strong", "em", "h1", "h2", "h3", "ul", "ol", "li"]);
+
+let fragmentParser: DOMParser | null = null;
+
+/** Turns one streamed text part into React elements, tag by allowlisted tag, so a
+ *  ghost card in progress looks like what it becomes once saved (same rule 6 tag set)
+ *  instead of showing raw `<strong>`/`<p>` characters for however long the generation
+ *  is still streaming. DOMParser is lenient with incomplete markup — an unclosed tag
+ *  at the very end of the text streamed so far just parses as still-open — so this
+ *  degrades gracefully chunk to chunk rather than erroring on a mid-tag boundary. */
+function renderGhostFragment(html: string, keyPrefix: string): ReactNode[] {
+  if (!fragmentParser) fragmentParser = new DOMParser();
+  const doc = fragmentParser.parseFromString(html, "text/html");
+  return ghostDomChildrenToReact(doc.body.childNodes, keyPrefix);
+}
+
+function ghostDomChildrenToReact(nodes: NodeListOf<ChildNode>, keyPrefix: string): ReactNode[] {
+  const result: ReactNode[] = [];
+  nodes.forEach((node, i) => {
+    const key = `${keyPrefix}-${i}`;
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.textContent) result.push(node.textContent);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    const children = ghostDomChildrenToReact(el.childNodes, key);
+    result.push(
+      GHOST_ALLOWED_TAGS.has(tag)
+        ? createElement(tag, { key }, ...children)
+        : createElement(Fragment, { key }, ...children),
+    );
+  });
+  return result;
+}
+
+/** Renders one ghost card node's parts — streamed text (now possibly carrying rule
+ *  6's formatting tags, rendered live via renderGhostFragment above) interleaved with
+ *  any nested ghost cards — with the same classes CardContent.tsx uses for a real
+ *  Card, so a ghost card looks exactly like what it becomes once accepted. */
 function GhostCardBody({ nodeId, nodes }: GhostCardTreeProps) {
   const node = nodes[nodeId];
   if (!node) return null;
@@ -21,9 +70,9 @@ function GhostCardBody({ nodeId, nodes }: GhostCardTreeProps) {
       {node.parts.map((part, i) =>
         part.kind === "text" ? (
           part.text.trim() && (
-            <p key={i} className="card-content__text">
-              {part.text}
-            </p>
+            <div key={i} className="card-content__text">
+              {renderGhostFragment(part.text, `text-${i}`)}
+            </div>
           )
         ) : (
           <GhostCardEmbed key={i} nodeId={part.id} nodes={nodes} />

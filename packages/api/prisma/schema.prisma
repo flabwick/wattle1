@@ -40,6 +40,7 @@ model Card {
   folder   Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
 
   pageCards PageCard[]
+  dockCards DockCard[]
 
   @@index([folderId])
 }
@@ -63,14 +64,47 @@ model Folder {
   @@index([parentId])
 }
 
-/// A Page — one slot in the vertical stack. `order` is ascending bottom (0) to top.
+/// A Tab — a horizontal slot holding its own independent stack of Pages. Tabs do not
+/// share generation context with each other (see Step 6 spec, "Interaction Overhaul").
+model Tab {
+  id        String   @id @default(cuid())
+  order     Int
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pages Page[]
+}
+
+/// A Page — one slot in the vertical stack. `order` is ascending bottom (0) to top,
+/// scoped within its parent Tab.
 model Page {
   id        String   @id @default(cuid())
   order     Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  tabId String
+  tab   Tab    @relation(fields: [tabId], references: [id], onDelete: Cascade)
+
   pageCards PageCard[]
+
+  @@index([tabId])
+}
+
+/// A Card living outside any Page/Tab — the persistent Dock scratchpad layer from the
+/// Step 6 spec. Never part of generation context. `order` positions it in the Dock's
+/// horizontal scroll row.
+model DockCard {
+  id        String   @id @default(cuid())
+  cardId    String
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
 }
 
 /// A Card's placement within a Page, including any unsaved draft edits.

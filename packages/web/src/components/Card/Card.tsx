@@ -3,9 +3,8 @@ import type { TouchEvent } from "react";
 import type { Card, PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardShell, Icon, InputField } from "../primitives/index.js";
-import { CardContent } from "./CardContent.js";
-import { CardContentEditor } from "./CardContentEditor.js";
-import type { CardContentEditorHandle } from "./CardContentEditor.js";
+import { CardRichText } from "./richtext/CardRichText.js";
+import type { CardRichTextHandle } from "./richtext/CardRichText.js";
 import { CardLinkPicker } from "./CardLinkPicker.js";
 import { useCard } from "../../hooks/useCard.js";
 import { editCard } from "../../lib/cardStore.js";
@@ -20,10 +19,16 @@ interface CardProps {
   selected: boolean;
   /** Whether this Card's inline editor is open — controlled from above (App.tsx). */
   editing: boolean;
-  /** Also what closes the editor — see the click-outside effect below: with the
-   *  Card already selected (editing implies selected), calling this again toggles
-   *  it back off, exiting editing along with it. There's no separate "Done" action. */
+  /** A tap — selects this Card if it wasn't already, or (if it already was) jumps
+   *  straight into editing it instead (App.tsx's toggleSelectPageCard). Deselecting
+   *  no longer happens by tapping again; see onCloseEditor below and the Dock's own
+   *  back-caret action for that. */
   onSelect: () => void;
+  /** The click-outside-to-close effect below calls this instead of onSelect —
+   *  fully exits editing *and* deselects this one Card (App.tsx's
+   *  exitEditPageCard), same net effect onSelect's old toggle-off used to have,
+   *  without onSelect itself doing double duty as both "tap" and "click away". */
+  onCloseEditor: () => void;
   /** Jump straight into editing this Card — double-click on desktop, long-press on
    *  touch (see the touch handlers below), or the Dock's Edit action. */
   onRequestEdit: () => void;
@@ -82,6 +87,7 @@ export function CardView({
   selected,
   editing,
   onSelect,
+  onCloseEditor,
   onRequestEdit,
   onChangeDraft,
   selectedEmbedId,
@@ -131,57 +137,26 @@ export function CardView({
   // same wrapped closures also get passed to unchanged — an embed's cardId never
   // matches pageCard.card.id, so the injection is a no-op for it, correctly leaving
   // annotationService.ts to resolve straight from the embed's own vault Card row).
-  // TEMP DEBUG — remove once the annotation-run-doesn't-do-anything issue is
-  // diagnosed. This is exactly where the earlier "unsaved Card content is empty"
-  // bug lived — logging the resolved pageCardId on every call makes it obvious
-  // whether a not-yet-saved Card is (or isn't) getting its draft resolved.
   const wrappedOnRunProcess = onRunProcess
-    ? (cardId: string, process: AnnotationProcess, selectionText?: string) => {
-        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
-        console.debug("[annot] Card.wrappedOnRunProcess", {
-          cardId,
-          process,
-          selectionText,
-          pageCardId,
-          savedToVault: pageCard.card.savedToVault,
-        });
-        onRunProcess(cardId, process, selectionText, pageCardId);
-      }
+    ? (cardId: string, process: AnnotationProcess, selectionText?: string) =>
+        onRunProcess(cardId, process, selectionText, cardId === pageCard.card.id ? pageCard.id : undefined)
     : undefined;
   const wrappedOnCreateManualHighlight = onCreateManualHighlight
-    ? (cardId: string, anchor: string, color: string) => {
-        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
-        console.debug("[annot] Card.wrappedOnCreateManualHighlight", {
-          cardId,
-          anchor,
-          color,
-          pageCardId,
-          savedToVault: pageCard.card.savedToVault,
-        });
-        onCreateManualHighlight(cardId, anchor, color, pageCardId);
-      }
+    ? (cardId: string, anchor: string, color: string) =>
+        onCreateManualHighlight(cardId, anchor, color, cardId === pageCard.card.id ? pageCard.id : undefined)
     : undefined;
   const wrappedOnAcceptDiff = onAcceptDiff
-    ? (cardId: string, annotationId: string) => {
-        const pageCardId = cardId === pageCard.card.id ? pageCard.id : undefined;
-        console.debug("[annot] Card.wrappedOnAcceptDiff", {
-          cardId,
-          annotationId,
-          pageCardId,
-          savedToVault: pageCard.card.savedToVault,
-        });
-        onAcceptDiff(cardId, annotationId, pageCardId);
-      }
+    ? (cardId: string, annotationId: string) =>
+        onAcceptDiff(cardId, annotationId, cardId === pageCard.card.id ? pageCard.id : undefined)
     : undefined;
 
   const editorRef = useRef<HTMLDivElement>(null);
-  const contentEditorRef = useRef<CardContentEditorHandle>(null);
+  const contentEditorRef = useRef<CardRichTextHandle>(null);
 
-  /** Inserts `[[cardId]]` at whichever content segment's cursor was last focused (see
-   *  CardContentEditor.tsx's insertToken) rather than always appending — so linking a
+  /** Inserts a cardEmbed node at whichever position was last focused — so linking a
    *  Card from partway through a sentence lands where you were typing. */
   function insertCardLink(card: Card) {
-    contentEditorRef.current?.insertToken(`[[${card.id}]]`);
+    contentEditorRef.current?.insertEmbed(card.id);
     setLinkPickerOpen(false);
   }
 
@@ -197,12 +172,12 @@ export function CardView({
     function handlePointerDown(e: PointerEvent) {
       const target = e.target as Element;
       if (editorRef.current && !editorRef.current.contains(target) && !target.closest(".dock")) {
-        onSelect();
+        onCloseEditor();
       }
     }
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [editing, onSelect]);
+  }, [editing, onCloseEditor]);
 
   // Long-press-to-edit on touch devices, where there's no dblclick: start a timer on
   // touchstart, fire onRequestEdit if it's still pressed LONG_PRESS_MS later, and
@@ -269,10 +244,13 @@ export function CardView({
             )}
           </div>
         </div>
-        <CardContentEditor
+        <CardRichText
           ref={contentEditorRef}
           content={content}
           onChangeContent={handleContentChange}
+          editable
+          cardId={pageCard.card.id}
+          annotations={canonicalCard.metadata.annotations}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
           selectedEmbedId={selectedEmbedId}
@@ -323,8 +301,10 @@ export function CardView({
         </div>
       </div>
       {!collapsed && (
-        <CardContent
+        <CardRichText
           content={content}
+          onChangeContent={handleContentChange}
+          editable={false}
           cardId={pageCard.card.id}
           annotations={canonicalCard.metadata.annotations}
           ancestorIds={new Set([pageCard.card.id])}
@@ -339,7 +319,6 @@ export function CardView({
           onAcceptDiff={wrappedOnAcceptDiff}
           onRemoveAnnotation={onRemoveAnnotation}
           onUpdateAnnotationText={onUpdateAnnotationText}
-          onChangeContent={handleContentChange}
         />
       )}
     </CardShell>

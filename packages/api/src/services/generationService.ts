@@ -31,6 +31,7 @@ async function assembleContextForTarget(
   target: GenerationTarget,
 ): Promise<GenerationContextEntry[]> {
   let pageId: string;
+  let tabId: string;
   let pageOrder: number;
   let withinPageCutoff: number | null;
 
@@ -40,11 +41,13 @@ async function assembleContextForTarget(
       include: { page: true },
     });
     pageId = trigger.pageId;
+    tabId = trigger.page.tabId;
     pageOrder = trigger.page.order;
     withinPageCutoff = trigger.order;
   } else {
     const page = await prisma.page.findUniqueOrThrow({ where: { id: target.pageId } });
     pageId = page.id;
+    tabId = page.tabId;
     pageOrder = page.order;
     withinPageCutoff = null;
   }
@@ -55,8 +58,11 @@ async function assembleContextForTarget(
       orderBy: { order: "asc" },
       include: { card: true, page: true },
     }),
+    // Scoped to this same Tab — Tabs don't share generation context with each other
+    // (Step 6 spec §1.1), so a higher-order Page in a *different* Tab must never
+    // leak in here just because Page.order values aren't unique across Tabs.
     prisma.pageCard.findMany({
-      where: { page: { order: { gt: pageOrder } } },
+      where: { page: { tabId, order: { gt: pageOrder } } },
       orderBy: [{ page: { order: "asc" } }, { order: "asc" }],
       include: { card: true, page: true },
     }),
@@ -91,9 +97,17 @@ export function assembleContext(pageCardId: string): Promise<GenerationContextEn
  * only forwards these events on to the frontend's local ghost-card state; persisting
  * only happens if/when the user explicitly accepts it (see persistGeneratedCard(ToPage)).
  */
-async function* streamForTarget(target: GenerationTarget): AsyncGenerator<CardBlockEvent> {
+async function* streamForTarget(
+  target: GenerationTarget,
+  instruction?: string,
+): AsyncGenerator<CardBlockEvent> {
   const context = await assembleContextForTarget(target);
-  const { systemPrompt, userMessage } = compilePrompt({ mode: "generate", context });
+  // An instruction typed into the Feed Input Button's expanded text field (Step 6
+  // spec §2.2) reuses the existing "interactive" prompt mode — it was already built
+  // for exactly this "override instruction alongside the normal context" shape.
+  const { systemPrompt, userMessage } = instruction
+    ? compilePrompt({ mode: "interactive", context, overridePrompt: instruction })
+    : compilePrompt({ mode: "generate", context });
 
   const providerId = activeProviderId();
   const provider = modelProviderRegistry.get(providerId);
@@ -136,13 +150,13 @@ async function* streamForTarget(target: GenerationTarget): AsyncGenerator<CardBl
 }
 
 /** Card-level generation — GET /api/generate/stream/:pageCardId. */
-export function streamGeneration(pageCardId: string): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "card", pageCardId });
+export function streamGeneration(pageCardId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "card", pageCardId }, instruction);
 }
 
 /** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */
-export function streamGenerationForPage(pageId: string): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "page", pageId });
+export function streamGenerationForPage(pageId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "page", pageId }, instruction);
 }
 
 function isRegisteredCardType(id: string): boolean {
@@ -181,7 +195,11 @@ async function materializeParts(parts: GeneratedCardPart[]): Promise<string> {
         savedToVault: false,
       },
     });
-    pieces.push(`[[${child.id}]]`);
+    // <wattle-embed>, not the old `[[cardId]]` bracket token — content is HTML now
+    // (richText/cardEmbedNode.ts); the tag deliberately doesn't start with "card" so
+    // it can never collide with this same stream's own <card>/</card> nesting syntax
+    // (cardBlockParser.ts's TAG_REGEX).
+    pieces.push(`<wattle-embed data-card-id="${child.id}"></wattle-embed>`);
   }
   return pieces.join("");
 }

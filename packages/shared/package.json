@@ -9,6 +9,10 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@tiptap/core": "^3.28.0",
+    "@tiptap/html": "^3.28.0",
+    "@tiptap/pm": "^3.28.0",
+    "@tiptap/starter-kit": "^3.28.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { PageCard } from "@wattle/shared";
 import * as pageCardService from "../services/pageCardService.js";
+import * as dockCardService from "../services/dockCardService.js";
 import { runOperation } from "../operations/run.js";
 
 // Mounted at /api/page-cards — operations on a single Card-within-a-Page (the Dock's
@@ -39,4 +40,10 @@ pageCardsRouter.put("/:id/move", async (req, res) => {
   const { destPageId, destIndex } = req.body ?? {};
   await pageCardService.movePageCard(req.params.id, destPageId, destIndex);
   res.status(204).end();
+});
+
+// PUT /api/page-cards/:id/move-to-dock — moves this Card off its Page and onto the
+// Dock's persistent scratchpad (Step 6 spec §4.2's simple one-off "Move to Dock").
+pageCardsRouter.put("/:id/move-to-dock", async (req, res) => {
+  res.json(await dockCardService.movePageCardToDock(req.params.id));
 });

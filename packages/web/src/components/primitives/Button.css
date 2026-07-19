@@ -49,3 +49,14 @@
   background: var(--color-surface);
   color: var(--color-danger);
 }
+
+/* A toggled-on state (e.g. the Dock formatting toolbar's Bold button while the
+   cursor sits in bold text) — permanently reads as "sunk", the same shadow/offset
+   :active already uses for a momentary press, so "currently on" looks like the
+   button is being held down rather than needing a new color language. */
+.button--pressed {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  box-shadow: var(--shadow-button-pressed);
+  transform: translate(2px, 2px);
+}

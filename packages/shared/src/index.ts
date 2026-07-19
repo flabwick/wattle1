@@ -7,3 +7,8 @@ export * from "./registries/definitions/noteCardType.js";
 export * from "./registries/definitions/linkCardType.js";
 export * from "./registries/definitions/fileCardType.js";
 export * from "./registries/init.js";
+export * from "./richText/cardEmbedNode.js";
+export * from "./richText/extensions.js";
+export * from "./richText/plainText.js";
+export * from "./richText/annotationLayout.js";
+export * from "./richText/parseCardRefs.js";

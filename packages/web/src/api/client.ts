@@ -1,6 +1,7 @@
 import type {
   Card,
   CreateCardInput,
+  DockCardWithCard,
   Folder,
   FolderContents,
   GeneratedCardPart,
@@ -9,6 +10,7 @@ import type {
   PageCard,
   PageCardWithCard,
   PageWithCards,
+  Tab,
   UpdateCardInput,
 } from "@wattle/shared";
 
@@ -65,12 +67,19 @@ export const moveFolder = (id: string, parentId: string | null) =>
   request<Folder>(`/folders/${id}/move`, { method: "PATCH", body: JSON.stringify({ parentId }) });
 export const deleteFolder = (id: string) => request<void>(`/folders/${id}`, { method: "DELETE" });
 
+// Tabs — the horizontal layer above Pages (Step 6 spec §1.1).
+export const listTabs = () => request<Tab[]>("/tabs");
+export const createTab = (title?: string) =>
+  request<Tab>("/tabs", { method: "POST", body: JSON.stringify(title ? { title } : {}) });
+export const deleteTab = (id: string) => request<void>(`/tabs/${id}`, { method: "DELETE" });
+
 // Pages
-export const listPages = () => request<PageWithCards[]>("/pages");
-export const createPage = (order?: number) =>
+export const listPages = (tabId: string) =>
+  request<PageWithCards[]>(`/pages?tabId=${encodeURIComponent(tabId)}`);
+export const createPage = (tabId: string, order?: number) =>
   request<Page>("/pages", {
     method: "POST",
-    body: JSON.stringify(order !== undefined ? { order } : {}),
+    body: JSON.stringify(order !== undefined ? { tabId, order } : { tabId }),
   });
 export const deletePage = (id: string) => request<void>(`/pages/${id}`, { method: "DELETE" });
 export const reorderPages = (orderedIds: string[]) =>
@@ -118,6 +127,36 @@ export const movePageCard = (pageCardId: string, destPageId: string, destIndex: 
   request<void>(`/page-cards/${pageCardId}/move`, {
     method: "PUT",
     body: JSON.stringify({ destPageId, destIndex }),
+  });
+/** Moves a selected Card off its Page and onto the Dock's persistent scratchpad
+ *  (Step 6 spec §4.2). */
+export const movePageCardToDock = (pageCardId: string) =>
+  request<DockCardWithCard>(`/page-cards/${pageCardId}/move-to-dock`, { method: "PUT" });
+
+// Dock Cards — the persistent scratchpad layer outside every Page/Tab (Step 6 spec §1.2).
+export const listDockCards = () => request<DockCardWithCard[]>("/dock-cards");
+export const addExistingCardToDock = (cardId: string) =>
+  request<DockCardWithCard>("/dock-cards", { method: "POST", body: JSON.stringify({ cardId }) });
+export const createCardInDock = (title: string, content: string) =>
+  request<DockCardWithCard>("/dock-cards", {
+    method: "POST",
+    body: JSON.stringify({ title, content }),
+  });
+export const uploadFileToDock = async (file: File): Promise<DockCardWithCard> => {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api/dock-cards/files`, { method: "POST", body });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<DockCardWithCard>;
+};
+export const removeDockCard = (id: string) => request<void>(`/dock-cards/${id}`, { method: "DELETE" });
+export const moveDockCardToPage = (dockCardId: string, pageId: string, destIndex: number) =>
+  request<PageCard>(`/dock-cards/${dockCardId}/move-to-page`, {
+    method: "PUT",
+    body: JSON.stringify({ pageId, destIndex }),
   });
 
 // Generation Rule — the streaming calls themselves (GET /generate/stream/:pageCardId,

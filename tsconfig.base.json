@@ -1,7 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    // "DOM" is here for every package, not just packages/web, because
+    // packages/shared's richText extensions (TipTap Node configs) type their
+    // parseHTML/renderHTML callbacks against HTMLElement even when only ever run
+    // headlessly (via @tiptap/html's Node/happy-dom path) — every package that
+    // imports @wattle/shared transitively type-checks that file, so this needs to be
+    // consistent everywhere rather than patched per-consumer. Type declarations
+    // only; doesn't add real browser globals to packages/api's Node runtime.
+    "lib": ["ES2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "esModuleInterop": true,

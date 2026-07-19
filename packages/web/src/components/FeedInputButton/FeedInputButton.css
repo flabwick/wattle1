@@ -1,0 +1,154 @@
+/* Reads as a plain line of text sitting in the Page's own content — no box, no
+   border, no shadow, nothing that reads as toolbar/dock chrome. */
+.feed-input {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-2);
+}
+
+.feed-input__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The icon itself stays modest (Icon's own default size), but the tappable box is a
+   full --touch-target-sm so these are comfortable to hit on mobile. */
+.feed-input__circle,
+.feed-input__add,
+.feed-input__ellipsis {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-sm);
+  min-height: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.feed-input__circle {
+  color: var(--color-accent);
+}
+
+.feed-input__circle:hover,
+.feed-input__add:hover,
+.feed-input__ellipsis:hover {
+  color: var(--color-text);
+}
+
+.feed-input__placeholder {
+  flex: 1;
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: var(--font-size-base);
+  cursor: text;
+}
+
+.feed-input__inline-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-bold) solid var(--color-border);
+  padding: 0 0 2px;
+}
+
+.feed-input__inline-input:focus {
+  outline: none;
+  border-bottom-color: var(--color-accent);
+}
+
+.feed-input__inline-input::placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.feed-input__popup-wrap {
+  position: relative;
+  display: flex;
+}
+
+/* The rest of the options (Open from Vault/Upload/card type) — a small floating
+   popup above the ellipsis, same "thick stock" box language as
+   .feed-input__type-picker below rather than the plain inline row it replaces. */
+.feed-input__popup {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  z-index: 1;
+}
+
+.feed-input__popup > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-sm);
+  min-height: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.feed-input__popup > button:hover {
+  color: var(--color-text);
+}
+
+.feed-input__type-wrap {
+  position: relative;
+  display: flex;
+}
+
+.feed-input__type-picker {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  z-index: 1;
+}
+
+.feed-input__type-option {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.feed-input__type-option:hover {
+  background: var(--color-surface-raised);
+}
+
+.feed-input__type-option--selected {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.feed-input__file-input {
+  display: none;
+}

@@ -3,10 +3,13 @@ import type { PageWithCards } from "@wattle/shared";
 import * as api from "../api/client.js";
 import { publishCard, subscribeToSaves } from "../lib/cardStore.js";
 
-/** Loads and refreshes the Page stack. Optimistic updates happen in the mutators
- *  below (spec1.md Part 4 "State & Data Layer"): the UI updates immediately and the
- *  server call confirms after, rather than blocking every interaction on a round-trip. */
-export function usePages() {
+/** Loads and refreshes the current Tab's Page stack (Step 6 spec §1.1: Tabs don't
+ *  share Pages, so this whole hook is scoped to one `tabId`, re-fetching from scratch
+ *  whenever it changes). Optimistic updates happen in the mutators below (spec1.md
+ *  Part 4 "State & Data Layer"): the UI updates immediately and the server call
+ *  confirms after, rather than blocking every interaction on a round-trip. `tabId` is
+ *  null only during the brief window before App.tsx's Tab bootstrap picks/creates one. */
+export function usePages(tabId: string | null) {
   const [pages, setPages] = useState<PageWithCards[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,13 +19,21 @@ export function usePages() {
   // of order. Without this guard, whichever response happens to land last wins even
   // if it's for an earlier, now-stale keystroke, silently reverting later ones. Only
   // ever applying the result of the most recently *initiated* call keeps state
-  // consistent with what was actually typed, regardless of response ordering.
+  // consistent with what was actually typed, regardless of response ordering. Also
+  // guards against a switch-tabs-mid-flight race the same way: a slow response for
+  // the *previous* Tab landing after a newer request for the *new* one is for a
+  // strictly earlier `refresh()` call, so it's discarded exactly like a stale draft.
   const refreshSeq = useRef(0);
 
   const refresh = useCallback(async () => {
     const seq = ++refreshSeq.current;
+    if (!tabId) {
+      setPages([]);
+      setLoading(false);
+      return;
+    }
     try {
-      const next = await api.listPages();
+      const next = await api.listPages(tabId);
       if (seq !== refreshSeq.current) return;
       setPages(next);
       setError(null);
@@ -41,7 +52,7 @@ export function usePages() {
     } finally {
       if (seq === refreshSeq.current) setLoading(false);
     }
-  }, []);
+  }, [tabId]);
 
   useEffect(() => {
     refresh();
@@ -58,11 +69,12 @@ export function usePages() {
 
   const addPage = useCallback(
     async (order?: number) => {
-      const page = await api.createPage(order);
+      if (!tabId) throw new Error("Cannot add a Page before a Tab is selected");
+      const page = await api.createPage(tabId, order);
       await refresh();
       return page.id;
     },
-    [refresh],
+    [tabId, refresh],
   );
 
   const removePage = useCallback(

@@ -28,7 +28,18 @@ export type IconName =
   | "diff"
   | "footnote"
   | "highlight"
-  | "stop";
+  | "stop"
+  | "more"
+  | "tray"
+  | "pages"
+  | "tabs"
+  | "back"
+  | "save"
+  | "bold"
+  | "italic"
+  | "heading"
+  | "bulletList"
+  | "orderedList";
 
 interface IconProps {
   name: IconName;
@@ -166,6 +177,98 @@ const PATHS: Record<IconName, JSX.Element> = {
   // A single right-pointing chevron — the explicit "open this Folder" row control,
   // since a Folder row's own click now only selects it (see VaultView.tsx).
   chevronRight: <path d="M9 5l7 7-7 7" />,
+  // Three dots — the Feed Input Button's "expand" trigger (Step 6 spec §2.2).
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // An inbox tray — the Dock Cards scratchpad's own toggle/"Move to Dock" icon,
+  // distinct from "vault" (a different, page-oriented destination).
+  tray: (
+    <>
+      <path d="M4 13l3-8h10l3 8" />
+      <path d="M4 13v6h16v-6" />
+      <path d="M4 13h5l1.5 2h3L15 13h5" />
+    </>
+  ),
+  // Stacked sheets — the Pages panel's toggle (Step 6 spec §3.5), distinct from
+  // "file"/"folder" (vault-oriented) and "tray" (the Dock scratchpad).
+  pages: (
+    <>
+      <path d="M7 4h8l4 4v12H7V4z" />
+      <path d="M5 8v13h11" />
+    </>
+  ),
+  // Browser-style tabs — the Tabs panel's toggle (Step 6 spec §3.4), distinct from
+  // "pages" (that Tab's own vertical stack).
+  tabs: (
+    <>
+      <path d="M3 8h6l2 3h10" />
+      <path d="M3 8v11h18V11h-8l-2-3H3z" />
+    </>
+  ),
+  // A left-pointing chevron — mirrors "chevronRight"; the Dock Card panel's own
+  // "back" control while editing (there's no page-level Back Card action).
+  back: <path d="M15 5l-7 7 7 7" />,
+  // A floppy disk — the classic "save" glyph, only ever shown while there's an
+  // actual unsaved draft to commit (Dock.tsx's selectedCards branch); it isn't
+  // repurposed as a disabled/done indicator once saved the way "plus"/"done" used
+  // to be — the action just disappears from the row entirely instead.
+  save: (
+    <>
+      <path d="M5 4h11l3 3v13H5V4z" />
+      <path d="M8 4v5h7V4" />
+      <path d="M8 14h8v5H8v-5z" />
+    </>
+  ),
+  // Standard "B" glyph — the Dock formatting toolbar's bold toggle.
+  bold: (
+    <path d="M7 4h6a3.5 3.5 0 0 1 0 7H7V4z M7 11h7a3.5 3.5 0 0 1 0 7H7v-7z" />
+  ),
+  // Standard "I" glyph — the Dock formatting toolbar's italic toggle.
+  italic: (
+    <>
+      <path d="M11 4h6" />
+      <path d="M7 20h6" />
+      <path d="M14 4L10 20" />
+    </>
+  ),
+  // A large "H" with a baseline rule — the Dock formatting toolbar's heading toggle,
+  // distinct from plain bold/italic by the underline suggesting block-level structure.
+  heading: (
+    <>
+      <path d="M6 4v16" />
+      <path d="M16 4v16" />
+      <path d="M6 12h10" />
+      <path d="M4 20h4" />
+      <path d="M14 20h4" />
+    </>
+  ),
+  // Three dots with rules — the Dock formatting toolbar's bullet-list toggle.
+  bulletList: (
+    <>
+      <circle cx="4.5" cy="6" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="18" r="1.2" fill="currentColor" stroke="none" />
+      <path d="M9 6h11" />
+      <path d="M9 12h11" />
+      <path d="M9 18h11" />
+    </>
+  ),
+  // Numeral marks ("1", "2") with rules — the Dock formatting toolbar's ordered-list
+  // toggle, distinct from "bulletList" by the digit marks in place of dots.
+  orderedList: (
+    <>
+      <path d="M3.5 7l1-1v4" />
+      <path d="M3.3 16.5c0-1 .8-1.5 1.4-1.5s1.3.5 1.3 1.3-.9 1.3-2.3 2.7h2.3" />
+      <path d="M9 6h11" />
+      <path d="M9 12h11" />
+      <path d="M9 18h11" />
+    </>
+  ),
 };
 
 /**

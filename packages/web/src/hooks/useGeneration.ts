@@ -67,11 +67,12 @@ export interface UseGenerationResult {
   target: GenerationTarget | null;
   /** Opens the SSE stream for a selected Card — the sole model call for this
    *  generation. Builds up the ghost card tree in local state as it streams in, and
-   *  saves it automatically the moment the stream ends cleanly. */
-  start: (pageCardId: string) => void;
+   *  saves it automatically the moment the stream ends cleanly. `instruction`, if
+   *  given, is the Feed Input Button's typed guide text (Step 6 spec §2.2). */
+  start: (pageCardId: string, instruction?: string) => void;
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
-  startForPage: (pageId: string) => void;
+  startForPage: (pageId: string, instruction?: string) => void;
   /** Ends the stream early and immediately saves whatever's been generated so far as
    *  the real Card — the same save path a clean completion uses, just triggered by
    *  the user instead of the model finishing on its own. If nothing has streamed in
@@ -291,12 +292,20 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
   );
 
   const start = useCallback(
-    (pageCardId: string) => openStream({ type: "card", pageCardId }, `/api/generate/stream/${pageCardId}`),
+    (pageCardId: string, instruction?: string) =>
+      openStream(
+        { type: "card", pageCardId },
+        `/api/generate/stream/${pageCardId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
+      ),
     [openStream],
   );
 
   const startForPage = useCallback(
-    (pageId: string) => openStream({ type: "page", pageId }, `/api/generate/stream/page/${pageId}`),
+    (pageId: string, instruction?: string) =>
+      openStream(
+        { type: "page", pageId },
+        `/api/generate/stream/page/${pageId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
+      ),
     [openStream],
   );
 

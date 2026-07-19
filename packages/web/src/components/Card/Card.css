@@ -98,9 +98,9 @@
 }
 
 /* Not line-clamped: the Card's box has no fixed height (CardShell.css), so it grows
-   to fit however much content there is — same as the auto-growing textarea
-   CardContentEditor.tsx swaps in for editing, so a given Card is exactly the same
-   size (and shows exactly the same content) whether you're viewing or editing it. */
+   to fit however much content there is — the same box whether reading or editing
+   (richtext/CardRichText.tsx toggles editable in place rather than swapping
+   components), so a given Card is exactly the same size either way. */
 .card__preview {
   margin: 0;
   color: var(--color-text-muted);
@@ -134,25 +134,7 @@
   min-width: 0;
 }
 
-/* Auto-growing, not fixed-height: CardContentEditor.tsx sets this element's `height`
-   style directly to its scrollHeight on every change, so the Card's own box (which
-   has no height of its own — see CardShell.css) grows to fit however much content is
-   typed instead of scrolling inside a fixed box or offering a manual resize handle. */
-.input-field.card__content-input {
-  border: none;
-  background: transparent;
-  padding: 0;
-  min-height: 1.5em;
-  max-height: none;
-  resize: none;
-  overflow: hidden;
-  box-shadow: none;
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
-}
-
-.input-field.card__title-input:focus,
-.input-field.card__content-input:focus {
+.input-field.card__title-input:focus {
   border: none;
   box-shadow: none;
   outline: none;

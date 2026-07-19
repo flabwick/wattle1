@@ -17,7 +17,8 @@ this:
 
 ```
 <card type="note" title="A short title">
-Plain text content goes here.
+<p>Plain text content goes here, optionally wrapped in the small set of formatting
+tags rule 6 describes.</p>
 </card>
 ```
 
@@ -35,11 +36,16 @@ Rules:
    card type. `title` is a short, plain-text label for that block.
 5. Do not wrap the `<card>` block in a markdown code fence, and do not use `<card>` for
    anything other than this block structure. Emit it as literal text.
-6. A card's own content is plain text and/or nested `<card>` blocks — nothing else. Do
-   not use markdown or any other formatting syntax inside it: no `**bold**`/`*italic*`,
-   no `#` headings, no `-`/`*`/`1.` list markers, no backtick code spans/fences, no
-   `[link](url)` syntax, no HTML tags. The app renders content as plain text verbatim
-   (whitespace preserved, nothing parsed), so formatting syntax would show up as
-   literal stray characters instead of actual formatting. Express structure — a
-   heading, a list, a sub-point — as a nested `<card>` with its own `title`, not as
-   markdown syntax inside the text.
+6. A card's own content is plain text, a fixed set of HTML formatting tags, and/or
+   nested `<card>` blocks — nothing else. The only tags you may use are `<p>`,
+   `<strong>`, `<em>`, `<h1>`, `<h2>`, `<h3>`, `<ul>`, `<ol>`, and `<li>` (plus `<card>`
+   itself, per rule 2). No other tag, and no attribute on any of these tags. Do not use
+   markdown as an alternative to these tags: no `**bold**`/`*italic*`, no `#` headings,
+   no `-`/`*`/`1.` list markers, no backtick code spans/fences, no `[link](url)`
+   syntax. The app renders this content through a rich-text editor that only
+   understands this exact tag set — anything else (an unlisted tag, an attribute,
+   markdown syntax) is silently dropped rather than rendered, so stick to the list
+   above for anything you want to actually show up formatted. Express structure you
+   can't reach with this tag set — a sub-point, a distinct topic — as a nested
+   `<card>` with its own `title`, not as an unsupported tag or markdown syntax inside
+   the text.

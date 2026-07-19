@@ -44,9 +44,12 @@ function serializePageCard(pc: {
   };
 }
 
-/** List every Page with its Cards, ordered bottom (0) to top — the full visible stack. */
-export async function listPages(): Promise<PageWithCards[]> {
+/** List every Page within a Tab, with its Cards, ordered bottom (0) to top — the full
+ *  visible stack for that Tab. Tabs don't share Pages (Step 6 spec §1.1), so every
+ *  caller must say which one. */
+export async function listPages(tabId: string): Promise<PageWithCards[]> {
   const pages = await prisma.page.findMany({
+    where: { tabId },
     orderBy: { order: "asc" },
     include: { pageCards: { orderBy: { order: "asc" }, include: { card: true } } },
   });
@@ -56,11 +59,13 @@ export async function listPages(): Promise<PageWithCards[]> {
   }));
 }
 
-/** Create a new Page on top of the stack (or at a given order if provided). */
-export async function createPage(order?: number): Promise<Page> {
-  const top = await prisma.page.aggregate({ _max: { order: true } });
+/** Create a new Page on top of the given Tab's stack (or at a given order if
+ *  provided) — "top" is scoped to that Tab alone, since Page.order values aren't
+ *  meaningful across different Tabs. */
+export async function createPage(tabId: string, order?: number): Promise<Page> {
+  const top = await prisma.page.aggregate({ where: { tabId }, _max: { order: true } });
   const nextOrder = order ?? (top._max.order ?? -1) + 1;
-  const page = await prisma.page.create({ data: { order: nextOrder } });
+  const page = await prisma.page.create({ data: { order: nextOrder, tabId } });
   return serializePage(page);
 }
 

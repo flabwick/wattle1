@@ -1,38 +1,65 @@
-import { useRef, useState } from "react";
-import type { Card, Folder, FolderContents, PageCardWithCard, PageWithCards } from "@wattle/shared";
+import { useEffect, useRef, useState } from "react";
+import type { Card, DockCardWithCard, Folder, FolderContents, PageCardWithCard, PageWithCards, Tab } from "@wattle/shared";
 import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
+import type { Editor } from "@tiptap/core";
+import { useEditorState } from "@tiptap/react";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Button, Icon } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
+import { DockCardsPanel } from "./DockCardsPanel.js";
+import { PagesPanel } from "./PagesPanel.js";
+import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
+import { useActiveEditor } from "../../lib/activeEditorRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
+/** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
+ *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
+ *  independent booleans so that's structurally guaranteed, not just convention. */
+export type DockPanel = "vault" | "dockCards" | "pages" | "tabs";
+
 interface DockProps {
-  selected: PageCardWithCard | null;
-  /** A selected Page (mutually exclusive with `selected` — see App.tsx). */
-  selectedPage: PageWithCards | null;
+  /** The single currently-selected Card, if any — only ever one Page Card selected
+   *  at a time (App.tsx's toggleSelectPageCard replaces rather than adds to the
+   *  selection). Still an array since most of this file's logic was written
+   *  batch-shaped and works fine unchanged over 0-1 items. Empty when nothing's
+   *  selected. */
+  selectedCards: PageCardWithCard[];
   /** An independently-selected embedded Card's id (mutually exclusive with, and takes
-   *  priority over, `selected`/`selectedPage` — see App.tsx/CardContent.tsx). Gets the
-   *  same Edit/Save/Remove/Delete actions a top-level Card does — Save is always
-   *  shown already-done since embeds are always already-saved vault Cards
-   *  (CardLinkPicker only offers saved ones) that write straight through on every
-   *  keystroke, so there's never anything pending to commit. There's no per-embed
-   *  Generate: Generate is only ever available with nothing selected at all (see the
-   *  `selected`/`selectedPage` branches below). */
+   *  priority over, `selectedCards` — see App.tsx/CardContent.tsx). Gets the same
+   *  back-caret/Edit/Save/Move/Move to Dock actions a top-level Card does, plus
+   *  Remove/Delete which only an embed has — Save is always shown already-done
+   *  since embeds are always already-saved vault Cards (CardLinkPicker only offers
+   *  saved ones) that write straight through on every keystroke, so there's never
+   *  anything pending to commit. There's no per-embed Generate: Generate is only
+   *  ever available via `selectedCards` below. Tapping an already-selected embed
+   *  again jumps into editing it rather than deselecting (App.tsx's selectEmbed) —
+   *  onDeselectEmbed below is the only way back out. */
   selectedEmbedId: string | null;
-  onEditEmbed: () => void;
+  /** True while whatever's selected (Page Card, Dock Card, or embed) is also in its
+   *  own inline edit mode — swaps the row for the rich-text formatting toolbar
+   *  (bold/italic/heading/lists), replacing Move/Save/Generate/etc. for as long as
+   *  editing is active (App.tsx derives this from editingPageCardIds/editingEmbedIds,
+   *  no new state of its own). */
+  isEditingActive: boolean;
   onRemoveEmbed: () => void;
   onDeleteEmbed: () => void;
-  /** True from the moment a generation starts until it's fully saved — there is no
-   *  separate review/Accept step; while this is true the Generate action becomes a
-   *  Stop action instead (see onStopGeneration below). */
-  generating: boolean;
-  /** Ends a streaming generation early and saves whatever's been generated so far,
-   *  same as letting it finish naturally — see useGeneration.ts's `stop`. */
-  onStopGeneration: () => void;
+  /** The row's own back-caret action — a plain deselect, leaving the embed exactly
+   *  where it is (distinct from Remove/Delete above, which are their own explicit
+   *  actions further along the row). */
+  onDeselectEmbed: () => void;
+  /** Move Mode for the selected embed (App.tsx's movingEmbedCard) — true while it's
+   *  in transit to a Page position. Same in-transit-waiting-for-a-drop-zone shape as
+   *  `moving`/`dockCardMoving`, kept as its own flag for the same reason
+   *  dockCardMoving is: never simultaneously true with the others (selection is
+   *  already mutually exclusive across Page Cards/Dock Cards/embeds). */
+  embedMoving: boolean;
+  onEnterEmbedMoveMode: () => void;
+  onCancelEmbedMove: () => void;
+  onMoveEmbedToDock: () => void;
   /** Set once a generation stream ends in an error (bad credentials, network failure,
    *  malformed model output — see useGeneration.ts) rather than a valid root card.
    *  Shown as a dismissible banner instead of silently doing nothing. */
@@ -50,36 +77,60 @@ interface DockProps {
    *  they're two independent features that can each be mid-action at once. */
   annotationError: string | null;
   onDismissAnnotationError: () => void;
-  onEdit: () => void;
-  onSave: () => void;
+  /** Saves every selected Card that has something pending — a no-op for any that
+   *  don't (App.tsx batches the existing per-Card save-to-vault call). */
+  onSaveSelected: () => void;
+  /** True from the moment a generation starts until it's fully saved — the Circle
+   *  becomes a Stop action while this is true, same convention as the Feed Input
+   *  Button's own Circle (FeedInputButton.tsx). */
+  generating: boolean;
+  onStopGeneration: () => void;
+  /** Generate anchored to the selection (Step 6 spec §4.2) rather than the bottom of
+   *  the Page — inserts directly below whichever selected Card sorts last (App.tsx
+   *  picks the bottommost one as the anchor when more than one is selected). */
+  onGenerateSelected: () => void;
   /** The diff/footnote/highlight processes (a separate, parallel system from
-   *  Generate above — see annotationService.ts) — null when there's no Card/embed
-   *  context to run one against (mirrors onGeneratePage's null-when-unavailable
-   *  convention). Runs against the *whole* selected Card (root + any nested Cards);
-   *  a text-selection-scoped run instead goes through SelectionMenu.tsx directly,
-   *  not through the Dock at all. */
+   *  Generate — see annotationService.ts) — null whenever there's no Card/embed
+   *  context to run one against, including when more than one Card is selected at
+   *  once (App.tsx only resolves this for a single selected Card — annotations
+   *  running across a multi-selection isn't a case Step 6 defines). Runs against the
+   *  *whole* selected Card (root + any nested Cards); a text-selection-scoped run
+   *  instead goes through SelectionMenu.tsx directly, not through the Dock at all. */
   onRunProcess: ((process: AnnotationProcess) => void) | null;
   /** True while a process run is streaming/awaiting its model response — disables
-   *  the action and spins its icon, same convention as `generating` below. */
+   *  the action and spins its icon, same convention as `generating` above. */
   processRunning: boolean;
   /** How many pending diff annotations the selected Card/embed currently has — the
    *  "Accept all diffs" action only appears once this is > 0. */
   pendingDiffCount: number;
   onAcceptAllDiffs: (() => void) | null;
-  onRemoveFromPage: () => void;
-  onAddCardToPage: () => void;
-  /** Generate with nothing selected — appends at the bottom of the current Page
-   *  instead of directly below a specific Card (App.tsx/useGeneration.ts's
-   *  startForPage). Null when there's no current Page to generate into. */
-  onGeneratePage: (() => void) | null;
-  onDeletePage: () => void;
-  /** Move Mode (the Dock's Move action) — see App.tsx's movingPageCardId. Non-null
-   *  while a Card is "in transit" waiting for a drop target to be tapped. */
-  movingPageCardId: string | null;
+  /** Deselects every selected Card — the row's own back-caret action. Pure
+   *  deselect: every Card stays right where it is on the Page. Tapping an
+   *  already-selected Card jumps into editing it instead of deselecting
+   *  (App.tsx's toggleSelectPageCard) — this is the only way back out. */
+  onDeselectAll: () => void;
+  /** Moves every selected Card off its Page and onto the Dock's persistent
+   *  scratchpad, as one batch (Step 6 spec §4.2's simple one-off "Move to Dock"). */
+  onMoveToDock: () => void;
+  /** Move Mode (the Dock's Move action) — see App.tsx's movingPageCardIds. True while
+   *  one or more Cards are "in transit" waiting for a drop target to be tapped. */
+  moving: boolean;
   onEnterMoveMode: () => void;
   onCancelMove: () => void;
-  /** Vault extension panel, toggled from the Dock (spec1.md Part 3 "Vault"). Folders
-   *  and search are two mutually exclusive views over it — see useVault.ts. */
+  /** The Dock Card panel's own Move Mode (App.tsx's movingDockCardIds) — same
+   *  in-transit-waiting-for-a-drop-zone shape as `moving` above, kept as a separate
+   *  flag since a Dock Card and a Page Card can never be mid-move at the same time
+   *  (selection is already mutually exclusive between the two) but the Dock still
+   *  needs to know which kind it's showing Cancel for. */
+  dockCardMoving: boolean;
+  onCancelDockCardMove: () => void;
+  /** Which extended panel (Step 6 spec §3.2) is currently open, lifted to App.tsx so
+   *  the Feed Input Button's "Open" action can open the Vault view too, not just the
+   *  Dock's own toggle. Folders and search within the Vault view are a further two
+   *  mutually exclusive sub-views over it — see useVault.ts. */
+  openPanel: DockPanel | null;
+  onOpenPanel: (panel: DockPanel) => void;
+  onClosePanel: () => void;
   vaultSearchResults: Card[];
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
@@ -102,8 +153,69 @@ interface DockProps {
   onDeleteVaultFolder: (id: string) => void;
   /** Add a vault Card to the current Page, if one exists. */
   onAddVaultCardToPage: ((cardId: string) => void) | null;
-  /** Upload a file onto the current Page as a new "file"-typed Card, if one exists. */
-  onUploadFileToPage: ((file: File) => void) | null;
+  /** The Dock Cards toggle's own repurposed behavior while a vault Card is selected
+   *  (dockCardsAction below) — adds it to the Dock, then opens the Dock Cards panel
+   *  straight onto it, instead of the toggle's normal open/close behavior. */
+  onAddVaultCardToDock: (cardId: string) => void;
+  /** The Dock's persistent scratchpad layer (Step 6 spec §1.2/§3.3) — always shown as
+   *  a horizontal scroll row in the base bar, regardless of selection/navigation
+   *  state, alongside its own extended panel. */
+  dockCards: DockCardWithCard[];
+  /** Reuses the same "editing embed ids" set as page-embedded Cards — edit state is a
+   *  property of a Card's id, not of where it's currently displayed, and a Dock Card
+   *  behaves exactly like an embed (writes straight through, no draft) — reachable
+   *  both via double-click/long-press (same as any other embed) and via the Dock's
+   *  own Edit action once a Dock Card is selected (see selectedDockCardIds below). */
+  editingDockCardIds: ReadonlySet<string>;
+  onToggleDockCardEdit: (cardId: string) => void;
+  onCreateDockCard: (title: string, content: string) => void;
+  /** The Dock Card creation flow's own Upload option (DockCardsPanel.tsx's
+   *  FeedInputButton, showGenerate false) — mirrors a Page's Feed Input Button
+   *  Upload, but returns the created DockCard so that panel can jump straight to
+   *  it, same as onCreateDockCard's own landing behavior. */
+  onUploadDockCardFile: (file: File) => Promise<DockCardWithCard>;
+  /** Non-null right after a Card lands in the Dock (moved from a Page, or added from
+   *  the Vault) — DockCardsPanel.tsx jumps straight to it once it's in `dockCards`,
+   *  then fires onOpenedDockCard to clear this back to null. */
+  dockCardToOpen: string | null;
+  onOpenedDockCard: () => void;
+  /** Every currently-selected Dock Card (by its own id, not cardId) — the same
+   *  select-then-act model as selectedCards, driving the Dock's own action row
+   *  (back-caret/Move to Page/Close), matching what a selected Page Card gets.
+   *  Tapping an already-selected Dock Card jumps into editing it instead of
+   *  deselecting (App.tsx's toggleSelectDockCard). */
+  selectedDockCardIds: ReadonlySet<string>;
+  onToggleSelectDockCard: (dockCardId: string) => void;
+  onDeselectDockCards: () => void;
+  /** The selection's own "Close" action — unlike a selected Page Card's Close (just
+   *  deselects), this actually removes the selected Dock Card(s): deletes them
+   *  outright if never saved to the vault, or just unpins them from the Dock (vault
+   *  Card left untouched) if they were. */
+  onCloseSelectedDockCards: () => void;
+  /** Enters the Dock Card panel's own Move Mode (dockCardMoving above) — the
+   *  destination Page/Tab/position is picked afterward by navigating there and
+   *  tapping a drop zone, not by this action itself. */
+  onMoveSelectedDockCardsToPage: () => void;
+  /** The Pages panel (Step 6 spec §3.5) — top-to-bottom stack order, same indexing as
+   *  App.tsx's sortedPages. */
+  sortedPages: PageWithCards[];
+  currentPageIndex: number;
+  onSelectPage: (index: number) => void;
+  /** The compact Page nav cluster (up/down/add + the Pages panel toggle, merged into
+   *  one bottom-right control in the Dock's base bar — formerly the standalone
+   *  PageNav component). Already false/true-computed by App.tsx the same way
+   *  PageNav's own props were. */
+  canNavigateUp: boolean;
+  canNavigateDown: boolean;
+  onNavigateUp: () => void;
+  onNavigateDown: () => void;
+  onAddPage: () => void;
+  /** The Tabs panel (Step 6 spec §3.4) — left-to-right order, same indexing as
+   *  App.tsx's sortedTabs/swipe gesture. */
+  tabs: Tab[];
+  currentTabIndex: number;
+  onSelectTab: (index: number) => void;
+  onCreateTab: () => void;
 }
 
 interface DockAction {
@@ -122,6 +234,9 @@ interface DockAction {
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** Toggled-on visual state (Button.css's .button--pressed) — the formatting row's
+   *  only current user, showing e.g. Bold as "on" while the cursor sits in bold text. */
+  active?: boolean;
 }
 
 /**
@@ -146,16 +261,15 @@ function supportedOperationIds(typeId: string): Set<string> {
  * its own; only the expandable Vault panel or a live generation preview (both
  * genuinely temporary) ever make it taller than that one row.
  *
- * Nothing selected -> just the Vault toggle; a Page selected (and no Card) -> + Add
- * Card/Generate/Delete Page; a Card or embedded Card selected -> Edit/Save/Remove
+ * Nothing selected -> just the Vault toggle; a Page selected (and no Card) -> Delete
+ * Page only (Add Card/Upload File/Generate all moved to the Feed Input Button — Step 6
+ * spec §5); a Card or embedded Card selected -> Edit/Save/Remove
  * (X — removes this Card from this Page, or this embed's `[[cardId]]` token from its
  * parent's content — only; the vault copy is untouched and can be reopened any time;
  * permanently deleting a Card from the vault is a Vault-panel-selection action
  * instead, alongside Rename/Move/Add to Page — see vaultModeActions below, which
  * takes over the row whenever something's selected inside an open Vault panel).
- * Generate is deliberately *only* ever available with
- * nothing selected at all — selecting any Card or embed hides it, there's no
- * "generate below this Card" affordance any more. Edit still opens the same inline
+ * Edit still opens the same inline
  * title/textarea editor on the Card itself (Card.tsx/CardEmbed.tsx); the Dock only
  * triggers it, it doesn't render it. Save has no separate "unsaved" Badge anywhere —
  * the action's own icon is the indicator: a `+` while there's a draft to commit, a
@@ -168,33 +282,40 @@ function supportedOperationIds(typeId: string): Set<string> {
  * registry (Pages aren't Cards), so they're unconditional.
  */
 export function Dock({
-  selected,
-  selectedPage,
+  selectedCards,
   selectedEmbedId,
-  onEditEmbed,
+  isEditingActive,
   onRemoveEmbed,
   onDeleteEmbed,
-  generating,
-  onStopGeneration,
+  onDeselectEmbed,
+  embedMoving,
+  onEnterEmbedMoveMode,
+  onCancelEmbedMove,
+  onMoveEmbedToDock,
   generationError,
   onDismissGenerationError,
   generationNotice,
   onDismissGenerationNotice,
   annotationError,
   onDismissAnnotationError,
-  onEdit,
-  onSave,
+  onSaveSelected,
+  generating,
+  onStopGeneration,
+  onGenerateSelected,
   onRunProcess,
   processRunning,
   pendingDiffCount,
   onAcceptAllDiffs,
-  onRemoveFromPage,
-  onAddCardToPage,
-  onGeneratePage,
-  onDeletePage,
-  movingPageCardId,
+  onDeselectAll,
+  onMoveToDock,
+  moving,
   onEnterMoveMode,
   onCancelMove,
+  dockCardMoving,
+  onCancelDockCardMove,
+  openPanel,
+  onOpenPanel,
+  onClosePanel,
   vaultSearchResults,
   vaultQuery,
   onVaultQueryChange,
@@ -209,9 +330,58 @@ export function Dock({
   onDeleteVaultCard,
   onDeleteVaultFolder,
   onAddVaultCardToPage,
-  onUploadFileToPage,
+  onAddVaultCardToDock,
+  dockCards,
+  editingDockCardIds,
+  onToggleDockCardEdit,
+  onCreateDockCard,
+  onUploadDockCardFile,
+  dockCardToOpen,
+  onOpenedDockCard,
+  selectedDockCardIds,
+  onToggleSelectDockCard,
+  onDeselectDockCards,
+  onCloseSelectedDockCards,
+  onMoveSelectedDockCardsToPage,
+  sortedPages,
+  currentPageIndex,
+  onSelectPage,
+  canNavigateUp,
+  canNavigateDown,
+  onNavigateUp,
+  onNavigateDown,
+  onAddPage,
+  tabs,
+  currentTabIndex,
+  onSelectTab,
+  onCreateTab,
 }: DockProps) {
-  const [vaultOpen, setVaultOpen] = useState(false);
+  const vaultOpen = openPanel === "vault";
+  const dockCardsOpen = openPanel === "dockCards";
+  const pagesOpen = openPanel === "pages";
+  const tabsOpen = openPanel === "tabs";
+
+  // Content stays mounted one tick behind `openPanel` going to null, so the slide-
+  // closed CSS transition below has something to animate away rather than the panel
+  // just vanishing — cleared once that transition actually finishes (onTransitionEnd
+  // on the wrapper further down).
+  const [renderedPanel, setRenderedPanel] = useState<DockPanel | null>(openPanel);
+  useEffect(() => {
+    if (openPanel) setRenderedPanel(openPanel);
+  }, [openPanel]);
+
+  // Tapping anywhere on the main page content collapses whatever panel is open (Step
+  // 6 spec §3.2) — excludes clicks inside `.dock` itself so the base bar's own
+  // toggle buttons (which already open/close it directly) don't also trigger this.
+  useEffect(() => {
+    if (!openPanel) return;
+    function handlePointerDown(e: PointerEvent) {
+      const target = e.target as Element;
+      if (!target.closest(".dock")) onClosePanel();
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [openPanel, onClosePanel]);
   /** Which vault Card or Folder is selected — clicking one selects it instead of
    *  acting on it immediately, so the Dock can show what to do with it (see
    *  vaultModeActions below). Selecting a Folder is deliberately independent of
@@ -226,11 +396,25 @@ export function Dock({
     null,
   );
   /** Non-null while a vault Card/Folder is "in transit" waiting for a destination
-   *  Folder to be picked — the vault-panel equivalent of movingPageCardId/Move Mode. */
+   *  Folder to be picked — the vault-panel equivalent of movingPageCardIds/Move Mode. */
   const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
+
+  // The formatting toolbar's target — whichever CardRichText instance was most
+  // recently focused (activeEditorRegistry.ts), reactively re-read here since Dock is
+  // a sibling, not an ancestor, of wherever that editor actually lives in the tree.
+  const activeEditor = useActiveEditor();
+  const formattingState = useEditorState({
+    editor: activeEditor,
+    selector: ({ editor }: { editor: Editor | null }) => ({
+      bold: editor?.isActive("bold") ?? false,
+      italic: editor?.isActive("italic") ?? false,
+      heading: editor?.isActive("heading", { level: 2 }) ?? false,
+      bulletList: editor?.isActive("bulletList") ?? false,
+      orderedList: editor?.isActive("orderedList") ?? false,
+    }),
+  });
 
   /** Clears every piece of vault-panel-local selection state — used whenever the
    *  panel closes, so reopening it starts fresh rather than resuming mid-rename or
@@ -322,15 +506,59 @@ export function Dock({
     operationId: null,
     icon: vaultOpen ? "close" : "vault",
     label: vaultLabel,
-    onClick: () =>
-      setVaultOpen((open) => {
-        if (open) closeVaultSelection();
-        return !open;
-      }),
+    onClick: () => {
+      if (vaultOpen) {
+        closeVaultSelection();
+        onClosePanel();
+      } else {
+        onOpenPanel("vault");
+      }
+    },
   };
 
-  const vaultPanel = vaultOpen && !movingPageCardId && (
-    <div className="dock__vault-panel">
+  const tabsLabel = tabsOpen ? t("dock.tabs.close") : t("dock.tabs.open");
+
+  // Same convention as the Vault toggle: stays in the row and just changes what it
+  // shows/does, rather than disappearing or replacing the row's other buttons —
+  // a down-caret ("fold") once the panel's open, tray otherwise. While a Dock Card
+  // is also selected, tapping it folds the panel *and* deselects in one go, since
+  // there's no separate action-row real estate for a distinct Close there (see
+  // dockCardsAction's use in the selectedDockCardIds branch above). While a *vault*
+  // Card is selected instead, tapping it means "send this to the Dock" — same
+  // toggle, a third repurposed meaning, rather than a dedicated "Add to Dock" button
+  // alongside vaultModeActions' existing "Add to Page". While a Page Card or embed
+  // is mid-Move, tapping it is Move's own "drop onto the Dock" destination — a
+  // fourth repurposing, replacing what used to be a separate "Move to Dock" action
+  // in each of those rows (see the `actions` ternary below, which includes this
+  // button alongside Cancel only for those two move states — a Dock Card mid-Move
+  // has nowhere to "move to Dock" *from*, since it's already there).
+  const dockCardsLabel = moving || embedMoving ? t("dock.action.moveToDock") : dockCardsOpen ? t("dock.action.fold") : t("dockCards.open");
+  const dockCardsAction: DockAction = {
+    key: "dockCards",
+    operationId: null,
+    icon: dockCardsOpen ? "down" : "tray",
+    label: dockCardsLabel,
+    onClick: () => {
+      if (moving) {
+        onMoveToDock();
+      } else if (embedMoving) {
+        onMoveEmbedToDock();
+      } else if (vaultOpen && selectedVaultItem?.type === "card") {
+        onAddVaultCardToDock(selectedVaultItem.id);
+        closeVaultSelection();
+      } else if (selectedDockCardIds.size > 0) {
+        onClosePanel();
+        onDeselectDockCards();
+      } else if (dockCardsOpen) {
+        onClosePanel();
+      } else {
+        onOpenPanel("dockCards");
+      }
+    },
+  };
+
+  const vaultViewContent = renderedPanel === "vault" && (
+    <div className="dock__extended-panel-view">
       <VaultView
         query={vaultQuery}
         onQueryChange={onVaultQueryChange}
@@ -392,7 +620,7 @@ export function Dock({
 
   /**
    * Actions for whatever's selected *within* the Vault panel — takes priority over
-   * selectedEmbedId/selected/selectedPage below while the panel's open and something
+   * selectedEmbedId/selectedCards below while the panel's open and something
    * in it is selected, since that's the more specific, more recent thing the user
    * pointed at. Falls through to the usual Page/Card row once nothing's selected in
    * the vault (e.g. freshly opened at the root with nothing picked yet), so opening
@@ -413,7 +641,7 @@ export function Dock({
               label: t("dock.action.addToPage"),
               onClick: () => {
                 onAddVaultCardToPage(cardId);
-                setVaultOpen(false);
+                onClosePanel();
                 closeVaultSelection();
               },
             },
@@ -499,29 +727,35 @@ export function Dock({
   if (selectedEmbedId) {
     modeActions = [
       {
-        key: "editEmbed",
+        key: "backEmbed",
         operationId: null,
-        icon: "edit" as const,
-        label: t("dock.action.edit"),
-        onClick: onEditEmbed,
+        icon: "back" as const,
+        label: t("dock.action.back"),
+        onClick: onDeselectEmbed,
       },
+      // No Edit action: tapping an already-selected embed jumps straight into
+      // editing it now (App.tsx's selectEmbed) — this button would be redundant.
+      // No Save action either: an embed writes straight through to the vault on
+      // every keystroke (CardEmbed.tsx/editCard), so there's never anything pending
+      // to commit — it would always be showing the disappeared/saved state.
       {
-        key: "saveEmbed",
+        key: "moveEmbed",
         operationId: null,
-        // Always already-done: an embed writes straight through to the vault on
-        // every keystroke (CardEmbed.tsx/editCard), so there's never a pending draft
-        // to commit — same convention as a top-level Card's tick-and-disabled state
-        // once it has nothing left to save.
-        icon: "done" as const,
-        label: t("dock.action.save"),
-        onClick: () => {},
-        disabled: true,
+        icon: "move" as const,
+        label: t("dock.action.move"),
+        onClick: onEnterEmbedMoveMode,
       },
+      // No separate Move to Dock: dropping onto the Dock is now one of Move's own
+      // destinations — tap the Dock Cards toggle itself while moving (see
+      // dockCardsAction below).
       ...processActions,
       {
         key: "removeEmbed",
         operationId: null,
-        icon: "close" as const,
+        // The "eject from container" glyph — Remove and Close are the same action
+        // now (deselecting is the row's own back-caret above instead), so there's
+        // no separate close-shaped icon competing with it any more.
+        icon: "remove" as const,
         label: t("dock.action.remove"),
         onClick: onRemoveEmbed,
       },
@@ -534,34 +768,54 @@ export function Dock({
         danger: true,
       },
     ];
-  } else if (selected) {
-    // Needs saving if there's a pending draft edit not yet committed, OR the Card has
-    // never been saved to the Vault at all yet (still page-local scratch content from
-    // creation/generation — see schema.prisma's Card.savedToVault doc comment).
-    const hasUnsavedDraft =
-      selected.draftTitle !== null ||
-      selected.draftContent !== null ||
-      !selected.card.savedToVault;
-    const available = supportedOperationIds(getCardTypeId(selected.card));
+  } else if (selectedCards.length > 0) {
+    // Needs saving if ANY selected Card has a pending draft edit not yet committed,
+    // or has never been saved to the Vault at all yet (still page-local scratch
+    // content from creation/generation — see schema.prisma's Card.savedToVault doc
+    // comment) — the Save action below batches over every selected Card that
+    // matches, not just a single one.
+    const hasUnsavedDraft = selectedCards.some(
+      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
+    );
+    // Only show an action every selected Card's own CardType actually supports —
+    // the intersection, not the union, since e.g. Save shouldn't appear at all if
+    // even one selected Card's type doesn't allow it.
+    const available = selectedCards
+      .map((pc) => supportedOperationIds(getCardTypeId(pc.card)))
+      .reduce((a, b) => new Set([...a].filter((id) => b.has(id))));
     modeActions = [
       {
-        key: "edit",
-        operationId: "card.edit",
-        icon: "edit" as const,
-        label: t("dock.action.edit"),
-        onClick: onEdit,
+        key: "back",
+        operationId: null,
+        icon: "back" as const,
+        label: t("dock.action.back"),
+        onClick: onDeselectAll,
       },
       {
-        key: "save",
-        operationId: "card.save",
-        // + while there's something to commit, a tick once it's saved — the button
-        // itself is the "unsaved" indicator now, instead of a separate Badge on the
-        // Card (see Card.tsx).
-        icon: hasUnsavedDraft ? ("plus" as const) : ("done" as const),
-        label: t("dock.action.save"),
-        onClick: onSave,
-        disabled: !hasUnsavedDraft,
+        key: "generateSelected",
+        operationId: null,
+        icon: generating ? ("stop" as const) : ("generate" as const),
+        spin: generating,
+        label: generating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
+        onClick: generating ? onStopGeneration : onGenerateSelected,
       },
+      // No Edit action: tapping an already-selected Card jumps straight into
+      // editing it now (App.tsx's toggleSelectPageCard) — this button would be
+      // redundant.
+      ...(hasUnsavedDraft
+        ? [
+            {
+              key: "save",
+              operationId: "card.save",
+              icon: "save" as const,
+              label: t("dock.action.save"),
+              onClick: onSaveSelected,
+            },
+          ]
+        : []),
+      // ^ Present only while there's something to commit — once saved, it just
+      // disappears from the row entirely rather than sticking around as a
+      // disabled checkmark.
       {
         key: "move",
         operationId: null,
@@ -569,76 +823,132 @@ export function Dock({
         label: t("dock.action.move"),
         onClick: onEnterMoveMode,
       },
-      {
-        key: "remove",
-        operationId: null,
-        icon: "close" as const,
-        label: t("dock.action.remove"),
-        onClick: onRemoveFromPage,
-      },
+      // No separate Move to Dock: dropping onto the Dock is now one of Move's own
+      // destinations — tap the Dock Cards toggle itself while moving (see
+      // dockCardsAction below).
       ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
-  } else if (selectedPage) {
+  } else if (selectedDockCardIds.size > 0) {
+    // Same back-caret/Move/Close shape as a selected Page Card above — selecting a
+    // Card from the Dock's own scratchpad gets the same functions selecting one
+    // from the Page does, just Move to Page instead of Move (there's no "position
+    // within a Page" for a Card that isn't on one) and no Circle (Dock Cards have no
+    // Page/Tab to draw generation context from). Fold isn't in this list — it's the
+    // row's own dockCardsAction button turned into a down-caret (see below), same
+    // convention as opening the Vault: that toggle stays in place and just changes
+    // what it does/shows, rather than disappearing behind a separate action. Unlike
+    // a selected Page Card's back-caret (just deselects), Close here actually
+    // removes the Card (onCloseSelectedDockCards): there's no other "leave it be"
+    // gesture for a Dock Card the way a Page Card's Move/position covers, so Close
+    // carries that weight instead, staying its own action alongside — not instead
+    // of — the back-caret's plain deselect.
     modeActions = [
       {
-        key: "addCard",
+        key: "backDockCards",
         operationId: null,
-        icon: "plus" as const,
-        label: t("pageStack.addCard"),
-        onClick: onAddCardToPage,
+        icon: "back" as const,
+        label: t("dock.action.back"),
+        onClick: onDeselectDockCards,
       },
-      ...(onUploadFileToPage
-        ? [
-            {
-              key: "uploadFile",
-              operationId: null,
-              icon: "upload" as const,
-              label: t("dock.action.upload"),
-              onClick: () => fileInputRef.current?.click(),
-            },
-          ]
-        : []),
-      // While generating, this becomes a Stop action instead of a disabled/spinning
-      // Generate button — there's no review step any more, so the only thing left to
-      // do mid-generation is let it run or cut it short (see useGeneration.ts's stop).
-      ...(generating
-        ? [
-            {
-              key: "stopGeneration",
-              operationId: null,
-              icon: "stop" as const,
-              spin: true,
-              label: t("dock.action.stopGeneration"),
-              onClick: onStopGeneration,
-            },
-          ]
-        : onGeneratePage
-          ? [
-              {
-                key: "generatePage",
-                operationId: null,
-                icon: "generate" as const,
-                label: t("dock.action.generate"),
-                onClick: onGeneratePage,
-              },
-            ]
-          : []),
+      // No Edit action: tapping an already-selected Dock Card jumps straight into
+      // editing it now (App.tsx's toggleSelectDockCard) — this button would be
+      // redundant. No Save action either: a Dock Card writes straight through on
+      // every keystroke (same as an embed — CardEmbed.tsx/editCard), so there's
+      // never anything pending to commit.
       {
-        key: "deletePage",
+        key: "moveDockCardsToPage",
         operationId: null,
-        icon: "delete" as const,
-        label: t("pageStack.deletePage"),
-        onClick: onDeletePage,
-        danger: true,
+        icon: "move" as const,
+        label: t("dockCards.moveToPage"),
+        onClick: onMoveSelectedDockCardsToPage,
+      },
+      {
+        key: "closeDockCards",
+        operationId: null,
+        icon: "close" as const,
+        label: t("dock.action.close"),
+        onClick: onCloseSelectedDockCards,
       },
     ];
   }
+  // Nothing selected and just a Page in view: no Page-level action left in the Dock
+  // (Add Card/Upload File/Generate moved to the Feed Input Button in Step 6 spec §5;
+  // Delete Page was removed outright per feedback) — modeActions stays empty, so the
+  // row shows just the Vault toggle.
+
+  // Selection Lock (Step 6 spec §4.3): once a Page Card or embed is selected, the
+  // Vault/Pages/Tabs toggles disappear from the row entirely (they simply aren't
+  // reachable — there's no separate "disable" state to manage), leaving only the
+  // selection's own actions. A Page merely in view with nothing selected still gets
+  // them alongside Delete Page, same as before. A selected *Dock* Card is
+  // deliberately different (feedback): the Vault toggle stays put on the left, and
+  // only the Dock Cards toggle itself changes (into a down-caret — see
+  // dockCardsAction above) — same convention as opening the Vault does to its own
+  // toggle, and also why the page-nav cluster below keys off this narrower flag
+  // rather than "is anything at all selected".
+  const embedOrPageCardSelected = !!selectedEmbedId || selectedCards.length > 0;
+
+  // The formatting row itself — replaces the whole action row while isEditingActive
+  // (below), rather than sitting alongside Save/Move/etc., same "collapse to just
+  // what's relevant" convention Move Mode already uses for its own Cancel-only row.
+  // No back/close action of its own: the existing tap-outside-to-close gesture that
+  // already ends inline editing is what drops the row back to normal.
+  const formattingActions: DockAction[] = [
+    {
+      key: "formatBold",
+      operationId: null,
+      icon: "bold" as const,
+      label: t("dock.action.bold"),
+      onClick: () => activeEditor?.chain().focus().toggleBold().run(),
+      active: formattingState?.bold ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatItalic",
+      operationId: null,
+      icon: "italic" as const,
+      label: t("dock.action.italic"),
+      onClick: () => activeEditor?.chain().focus().toggleItalic().run(),
+      active: formattingState?.italic ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatHeading",
+      operationId: null,
+      icon: "heading" as const,
+      label: t("dock.action.heading"),
+      onClick: () => activeEditor?.chain().focus().toggleHeading({ level: 2 }).run(),
+      active: formattingState?.heading ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatBulletList",
+      operationId: null,
+      icon: "bulletList" as const,
+      label: t("dock.action.bulletList"),
+      onClick: () => activeEditor?.chain().focus().toggleBulletList().run(),
+      active: formattingState?.bulletList ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatOrderedList",
+      operationId: null,
+      icon: "orderedList" as const,
+      label: t("dock.action.orderedList"),
+      onClick: () => activeEditor?.chain().focus().toggleOrderedList().run(),
+      active: formattingState?.orderedList ?? false,
+      disabled: !activeEditor,
+    },
+  ];
 
   // While a Card is in transit (Move Mode, or the vault panel's own equivalent), the
   // Dock collapses to just a Cancel action — no Vault toggle, no other actions — so
   // the only thing to do is tap a drop target (PageStack.tsx, or VaultView's "Move
-  // Here" row) or back out.
-  const actions: DockAction[] = movingPageCardId
+  // Here" row) or back out. Page Card/embed Move also keeps dockCardsAction in the
+  // row alongside Cancel — its own repurposed "drop onto the Dock" destination (see
+  // dockCardsAction above); a Dock Card mid-Move has nowhere to drop back onto the
+  // Dock, so dockCardMoving doesn't get it.
+  const actions: DockAction[] = moving
     ? [
         {
           key: "cancelMove",
@@ -647,22 +957,121 @@ export function Dock({
           label: t("dock.action.cancelMove"),
           onClick: onCancelMove,
         },
+        dockCardsAction,
       ]
-    : vaultMoving
+    : dockCardMoving
       ? [
           {
-            key: "cancelVaultMove",
+            key: "cancelDockCardMove",
             operationId: null,
             icon: "close" as const,
             label: t("dock.action.cancelMove"),
-            onClick: () => setVaultMoving(null),
+            onClick: onCancelDockCardMove,
           },
         ]
-      : [vaultAction, ...(vaultModeActions ?? modeActions)];
+      : embedMoving
+        ? [
+            {
+              key: "cancelEmbedMove",
+              operationId: null,
+              icon: "close" as const,
+              label: t("dock.action.cancelMove"),
+              onClick: onCancelEmbedMove,
+            },
+            dockCardsAction,
+          ]
+        : vaultMoving
+          ? [
+              {
+                key: "cancelVaultMove",
+                operationId: null,
+                icon: "close" as const,
+                label: t("dock.action.cancelMove"),
+                onClick: () => setVaultMoving(null),
+              },
+            ]
+          : isEditingActive
+            ? formattingActions
+            : embedOrPageCardSelected
+              ? (vaultModeActions ?? modeActions)
+              : [vaultAction, dockCardsAction, ...(vaultModeActions ?? modeActions)];
+
+  const dockCardsViewContent = renderedPanel === "dockCards" && (
+    <div className="dock__extended-panel-view">
+      <DockCardsPanel
+        dockCards={dockCards}
+        editingIds={editingDockCardIds}
+        onToggleEdit={onToggleDockCardEdit}
+        selectedIds={selectedDockCardIds}
+        onToggleSelect={onToggleSelectDockCard}
+        onCreateCard={onCreateDockCard}
+        onOpenVault={() => onOpenPanel("vault")}
+        onUploadFile={onUploadDockCardFile}
+        openCardId={dockCardToOpen}
+        onOpenedCard={onOpenedDockCard}
+      />
+    </div>
+  );
+
+  const pagesViewContent = renderedPanel === "pages" && (
+    <div className="dock__extended-panel-view">
+      <PagesPanel
+        pages={sortedPages}
+        currentIndex={currentPageIndex}
+        onSelectPage={(index) => {
+          onSelectPage(index);
+          onClosePanel();
+        }}
+      />
+    </div>
+  );
+
+  const tabsViewContent = renderedPanel === "tabs" && (
+    <div className="dock__extended-panel-view">
+      <TabsPanel
+        tabs={tabs}
+        currentIndex={currentTabIndex}
+        onSelectTab={(index) => {
+          onSelectTab(index);
+          onClosePanel();
+        }}
+        onCreateTab={onCreateTab}
+      />
+    </div>
+  );
+
+  // Pages/Tabs are short lists — cap them noticeably smaller than Vault/Dock Cards
+  // (which can hold a lot more), so they don't take up more space than they need.
+  const isCompactPanel = renderedPanel === "pages" || renderedPanel === "tabs";
+
+  // The Extended Panel (Step 6 spec §3.2) — a single slide-up drawer floating over
+  // the page content, whichever of the four views above is currently open. Reachable
+  // during Move Mode (either kind — moving/dockCardMoving) on purpose: opening Pages
+  // or Tabs is how a move reaches a destination that isn't reachable by a couple of
+  // taps on the up/down arrows (see the page-nav cluster below, visible during a
+  // move for the same reason). No separate collapse header/chevron: every panel
+  // already has its own inline way to fold back down right in the row below it —
+  // re-tapping whichever toggle opened it (vaultAction/pagesAction/tabsAction, all
+  // of which already switch to a "close" icon while open) or, for Dock Cards, the
+  // row's own dedicated back button — so a dedicated header row here would only add
+  // height without adding a new way to close it.
+  const extendedPanel = (
+    <div
+      className={`dock__extended-panel${openPanel ? " dock__extended-panel--open" : ""}${isCompactPanel ? " dock__extended-panel--compact" : ""}`}
+      onTransitionEnd={() => {
+        if (!openPanel) setRenderedPanel(null);
+      }}
+    >
+      {vaultViewContent}
+      {dockCardsViewContent}
+      {pagesViewContent}
+      {tabsViewContent}
+    </div>
+  );
 
   return (
     <footer className="dock">
-      {vaultPanel}
+      {extendedPanel}
       {generationNotice && (
         <div className="dock__notice-banner" role="status">
           <span className="dock__error-banner-text">{generationNotice}</span>
@@ -705,28 +1114,44 @@ export function Dock({
           </button>
         </div>
       )}
-      {onUploadFileToPage && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="dock__file-input"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onUploadFileToPage(file);
-            // Reset so selecting the same file again still fires onChange.
-            e.target.value = "";
-          }}
-        />
-      )}
-      <div className="dock__row">
-        {actions.map((action) =>
-          // "process" opens ProcessPicker anchored to its own button, rather than
-          // firing an action directly — needs its own positioned wrapper, unlike
-          // every other plain-click DockAction below.
-          action.key === "process" ? (
-            <div key="process" className="dock__process-wrap" ref={processButtonRef}>
+      {/* One single row, always — the Dock Cards toggle (in `actions` below) swaps
+          this row's content for the Dock Cards scroll rather than opening a second,
+          permanently-visible row (feedback: "Dock is still too tall... only one
+          row"). Tapping the row's own close button (or the toggle again) goes back.
+          Suppressed the same way the page-nav cluster already is: Move Mode,
+          vault-item Move, and Selection Lock (Step 6 spec §4.3) all take priority —
+          `actions` itself already resolves to just Cancel / the selected-card row in
+          those states, so this only ever shows once nothing else claims the row. */}
+      <div className="dock__bottom-row">
+        <div className="dock__row">
+          {actions.map((action) =>
+            // "process" opens ProcessPicker anchored to its own button, rather
+            // than firing an action directly — needs its own positioned wrapper,
+            // unlike every other plain-click DockAction below.
+            action.key === "process" ? (
+              <div key="process" className="dock__process-wrap" ref={processButtonRef}>
+                <Button
+                  iconOnly
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} spin={action.spin} />
+                </Button>
+              </div>
+            ) : (
               <Button
+                key={action.key}
                 iconOnly
+                variant={action.danger ? "danger" : "default"}
+                className={action.active ? "button--pressed" : undefined}
+                // Formatting buttons must not steal focus from the ProseMirror
+                // contentEditable on mousedown — doing so collapses the text
+                // selection before the click's toggleBold()/etc. command runs.
+                // Every other DockAction is a plain fire-and-forget click, so this
+                // is scoped to the "format*" keys rather than applied to all of them.
+                onMouseDown={action.key.startsWith("format") ? (e) => e.preventDefault() : undefined}
                 onClick={action.onClick}
                 disabled={action.disabled}
                 aria-label={action.label}
@@ -734,20 +1159,75 @@ export function Dock({
               >
                 <Icon name={action.icon} spin={action.spin} />
               </Button>
-            </div>
-          ) : (
-            <Button
-              key={action.key}
-              iconOnly
-              variant={action.danger ? "danger" : "default"}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              aria-label={action.label}
-              title={action.label}
+            ),
+          )}
+        </div>
+        {/* The Page nav cluster (formerly the standalone PageNav component,
+            merged here per feedback) — up/down/add plus the Pages panel toggle,
+            pinned to the bottom-right corner of the Dock. The Tabs toggle sits
+            further right still, deliberately styled much more subtly
+            (dock__page-nav-tabs) — it's page manipulation's more minor sibling,
+            not an equally-weighted action. Hidden while vault-item Move is active,
+            or while a Page Card/embed is selected and NOT mid-move (Selection Lock,
+            Step 6 spec §4.3) — a selected *Dock* Card deliberately leaves it visible,
+            same as Vault (see embedOrPageCardSelected above). Moving either kind of
+            Card (page or Dock) is the one deliberate exception to Selection Lock:
+            reaching a destination Page/Tab that isn't the one currently in view
+            means navigating there first, so this cluster has to stay reachable the
+            whole time a move is in progress even though the selection it carries
+            forward (handleEnterMoveMode/handleEnterDockCardMoveMode) is still
+            technically non-empty. */}
+        {!vaultMoving && (!embedOrPageCardSelected || moving || dockCardMoving) && (
+          <div className="dock__page-nav">
+            <button
+              type="button"
+              disabled={!canNavigateUp}
+              onClick={onNavigateUp}
+              aria-label={t("pageStack.up")}
+              title={t("pageStack.up")}
             >
-              <Icon name={action.icon} spin={action.spin} />
-            </Button>
-          ),
+              <Icon name="up" />
+            </button>
+            <button
+              type="button"
+              onClick={canNavigateDown ? onNavigateDown : onAddPage}
+              aria-label={canNavigateDown ? t("pageStack.down") : t("pageStack.addPage")}
+              title={canNavigateDown ? t("pageStack.down") : t("pageStack.addPage")}
+            >
+              <Icon name={canNavigateDown ? "down" : "plus"} />
+            </button>
+            {/* Which Page, of how many, is currently in view — same
+                position-in-the-stack info the up/down arrows and the divider at the
+                bottom of a Page's content (PageStack.tsx) let you feel your way
+                through, just spelled out as a number. */}
+            {currentPageIndex !== -1 && (
+              <span className="dock__page-nav-count" aria-hidden="true">
+                {currentPageIndex + 1}/{sortedPages.length}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => (pagesOpen ? onClosePanel() : onOpenPanel("pages"))}
+              aria-label={pagesOpen ? t("dock.pages.close") : t("dock.pages.open")}
+              title={pagesOpen ? t("dock.pages.close") : t("dock.pages.open")}
+            >
+              <Icon name={pagesOpen ? "close" : "pages"} />
+            </button>
+            <button
+              type="button"
+              className="dock__page-nav-tabs"
+              onClick={() => (tabsOpen ? onClosePanel() : onOpenPanel("tabs"))}
+              aria-label={tabsLabel}
+              title={tabsLabel}
+            >
+              <Icon name={tabsOpen ? "close" : "tabs"} />
+            </button>
+            {currentTabIndex !== -1 && tabs.length > 1 && (
+              <span className="dock__page-nav-count dock__page-nav-count--tabs" aria-hidden="true">
+                {currentTabIndex + 1}/{tabs.length}
+              </span>
+            )}
+          </div>
         )}
       </div>
       {processPickerPos && (
