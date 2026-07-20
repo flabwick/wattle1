@@ -261,6 +261,28 @@ export function App() {
     [...selectedPageCardIds].some((id) => editingPageCardIds.has(id)) ||
     selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
 
+  /** The formatting toolbar's own back-caret (Dock.tsx) — ends editing the same way
+   *  each surface's own click-outside-to-close gesture already does: a Page Card
+   *  fully deselects (exitEditPageCard), same as an independently-selected embed
+   *  (handleDeselectEmbed); a Dock Card just drops out of edit mode and stays
+   *  selected (toggleEditEmbed), same as CardEmbed.tsx's own click-outside effect
+   *  does for it. Checked in the same priority order isEditingActive above uses. */
+  function exitEditing() {
+    if (selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) {
+      handleDeselectEmbed();
+      return;
+    }
+    const editingPageCardId = [...selectedPageCardIds].find((id) => editingPageCardIds.has(id));
+    if (editingPageCardId) {
+      exitEditPageCard(editingPageCardId);
+      return;
+    }
+    const editingDockCardId = selectedDockCardCardIds.find((cardId) => editingEmbedIds.has(cardId));
+    if (editingDockCardId) {
+      toggleEditEmbed(editingDockCardId);
+    }
+  }
+
   /** A plain tap on a Dock Card (DockCardsPanel.tsx's onToggleSelect) — same
    *  replace-selection-or-jump-to-edit convention as toggleSelectPageCard (only one
    *  Dock Card selected at a time), and likewise mutually exclusive with Page
@@ -934,6 +956,7 @@ export function App() {
         selectedCards={selectedPageCards}
         selectedEmbedId={selectedEmbed?.cardId ?? null}
         isEditingActive={isEditingActive}
+        onExitEditing={exitEditing}
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
         generationError={generation.error}

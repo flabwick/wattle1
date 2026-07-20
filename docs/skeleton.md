@@ -1,9 +1,9 @@
 # Skeleton — What's Been Built
 
 This documents the project skeleton scaffolded from [spec1.md](./spec1.md). The
-original CRUD + Generation Rule skeleton (this doc) has since been built on by five
-further steps — read those for the detail, this doc gives the overall shape and stays
-current on status:
+original CRUD + Generation Rule skeleton (this doc) has since been built on by ten
+further steps — read those for the detail, this doc gives the overall shape (current
+through Step 5; see the note at the end of this list for what's changed since):
 
 - [step1-registries.md](./step1-registries.md) — `CardTypeRegistry` /
   `OperationRegistry` in `packages/shared`; every existing Card mutation now routes
@@ -25,6 +25,35 @@ current on status:
   Vault lives in the Dock as an IDE-style file list; Card editing opens via
   double-click/long-press and closes on click-outside; and a new `Card.savedToVault`
   flag gives the Vault a real staging relationship to what's on a Page.
+- [step6-vault-sync-fixes.md](./step6-vault-sync-fixes.md) — bug fixes to keep the
+  Vault panel and a Page's own Cards in sync after an edit made through either one.
+- [step7-move-mode.md](./step7-move-mode.md) — Move Mode: reposition a Card within a
+  Page or across Pages (including to a brand-new one) by tapping it, tapping Move,
+  then tapping a destination, instead of only remove-and-re-add.
+- [step8-ai-generation.md](./step8-ai-generation.md) — the real generation pipeline:
+  file-based prompts with an explicit `<card>` output contract, a single streaming
+  model call per generation (no more discard-and-regenerate), and a ghost card that
+  auto-saves the moment its stream ends (no separate Accept/Deny review step by the
+  time Step 10 below revisits it).
+- [step9-interaction-overhaul.md](./step9-interaction-overhaul.md) — Tabs (a
+  horizontal layer above Pages, each with its own independent Page stack), the Dock
+  Cards persistent scratchpad, the Feed Input Button (replaces the old Add Card/
+  Generate menu row), Vault folders, and Selection Lock (Tab/Page navigation disabled
+  while anything's selected).
+- [step10-rich-text-editor.md](./step10-rich-text-editor.md) — Card content is now
+  HTML, edited through a real TipTap/ProseMirror WYSIWYG editor with a Dock-hosted
+  formatting toolbar; embeds are a real `cardEmbed` node instead of `[[cardId]]`
+  bracket tokens; diff/footnote/highlight annotations anchor against the document
+  model instead of raw substrings.
+
+**Status note**: the sections below (architecture decisions, data model, API
+endpoints, frontend file-by-file breakdown) describe the app **as of Step 5** and
+have not been rewritten for Steps 6–10 — treat them as historical background on the
+original shape, and read each linked step doc above for what actually changed. In
+particular: `Card.content` is HTML, not markdown, as of Step 10; the API endpoint
+table below predates `/api/tabs`, `/api/dock-cards`, `/api/folders`, and the
+streaming/annotation routes added in Steps 6–10; and `PageNav.tsx` (referenced below)
+was deleted in Step 9, merged into the Dock's own base bar.
 
 As of Step 5, the foundation described by these steps is complete: adding a new card
 type, operation, model provider, parser, prompt template, locale, or metadata field

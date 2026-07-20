@@ -12,7 +12,7 @@ import { CardEditingContext } from "./CardEditingContext.js";
 import type { CardEditingContextValue } from "./CardEditingContext.js";
 import { richTextExtensions } from "./extensions.js";
 import { annotationDecorationsKey } from "./AnnotationDecorations.js";
-import { getActiveEditor, setActiveEditor } from "../../../lib/activeEditorRegistry.js";
+import { getActiveEditor, setActiveEditor, setActiveEditorFocused } from "../../../lib/activeEditorRegistry.js";
 import "../AnnotatedText.css";
 import "./CardRichText.css";
 
@@ -131,7 +131,14 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
       lastEmittedContent.current = html;
       onChangeContent(html);
     },
-    onFocus: ({ editor }) => setActiveEditor(editor),
+    onFocus: ({ editor }) => {
+      setActiveEditor(editor);
+      setActiveEditorFocused(true);
+    },
+    // Not "this editor is gone" — just "not the thing with focus right now" (e.g. the
+    // Card's title field, a plain <input>, just took it instead). Dock.tsx's
+    // formatting row keys off this to hide while the title field is focused.
+    onBlur: () => setActiveEditorFocused(false),
   });
 
   // Syncs genuinely external content changes in (a different Card being displayed
@@ -161,7 +168,10 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
       // Only clear the registry if we were the last-focused editor — otherwise this
       // unmount (e.g. a sibling embed collapsing) would wrongly blank out a *different*
       // editor's still-valid active state.
-      if (getActiveEditor() === editor) setActiveEditor(null);
+      if (getActiveEditor() === editor) {
+        setActiveEditor(null);
+        setActiveEditorFocused(false);
+      }
     };
   }, [editor]);
 

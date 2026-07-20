@@ -1,4 +1,4 @@
-import { Fragment, createElement, useEffect, useState } from "react";
+import { Fragment, createElement, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import { Icon } from "../primitives/index.js";
@@ -126,6 +126,19 @@ function GhostCardEmbed({ nodeId, nodes }: GhostCardTreeProps) {
   );
 }
 
+/** The Page's own scrollable viewport (styles/global.css's `.app__main`, the sole
+ *  `overflow-y: auto` ancestor everything else scrolls inside) — the ghost card grows
+ *  taller as content streams in without this ever repainting the ancestor's layout on
+ *  its own, so nothing scrolls to follow it by default. Without the effect below, a
+ *  generation longer than what's already on screen just grows below the fold: it's
+ *  still updating in real time (confirmed streaming end-to-end, network chunk to DOM
+ *  text), but invisibly, which reads exactly like "nothing happens until it's done." */
+const SCROLL_VIEWPORT_SELECTOR = ".app__main";
+/** How close to the bottom (px) counts as "still following it" — matches the
+ *  standard chat-log convention: keep autoscrolling while the reader hasn't
+ *  deliberately scrolled away, stop the moment they do. */
+const STICK_TO_BOTTOM_THRESHOLD = 96;
+
 /**
  * The root ghost card: a generation actively streaming in, held in local state only
  * (useGeneration.ts) until the stream ends — at which point it's saved immediately as
@@ -138,6 +151,36 @@ function GhostCardEmbed({ nodeId, nodes }: GhostCardTreeProps) {
  */
 export function GhostCard({ nodeId, nodes }: GhostCardTreeProps) {
   const node = nodes[nodeId];
+  // Whether the viewport was already scrolled to (near) the bottom the last time the
+  // user touched its scroll position — read fresh on the "scroll" event below rather
+  // than recomputed here, since by the time this component re-renders with new
+  // content the container has already grown taller and "distance from bottom" would
+  // always look large regardless of where the reader actually left it.
+  const stickingRef = useRef(true);
+
+  useEffect(() => {
+    const viewport = document.querySelector<HTMLElement>(SCROLL_VIEWPORT_SELECTOR);
+    if (!viewport) return;
+    function handleScroll() {
+      const distance = viewport!.scrollHeight - viewport!.scrollTop - viewport!.clientHeight;
+      stickingRef.current = distance < STICK_TO_BOTTOM_THRESHOLD;
+    }
+    viewport.addEventListener("scroll", handleScroll);
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Runs after every render (streaming in new text, or a nested ghost card
+  // opening/closing both count) — keeps the growing card's bottom edge in view for as
+  // long as the reader hasn't scrolled away from it, same "stick to the bottom until
+  // you scroll up" behavior a chat log uses. No dependency array: cheap enough to run
+  // on each of these renders, and there's no single prop that summarizes "content
+  // grew" better than "a render happened while this is still mounted."
+  useLayoutEffect(() => {
+    if (!stickingRef.current) return;
+    const viewport = document.querySelector<HTMLElement>(SCROLL_VIEWPORT_SELECTOR);
+    viewport?.scrollTo({ top: viewport.scrollHeight });
+  });
+
   if (!node) return null;
   return (
     <div className="card-shell card-shell--selected card-shell--ghost">

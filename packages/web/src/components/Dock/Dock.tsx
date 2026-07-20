@@ -12,7 +12,7 @@ import { PagesPanel } from "./PagesPanel.js";
 import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
-import { useActiveEditor } from "../../lib/activeEditorRegistry.js";
+import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
@@ -43,8 +43,15 @@ interface DockProps {
    *  own inline edit mode — swaps the row for the rich-text formatting toolbar
    *  (bold/italic/heading/lists), replacing Move/Save/Generate/etc. for as long as
    *  editing is active (App.tsx derives this from editingPageCardIds/editingEmbedIds,
-   *  no new state of its own). */
+   *  no new state of its own). The formatting row itself only actually renders while
+   *  the rich-text body also has focus (activeEditorRegistry's focused flag) — this
+   *  flag alone stays true the whole time editing is open, including while the title
+   *  field (a plain, non-TipTap input) has focus instead. */
   isEditingActive: boolean;
+  /** The formatting row's own back-caret (its very first button) — exits editing the
+   *  same way the existing click-outside-to-close gesture already does for whichever
+   *  of Page Card/embed/Dock Card is currently editing (App.tsx's exitEditing). */
+  onExitEditing: () => void;
   onRemoveEmbed: () => void;
   onDeleteEmbed: () => void;
   /** The row's own back-caret action — a plain deselect, leaving the embed exactly
@@ -285,6 +292,7 @@ export function Dock({
   selectedCards,
   selectedEmbedId,
   isEditingActive,
+  onExitEditing,
   onRemoveEmbed,
   onDeleteEmbed,
   onDeselectEmbed,
@@ -405,6 +413,12 @@ export function Dock({
   // recently focused (activeEditorRegistry.ts), reactively re-read here since Dock is
   // a sibling, not an ancestor, of wherever that editor actually lives in the tree.
   const activeEditor = useActiveEditor();
+  // Distinct from `isEditingActive`: that prop stays true for as long as editing is
+  // open at all, including while a plain (non-TipTap) title field has focus instead
+  // of the rich-text body — this tracks focus itself, so the row below can hide the
+  // formatting buttons specifically for that title-field moment (see the `actions`
+  // ternary further down).
+  const activeEditorFocused = useActiveEditorFocused();
   const formattingState = useEditorState({
     editor: activeEditor,
     selector: ({ editor }: { editor: Editor | null }) => ({
@@ -888,12 +902,12 @@ export function Dock({
   // rather than "is anything at all selected".
   const embedOrPageCardSelected = !!selectedEmbedId || selectedCards.length > 0;
 
-  // The formatting row itself — replaces the whole action row while isEditingActive
-  // (below), rather than sitting alongside Save/Move/etc., same "collapse to just
-  // what's relevant" convention Move Mode already uses for its own Cancel-only row.
-  // No back/close action of its own: the existing tap-outside-to-close gesture that
-  // already ends inline editing is what drops the row back to normal.
-  const formattingActions: DockAction[] = [
+  // The formatting tools themselves — only actually shown while the rich-text body
+  // has focus (activeEditorFocused), not merely while editing is open, so they don't
+  // sit there uselessly (and inapplicably — `activeEditor` may not even be the field
+  // that's focused) while the Card's title field, a plain non-TipTap input, has focus
+  // instead. See formattingActions below for the row this feeds into.
+  const formatToolActions: DockAction[] = [
     {
       key: "formatBold",
       operationId: null,
@@ -939,6 +953,25 @@ export function Dock({
       active: formattingState?.orderedList ?? false,
       disabled: !activeEditor,
     },
+  ];
+
+  // The row itself — replaces the whole action row while isEditingActive (below),
+  // rather than sitting alongside Save/Move/etc., same "collapse to just what's
+  // relevant" convention Move Mode already uses for its own Cancel-only row. Unlike
+  // Move Mode's Cancel, this needs its own explicit back-caret rather than relying
+  // solely on the existing tap-outside-to-close gesture: while the title field has
+  // focus, `formatToolActions` is empty and there'd otherwise be nothing in the row
+  // at all to act on. Always present (even with the title field focused) so there's
+  // always a way back without having to find the actual Card to click away from.
+  const formattingActions: DockAction[] = [
+    {
+      key: "backFormatting",
+      operationId: null,
+      icon: "back" as const,
+      label: t("dock.action.back"),
+      onClick: onExitEditing,
+    },
+    ...(activeEditorFocused ? formatToolActions : []),
   ];
 
   // While a Card is in transit (Move Mode, or the vault panel's own equivalent), the
