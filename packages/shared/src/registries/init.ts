@@ -2,6 +2,7 @@ import { cardTypeRegistry } from "./cardType.js";
 import { noteCardTypeDefinition } from "./definitions/noteCardType.js";
 import { linkCardTypeDefinition } from "./definitions/linkCardType.js";
 import { fileCardTypeDefinition } from "./definitions/fileCardType.js";
+import { stackCardTypeDefinition } from "./definitions/stackCardType.js";
 
 let initialized = false;
 
@@ -15,5 +16,6 @@ export function initCardTypes(): void {
   cardTypeRegistry.register(noteCardTypeDefinition);
   cardTypeRegistry.register(linkCardTypeDefinition);
   cardTypeRegistry.register(fileCardTypeDefinition);
+  cardTypeRegistry.register(stackCardTypeDefinition);
   initialized = true;
 }

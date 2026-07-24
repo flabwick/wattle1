@@ -14,6 +14,7 @@ import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
 import { getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
+import { getCardTypeId } from "./lib/getCardTypeId.js";
 import { t } from "./i18n/index.js";
 
 export function App() {
@@ -206,6 +207,14 @@ export function App() {
    *  as before. */
   function toggleSelectPageCard(id: string) {
     if (selectedPageCardIds.has(id)) {
+      // A Stack container has no title/content of its own to edit — StackBody's
+      // active member is always directly editable regardless of this flag (see
+      // StackEditor.tsx) — so there's nothing for a second tap to jump into. Letting
+      // it through would flip isEditingActive (App.tsx above) true, which collapses
+      // the Dock's row down to just formatting tools and hides Move/Delete Stack
+      // for as long as the container stays "editing".
+      const pageCard = currentPage?.pageCards.find((pc) => pc.id === id);
+      if (pageCard && getCardTypeId(pageCard.card) === "stack") return;
       setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
       return;
     }
@@ -697,6 +706,19 @@ export function App() {
     await refresh();
   }
 
+  /** "Remove" (Dock.tsx's onRemoveSelected) — takes every selected Card off the Page
+   *  only, same safe promote-if-unsaved-then-detach rule as pageCardService's
+   *  removeFromPage; the vault Card itself is untouched. Dock.tsx only ever shows
+   *  this for a non-Stack selection — see closeStack below for the Stack-as-a-whole
+   *  equivalent. */
+  async function handleRemoveSelected() {
+    if (selectedPageCards.length === 0) return;
+    const pageCardIds = selectedPageCards.map((pc) => pc.id);
+    deselectAll();
+    await Promise.all(pageCardIds.map((id) => api.removePageCardFromPage(id)));
+    await refresh();
+  }
+
   /** Move's own "drop onto the Dock" destination for Page Cards (Dock.tsx's
    *  dockCardsAction, tapped while `moving`) — moves every selected Card off its
    *  Page and onto the Dock's persistent scratchpad, as one batch. Selection
@@ -844,6 +866,54 @@ export function App() {
     await uploadFileToPage(currentPage.id, file);
   }
 
+  /** The Feed Input Button's type-picker "Stack" option (Step "Stacks" spec) —
+   *  creates a new Stack Card, with one blank member, at the bottom of the current
+   *  Page. Unlike every other type in that picker (still a stub — see
+   *  FeedInputButton.tsx), a Stack needs its own creation endpoint
+   *  (stackService.createStackInPage) rather than plain addNewCardToPage, since it
+   *  also has to seed a first StackMember. */
+  async function handleAddStackToCurrentPage() {
+    if (!currentPage) return;
+    await api.createStack(currentPage.id);
+    await refresh();
+  }
+
+  /** "Delete Stack" (Dock.tsx's onDeleteStack) — removes the whole selected Stack and
+   *  every member's own vault Card (stackService.deleteStack), then deselects. Only
+   *  ever wired up while a single Stack Card is selected (Dock.tsx's
+   *  isStackSelected gates whether the button even renders). */
+  async function handleDeleteStack() {
+    if (selectedPageCards.length !== 1) return;
+    const stackCardId = selectedPageCards[0].card.id;
+    deselectAll();
+    await api.deleteStack(stackCardId);
+    await refresh();
+  }
+
+  /** "Close Stack" (Dock.tsx's onCloseStack) — the Stack-as-a-whole counterpart to
+   *  handleRemoveSelected above: takes the whole Stack off the Page, promoting any
+   *  still-unsaved member to the vault first (stackService.closeStack), rather than
+   *  handleDeleteStack's deliberately destructive sweep. */
+  async function handleCloseStack() {
+    if (selectedPageCards.length !== 1) return;
+    const stackCardId = selectedPageCards[0].card.id;
+    deselectAll();
+    await api.closeStack(stackCardId);
+    await refresh();
+  }
+
+  /** "Make a Stack" (Dock.tsx's onConvertToStack) — turns the single selected Card
+   *  into a Stack containing it (stackService.convertCardToStack), same position in
+   *  the Page. Deselects first since the old selection's id is about to point at a
+   *  different Card (the new Stack container) entirely. */
+  async function handleConvertToStack() {
+    if (selectedPageCards.length !== 1) return;
+    const pageCardId = selectedPageCards[0].id;
+    deselectAll();
+    await api.convertCardToStack(pageCardId);
+    await refresh();
+  }
+
   // Pages are only ever added at the bottom of the stack (the down arrow becomes a
   // "+" once there's nothing below the current Page — see PageStack.tsx) — so the
   // new Page's order goes below whatever the current bottom Page's is, rather than
@@ -945,6 +1015,7 @@ export function App() {
                     onAddCard: handleAddCardToCurrentPage,
                     onOpenVault: () => setOpenPanel("vault"),
                     onUploadFile: handleUploadFileToCurrentPage,
+                    onAddStack: handleAddStackToCurrentPage,
                   }
                 : null
             }
@@ -966,6 +1037,10 @@ export function App() {
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onSaveSelected={handleSaveSelected}
+        onDeleteStack={handleDeleteStack}
+        onCloseStack={handleCloseStack}
+        onConvertToStack={handleConvertToStack}
+        onRemoveSelected={handleRemoveSelected}
         generating={generation.isStreaming}
         onStopGeneration={generation.stop}
         onGenerateSelected={handleGenerateSelected}

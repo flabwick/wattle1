@@ -41,6 +41,12 @@ model Card {
 
   pageCards PageCard[]
   dockCards DockCard[]
+  /// This Card is a "stack"-typed container for these StackMembers — see
+  /// registries/definitions/stackCardType.ts and stackService.ts.
+  stackMembers StackMember[] @relation("StackContainer")
+  /// This Card is the alternate content of a StackMember belonging to some other
+  /// (container) Card — the other side of the same relation.
+  memberOfStack StackMember? @relation("StackMemberCard")
 
   @@index([folderId])
 }
@@ -105,6 +111,31 @@ model DockCard {
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@index([cardId])
+}
+
+/// One alternate held by a "stack"-typed Card (registries/definitions/stackCardType.ts)
+/// — the Stack's own counterpart to PageCard: `cardId` is a real, freshly-created Card
+/// holding this alternate's title/content, draftTitle/draftContent stage unsaved edits
+/// the same way PageCard's do, and only the alternate at the container Card's own
+/// `metadata.stack.activeIndex` (cardMetadata.ts) is "in" the page at a time — see
+/// stackService.ts. `cardId` is unique because each alternate gets its own
+/// purpose-created Card, never a Card shared with another StackMember or PageCard.
+model StackMember {
+  id          String   @id @default(cuid())
+  stackCardId String
+  cardId      String   @unique
+  order       Int
+
+  draftTitle   String?
+  draftContent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stackCard Card @relation("StackContainer", fields: [stackCardId], references: [id], onDelete: Cascade)
+  card      Card @relation("StackMemberCard", fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([stackCardId])
 }
 
 /// A Card's placement within a Page, including any unsaved draft edits.

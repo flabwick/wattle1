@@ -19,14 +19,29 @@ interface FeedInputButtonProps {
   onGenerate: (instruction?: string) => void;
   /** Creates a new Card directly (bypasses AI) — blank if `content` is empty. */
   onAddCard: (content: string) => void;
-  /** Opens a Vault picker so the user can pick a Card to add. */
-  onOpenVault: () => void;
-  /** Uploads a file as a new file-typed Card. */
-  onUploadFile: (file: File) => void;
+  /** Opens a Vault picker so the user can pick a Card to add. Unused while
+   *  showMoreOptions is false. */
+  onOpenVault?: () => void;
+  /** Uploads a file as a new file-typed Card. Unused while showMoreOptions is false. */
+  onUploadFile?: (file: File) => void;
+  /** Creates a new Stack Card (registries/definitions/stackCardType.ts) — the type
+   *  picker's "Stack" option is wired straight to this rather than the stub
+   *  highlight-only behavior every other type still has below, since a Stack needs
+   *  its own creation endpoint (stackService.createStackInPage), not plain
+   *  onAddCard. Optional/no-op when absent (the Dock Card panel's own creation flow,
+   *  showGenerate false, has no Page for a Stack to belong to). */
+  onAddStack?: () => void;
   /** False inside the Dock Card panel's own creation flow (Step 6 spec §3.3): Dock
    *  Cards have no Page/Tab to draw generation context from, so there's no Circle —
    *  Add is the only way a Card actually gets created either way. */
   showGenerate?: boolean;
+  /** False for a blank Stack alternate's own Feed Input Button (StackBody.tsx):
+   *  "Open from Vault"/"Upload File"/the card-type picker all assume they're
+   *  creating a brand new top-level Card, which doesn't apply to filling in a Card
+   *  that already exists (the alternate itself) — so the ellipsis has nothing left
+   *  to show and is hidden entirely rather than opening onto an empty popup.
+   *  Defaults true (every other call site). */
+  showMoreOptions?: boolean;
   /** Overrides the collapsed placeholder text — the Page's own copy ("Guide the next
    *  generation…") doesn't make sense where there's no generation to guide. */
   placeholder?: string;
@@ -55,7 +70,9 @@ export function FeedInputButton({
   onAddCard,
   onOpenVault,
   onUploadFile,
+  onAddStack,
   showGenerate = true,
+  showMoreOptions = true,
   placeholder,
 }: FeedInputButtonProps) {
   const [expanded, setExpanded] = useState(false);
@@ -103,7 +120,7 @@ export function FeedInputButton({
   }
 
   function handleOpen() {
-    onOpenVault();
+    onOpenVault?.();
     collapse();
   }
 
@@ -150,64 +167,71 @@ export function FeedInputButton({
         >
           <Icon name="plus" />
         </button>
-        <div className="feed-input__popup-wrap" ref={popupWrapRef}>
-          <button
-            type="button"
-            className="feed-input__ellipsis"
-            onClick={() => setPopupOpen((open) => !open)}
-            aria-label={t("feedInput.more")}
-            title={t("feedInput.more")}
-          >
-            <Icon name={popupOpen ? "close" : "more"} />
-          </button>
-          {popupOpen && (
-            <div className="feed-input__popup">
-              <button
-                type="button"
-                onClick={handleOpen}
-                aria-label={t("feedInput.open")}
-                title={t("feedInput.open")}
-              >
-                <Icon name="vault" />
-              </button>
-              <button
-                type="button"
-                onClick={handleUploadClick}
-                aria-label={t("feedInput.upload")}
-                title={t("feedInput.upload")}
-              >
-                <Icon name="upload" />
-              </button>
-              <div className="feed-input__type-wrap">
+        {showMoreOptions && (
+          <div className="feed-input__popup-wrap" ref={popupWrapRef}>
+            <button
+              type="button"
+              className="feed-input__ellipsis"
+              onClick={() => setPopupOpen((open) => !open)}
+              aria-label={t("feedInput.more")}
+              title={t("feedInput.more")}
+            >
+              <Icon name={popupOpen ? "close" : "more"} />
+            </button>
+            {popupOpen && (
+              <div className="feed-input__popup">
                 <button
                   type="button"
-                  onClick={() => setTypePickerOpen((open) => !open)}
-                  aria-label={t("feedInput.cardType")}
-                  title={t("feedInput.cardType")}
+                  onClick={handleOpen}
+                  aria-label={t("feedInput.open")}
+                  title={t("feedInput.open")}
                 >
-                  <Icon name="file" />
+                  <Icon name="vault" />
                 </button>
-                {typePickerOpen && (
-                  <div className="feed-input__type-picker">
-                    {cardTypeRegistry.list().map((def) => (
-                      <button
-                        key={def.id}
-                        type="button"
-                        className={`feed-input__type-option${selectedTypeId === def.id ? " feed-input__type-option--selected" : ""}`}
-                        onClick={() => {
-                          setSelectedTypeId(def.id);
-                          setTypePickerOpen(false);
-                        }}
-                      >
-                        {def.displayName}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={handleUploadClick}
+                  aria-label={t("feedInput.upload")}
+                  title={t("feedInput.upload")}
+                >
+                  <Icon name="upload" />
+                </button>
+                <div className="feed-input__type-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setTypePickerOpen((open) => !open)}
+                    aria-label={t("feedInput.cardType")}
+                    title={t("feedInput.cardType")}
+                  >
+                    <Icon name="file" />
+                  </button>
+                  {typePickerOpen && (
+                    <div className="feed-input__type-picker">
+                      {cardTypeRegistry.list().map((def) => (
+                        <button
+                          key={def.id}
+                          type="button"
+                          className={`feed-input__type-option${selectedTypeId === def.id ? " feed-input__type-option--selected" : ""}`}
+                          onClick={() => {
+                            if (def.id === "stack" && onAddStack) {
+                              onAddStack();
+                              collapse();
+                              return;
+                            }
+                            setSelectedTypeId(def.id);
+                            setTypePickerOpen(false);
+                          }}
+                        >
+                          {def.displayName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
       <input
         ref={fileInputRef}
@@ -215,7 +239,7 @@ export function FeedInputButton({
         className="feed-input__file-input"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) onUploadFile(file);
+          if (file) onUploadFile?.(file);
           e.target.value = "";
           collapse();
         }}

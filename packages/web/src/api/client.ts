@@ -10,6 +10,9 @@ import type {
   PageCard,
   PageCardWithCard,
   PageWithCards,
+  StackData,
+  StackMember,
+  StackMemberWithCard,
   Tab,
   UpdateCardInput,
 } from "@wattle/shared";
@@ -133,6 +136,32 @@ export const movePageCard = (pageCardId: string, destPageId: string, destIndex: 
 export const movePageCardToDock = (pageCardId: string) =>
   request<DockCardWithCard>(`/page-cards/${pageCardId}/move-to-dock`, { method: "PUT" });
 
+// Stacks — see registries/definitions/stackCardType.ts, stackService.ts, useCardStack.ts.
+export const createStack = (pageId: string) =>
+  request<PageCardWithCard>("/stacks", { method: "POST", body: JSON.stringify({ pageId }) });
+export const convertCardToStack = (pageCardId: string) =>
+  request<PageCardWithCard>("/stacks/convert", { method: "POST", body: JSON.stringify({ pageCardId }) });
+export const getStack = (stackCardId: string) => request<StackData>(`/stacks/${stackCardId}`);
+export const setStackActiveIndex = (stackCardId: string, index: number) =>
+  request<{ activeIndex: number }>(`/stacks/${stackCardId}/active`, {
+    method: "PUT",
+    body: JSON.stringify({ index }),
+  });
+export const closeStack = (stackCardId: string) =>
+  request<void>(`/stacks/${stackCardId}/close`, { method: "DELETE" });
+export const deleteStack = (stackCardId: string) =>
+  request<void>(`/stacks/${stackCardId}`, { method: "DELETE" });
+export const addStackMember = (stackCardId: string) =>
+  request<StackMemberWithCard>(`/stacks/${stackCardId}/members`, { method: "POST" });
+export const updateStackMemberDraft = (
+  memberId: string,
+  draft: { title?: string; content?: string },
+) => request<StackMember>(`/stacks/members/${memberId}`, { method: "PATCH", body: JSON.stringify(draft) });
+export const saveStackMemberToVault = (memberId: string) =>
+  request<StackMember>(`/stacks/members/${memberId}/save`, { method: "POST" });
+export const removeStackMember = (memberId: string) =>
+  request<{ stackDeleted: boolean }>(`/stacks/members/${memberId}`, { method: "DELETE" });
+
 // Dock Cards — the persistent scratchpad layer outside every Page/Tab (Step 6 spec §1.2).
 export const listDockCards = () => request<DockCardWithCard[]>("/dock-cards");
 export const addExistingCardToDock = (cardId: string) =>
@@ -160,15 +189,15 @@ export const moveDockCardToPage = (dockCardId: string, pageId: string, destIndex
   });
 
 // Generation Rule — the streaming calls themselves (GET /generate/stream/:pageCardId,
-// or /stream/page/:pageId for the "nothing selected" case) go through
-// useGeneration.ts's EventSource, not this REST client. This is only the accept step:
-// persisting a ghost card the user reviewed after that stream finished. No model call
-// happens here.
+// /stream/page/:pageId for the "nothing selected" case, or /stream/stack-member/:memberId
+// for a blank Stack alternate) go through useGeneration.ts's EventSource, not this REST
+// client. This is only the accept step: persisting a ghost card the user reviewed after
+// that stream finished. No model call happens here.
 export const acceptGeneration = (
-  target: { pageCardId: string } | { pageId: string },
+  target: { pageCardId: string } | { pageId: string } | { memberId: string },
   generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
 ) =>
-  request<GenerateResponse>("/generate/accept", {
+  request<GenerateResponse | StackMember>("/generate/accept", {
     method: "POST",
     body: JSON.stringify({ ...target, ...generated }),
   });

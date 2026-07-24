@@ -1,16 +1,47 @@
-/* The sideways counterpart to PageNav.css: a horizontal flex row instead of a
-   vertical stack of Cards, arrows either side of the active member instead of
-   above/below the whole Page. */
+/* T2: a small control cluster, not a bar of its own — StackBody.tsx renders this as
+   a sibling of .card__header-start inside the Card's existing .card__header row, so
+   .card__header's own space-between tucks it flush into the top-right corner
+   without touching the title's layout at all (same slot Card.css's
+   .card__link-btn-wrap occupies for a plain note Card). */
 .card-stack-rail {
   display: flex;
-  align-items: stretch;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
 }
 
+/* Ghost buttons, not the bold-bordered/shadowed default (styling.md §7) — same
+   borderless, muted-until-hovered treatment as the Dock's own page-nav arrows
+   (Dock.css's .dock__page-nav button): a quiet corner control, not a prominent one.
+   The tappable box stays --touch-target-sm so this is still comfortable to hit on
+   mobile even though the glyph itself is small. */
 .card-stack-rail .button {
   flex-shrink: 0;
-  align-self: center;
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text-muted);
+}
+
+.card-stack-rail .button.button--icon {
+  width: var(--touch-target-sm);
+}
+
+.card-stack-rail .button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.card-stack-rail .button:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.card-stack-rail .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 /* Reuses the "up" chevron rotated to point sideways (Card.css does the same for its
@@ -22,32 +53,6 @@
 
 .card-stack-rail__arrow--right {
   transform: rotate(90deg);
-}
-
-/* Same "thick stock" box as CardShell, but not an actual button — T1 replaces this
-   with the active member's real CardView, which already carries that styling. */
-.card-stack-rail__active {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  background: var(--color-surface);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-3) var(--space-4);
-  min-height: var(--touch-target-min);
-}
-
-.card-stack-rail__title {
-  font-family: var(--font-family-heading);
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-md);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .card-stack-rail__position {

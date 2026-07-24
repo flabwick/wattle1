@@ -1,19 +1,24 @@
-import type { GeneratedCardPart, GenerationContextEntry, GenerateResponse, PageCard } from "@wattle/shared";
-import { cardTypeRegistry, defaultMetadata, modelProviderRegistry } from "@wattle/shared";
+import type { GeneratedCardPart, GenerationContextEntry, GenerateResponse, PageCard, StackMember } from "@wattle/shared";
+import { cardTypeRegistry, defaultMetadata, migrateMetadata, modelProviderRegistry } from "@wattle/shared";
 import type { CardBlockEvent } from "@wattle/prompt-engine";
 import { CardBlockParser, compilePrompt } from "@wattle/prompt-engine";
 import { prisma } from "../db.js";
 import { activeProviderId } from "../providers/init.js";
 import { configuredProviderSettings } from "../modelConfig.js";
 import { serializeCard } from "./cardService.js";
+import { getStackData, serializeMember } from "./stackService.js";
 
-/** Where a generation is anchored: either a specific triggering Card (insert directly
- *  below it, context is everything above it), or a Page with nothing selected (append
- *  at the bottom of the Page, context is everything already on it — see App.tsx's
- *  "nothing selected" Dock action). */
+/** Where a generation is anchored: a specific triggering Card (insert directly below
+ *  it, context is everything above it), a Page with nothing selected (append at the
+ *  bottom of the Page, context is everything already on it — see App.tsx's "nothing
+ *  selected" Dock action), or a blank Stack alternate (fills that alternate's own
+ *  content in place rather than inserting a new sibling PageCard — see
+ *  persistGeneratedToStackMember below; context is the same "everything above the
+ *  Stack's own position" a card-level target at the container's PageCard would see). */
 export type GenerationTarget =
   | { type: "card"; pageCardId: string }
-  | { type: "page"; pageId: string };
+  | { type: "page"; pageId: string }
+  | { type: "stackMember"; memberId: string };
 
 /**
  * The Generation Rule (spec1.md Part 2 "Generation Rule (Context Visibility)" and
@@ -44,6 +49,22 @@ async function assembleContextForTarget(
     tabId = trigger.page.tabId;
     pageOrder = trigger.page.order;
     withinPageCutoff = trigger.order;
+  } else if (target.type === "stackMember") {
+    // Same cutoff a card-level target at the *container's* own PageCard would use —
+    // generating into one alternate should see exactly what generating into the
+    // Stack's position in the Page would, not anything from the Stack's other
+    // alternates (which resolveContextContent below would otherwise fold in via the
+    // container's own contribution — moot here since a target's own PageCard is
+    // always excluded from its context regardless).
+    const member = await prisma.stackMember.findUniqueOrThrow({ where: { id: target.memberId } });
+    const containerPageCard = await prisma.pageCard.findFirstOrThrow({
+      where: { cardId: member.stackCardId },
+      include: { page: true },
+    });
+    pageId = containerPageCard.pageId;
+    tabId = containerPageCard.page.tabId;
+    pageOrder = containerPageCard.page.order;
+    withinPageCutoff = containerPageCard.order;
   } else {
     const page = await prisma.page.findUniqueOrThrow({ where: { id: target.pageId } });
     pageId = page.id;
@@ -68,19 +89,47 @@ async function assembleContextForTarget(
     }),
   ]);
 
-  const entries = [...cardsInPagesAbove, ...withinPage].map(
-    (pc): GenerationContextEntry => ({
-      pageId: pc.pageId,
-      pageOrder: pc.page.order,
-      pageCardId: pc.id,
-      pageCardOrder: pc.order,
-      title: pc.draftTitle ?? pc.card.title,
-      content: pc.draftContent ?? pc.card.content,
+  const entries = await Promise.all(
+    [...cardsInPagesAbove, ...withinPage].map(async (pc): Promise<GenerationContextEntry> => {
+      const { title, content } = await resolveContextContent(pc);
+      return {
+        pageId: pc.pageId,
+        pageOrder: pc.page.order,
+        pageCardId: pc.id,
+        pageCardOrder: pc.order,
+        title,
+        content,
+      };
     }),
   );
 
   entries.sort((a, b) => a.pageOrder - b.pageOrder || a.pageCardOrder - b.pageCardOrder);
   return entries;
+}
+
+/** What a PageCard contributes to generation context — ordinarily just its own
+ *  (draft-aware) title/content, but a "stack"-typed PageCard has none of its own to
+ *  give: per the Generation Rule extended to Stacks, only the currently *visible*
+ *  member counts as "in view", so this resolves straight through to that member's own
+ *  (also draft-aware) title/content instead of the container's permanently-blank
+ *  ones. An empty Stack (no members at all) contributes nothing. */
+async function resolveContextContent(pc: {
+  cardId: string;
+  draftTitle: string | null;
+  draftContent: string | null;
+  card: { title: string; content: string; metadata: string };
+}): Promise<{ title: string; content: string }> {
+  const meta = migrateMetadata(JSON.parse(pc.card.metadata));
+  if (meta.typeId !== "stack") {
+    return { title: pc.draftTitle ?? pc.card.title, content: pc.draftContent ?? pc.card.content };
+  }
+  const stack = await getStackData(pc.cardId);
+  const active = stack.members[stack.activeIndex];
+  if (!active) return { title: "", content: "" };
+  return {
+    title: active.draftTitle ?? active.card.title,
+    content: active.draftContent ?? active.card.content,
+  };
 }
 
 /** Card-level preview (GET /api/generate/context/:pageCardId — spec1.md Part 1 §2). */
@@ -157,6 +206,16 @@ export function streamGeneration(pageCardId: string, instruction?: string): Asyn
 /** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */
 export function streamGenerationForPage(pageId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
   return streamForTarget({ type: "page", pageId }, instruction);
+}
+
+/** A blank Stack alternate's own generation — GET
+ *  /api/generate/stream/stack-member/:memberId (StackBody.tsx's Feed Input Button,
+ *  shown in place of the alternate's body while it's still blank). */
+export function streamGenerationForStackMember(
+  memberId: string,
+  instruction?: string,
+): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "stackMember", memberId }, instruction);
 }
 
 function isRegisteredCardType(id: string): boolean {
@@ -297,4 +356,35 @@ export async function persistGeneratedCardToPage(
   });
 
   return buildResponse(context, created);
+}
+
+/**
+ * Fills a blank Stack alternate's own content in place — the Stack counterpart to
+ * persistGeneratedCard/persistGeneratedCardToPage above, but it never creates a new
+ * PageCard: the member already exists (as a blank draft, added via the rail's "+" —
+ * see StackBody.tsx), so this just writes the generated title/content straight onto
+ * its own Card, exactly like a fresh member's initial content would be set, and
+ * clears any (empty) pending draft. Deliberately ignores `generated.cardType` for
+ * the member itself — unlike a plain generated Card, whose own type the model's
+ * suggested root cardType can set, a Stack member's type must never move off "note"
+ * (no code path lets one become "stack" — see stackService.addMember's doc
+ * comment); `cardType` only still applies to any *nested* `<card>` blocks
+ * materializeParts splices in as embeds, which are unrelated standalone Cards.
+ */
+export async function persistGeneratedToStackMember(
+  memberId: string,
+  generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
+): Promise<StackMember> {
+  const member = await prisma.stackMember.findUniqueOrThrow({ where: { id: memberId } });
+  const content = await materializeParts(generated.parts);
+
+  await prisma.card.update({
+    where: { id: member.cardId },
+    data: { title: generated.title, content },
+  });
+  const cleared = await prisma.stackMember.update({
+    where: { id: memberId },
+    data: { draftTitle: null, draftContent: null },
+  });
+  return serializeMember(cleared);
 }

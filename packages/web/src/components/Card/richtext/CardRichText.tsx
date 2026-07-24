@@ -144,15 +144,24 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
   // Syncs genuinely external content changes in (a different Card being displayed
   // under the same mounted instance never happens today — call sites key by cardId,
   // remounting instead — so in practice this only fires for another tab/session
-  // editing the same Card via the shared cardStore). Never fires from this editor's
-  // own typing: lastEmittedContent.current is updated synchronously in onUpdate
-  // above, so the prop update that typing causes always matches it here.
+  // editing the same Card via the shared cardStore, or a Stack switching which
+  // member is active under this same always-mounted instance — see StackBody.tsx).
+  // Never fires from this editor's own typing: lastEmittedContent.current is updated
+  // synchronously in onUpdate above, so the prop update that typing causes always
+  // matches it here.
   useEffect(() => {
     if (!editor) return;
     if (content === lastEmittedContent.current) return;
     if (content === editor.getHTML()) return;
     lastEmittedContent.current = content;
-    editor.commands.setContent(content, { emitUpdate: false });
+    // Deferred a tick: setContent synchronously mounts any embedded card's NodeView,
+    // which (tiptap-react) flushSyncs — illegal from inside this passive effect
+    // (React: "flushSync was called from inside a lifecycle method"). A microtask
+    // runs after this commit finishes, same content, no visible delay.
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+      editor.commands.setContent(content, { emitUpdate: false });
+    });
   }, [content, editor]);
 
   // editable isn't part of useEditor's initial options after creation — TipTap only

@@ -20,12 +20,14 @@ export interface GhostCardNode {
 }
 
 /** Where the in-flight generation is anchored — a specific Card (insert directly
- *  below it) or a Page with nothing selected (append at the bottom). Mirrors
+ *  below it), a Page with nothing selected (append at the bottom), or a blank Stack
+ *  alternate (fills its own content in place — see StackBody.tsx). Mirrors
  *  @wattle/api's GenerationTarget. Tracked here so finalizing knows which endpoint/
  *  payload shape to use without the caller having to remember and re-pass it. */
 export type GenerationTarget =
   | { type: "card"; pageCardId: string }
-  | { type: "page"; pageId: string };
+  | { type: "page"; pageId: string }
+  | { type: "stackMember"; memberId: string };
 
 interface CardBlockStreamEvent {
   type: "open" | "text" | "close" | "done" | "error";
@@ -73,6 +75,9 @@ export interface UseGenerationResult {
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
   startForPage: (pageId: string, instruction?: string) => void;
+  /** Same as `start`, but for a blank Stack alternate (StackBody.tsx) — fills that
+   *  alternate's own content in place instead of inserting a sibling PageCard. */
+  startForStackMember: (memberId: string, instruction?: string) => void;
   /** Ends the stream early and immediately saves whatever's been generated so far as
    *  the real Card — the same save path a clean completion uses, just triggered by
    *  the user instead of the model finishing on its own. If nothing has streamed in
@@ -183,7 +188,9 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
           await api.acceptGeneration(
             streamTarget.type === "card"
               ? { pageCardId: streamTarget.pageCardId }
-              : { pageId: streamTarget.pageId },
+              : streamTarget.type === "stackMember"
+                ? { memberId: streamTarget.memberId }
+                : { pageId: streamTarget.pageId },
             generated,
           );
           console.debug(`[gen] finalize(${reason}) saved successfully`);
@@ -309,6 +316,17 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
     [openStream],
   );
 
+  /** A blank Stack alternate's own Feed Input Button (StackBody.tsx) — fills that
+   *  alternate's content in place rather than inserting a sibling PageCard. */
+  const startForStackMember = useCallback(
+    (memberId: string, instruction?: string) =>
+      openStream(
+        { type: "stackMember", memberId },
+        `/api/generate/stream/stack-member/${memberId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
+      ),
+    [openStream],
+  );
+
   const stop = useCallback(() => {
     stopRef.current?.();
   }, []);
@@ -324,6 +342,7 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
     target,
     start,
     startForPage,
+    startForStackMember,
     stop,
   };
 }

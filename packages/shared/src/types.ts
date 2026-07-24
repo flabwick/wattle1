@@ -108,6 +108,36 @@ export interface DockCardWithCard extends DockCard {
 }
 
 /**
+ * One alternate belonging to a "stack"-typed Card (registries/definitions/
+ * stackCardType.ts) — the Stack's own counterpart to PageCard, including the same
+ * draft-staging convention: non-null draftTitle/draftContent mean this alternate has
+ * unsaved edits, committed to its own vault Card via POST /stacks/members/:id/save.
+ * Only the alternate at index `StackData.activeIndex` is "in" the page.
+ */
+export interface StackMember {
+  id: string;
+  stackCardId: string;
+  cardId: string;
+  order: number;
+  draftTitle: string | null;
+  draftContent: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StackMemberWithCard extends StackMember {
+  card: Card;
+}
+
+/** A Stack's full state, as returned by GET /api/stacks/:stackCardId — every alternate,
+ *  in order, plus which one is currently active (already clamped to the list's bounds
+ *  server-side, so callers never need to re-check it against `members.length`). */
+export interface StackData {
+  activeIndex: number;
+  members: StackMemberWithCard[];
+}
+
+/**
  * The Generation Rule (spec1.md Part 2 + Part 3): everything in Pages above the
  * triggering PageCard's Page, plus everything above the triggering PageCard within its
  * own Page. Nothing below. This is what gets sent to the model as context, and it is

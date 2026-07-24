@@ -67,11 +67,31 @@ generateRouter.get("/stream/page/:pageId", async (req, res) => {
   );
 });
 
-// POST /api/generate/accept  { pageCardId | pageId, title, content, cardType? } —
-// persists a ghost card the user reviewed and accepted after one of the streaming
-// routes above finished. Wraps the "card.generateAccept" Operation. Does not call the
-// model again; the model was already invoked once during streaming.
+// GET /api/generate/stream/stack-member/:memberId — a blank Stack alternate's own
+// Feed Input Button (StackBody.tsx); fills that alternate's content in place rather
+// than inserting a sibling PageCard.
+generateRouter.get("/stream/stack-member/:memberId", async (req, res) => {
+  await pipeGenerationEvents(
+    res,
+    generationService.streamGenerationForStackMember(req.params.memberId, instructionParam(req)),
+  );
+});
+
+// POST /api/generate/accept  { pageCardId | pageId | memberId, title, content, cardType? }
+// — persists a ghost card the user reviewed and accepted after one of the streaming
+// routes above finished. Does not call the model again; the model was already invoked
+// once during streaming. The memberId branch is ad hoc (same reasoning as every other
+// Stack action — stackService.ts's routes doc comment), not run through the
+// Operation registry the pageCardId/pageId branches wrap ("card.generateAccept"),
+// since a StackMember isn't a Card whose type a CardTypeDefinition.supportsOperations
+// gate would even apply to.
 generateRouter.post("/accept", async (req, res) => {
+  if (req.body?.memberId) {
+    const { memberId, title, cardType, parts } = req.body;
+    const result = await generationService.persistGeneratedToStackMember(memberId, { title, cardType, parts });
+    res.status(201).json(result);
+    return;
+  }
   const result = await runOperation<GenerateResponse>("card.generateAccept", req.body);
   res.status(201).json(result);
 });

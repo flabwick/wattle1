@@ -33,6 +33,7 @@ export type IconName =
   | "tray"
   | "pages"
   | "tabs"
+  | "stackAdd"
   | "back"
   | "save"
   | "bold"
@@ -208,6 +209,17 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M3 8h6l2 3h10" />
       <path d="M3 8v11h18V11h-8l-2-3H3z" />
+    </>
+  ),
+  // Two offset card outlines with a plus badge — the Dock's "Make a Stack" action
+  // (turns the single selected Card into a Stack containing it), distinct from
+  // "tabs"/"pages" (panel toggles, not an action on the current selection).
+  stackAdd: (
+    <>
+      <path d="M3 3h10v10H3z" />
+      <path d="M7 7h10v10H7z" />
+      <path d="M18 15v6" />
+      <path d="M15 18h6" />
     </>
   ),
   // A left-pointing chevron — mirrors "chevronRight"; the Dock Card panel's own

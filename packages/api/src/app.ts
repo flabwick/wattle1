@@ -9,6 +9,7 @@ import { foldersRouter } from "./routes/folders.js";
 import { generateRouter } from "./routes/generate.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
 import { pagesRouter } from "./routes/pages.js";
+import { stacksRouter } from "./routes/stacks.js";
 import { tabsRouter } from "./routes/tabs.js";
 
 export function createApp() {
@@ -24,6 +25,7 @@ export function createApp() {
   app.use("/api/tabs", tabsRouter);
   app.use("/api/pages", pagesRouter);
   app.use("/api/page-cards", pageCardsRouter);
+  app.use("/api/stacks", stacksRouter);
   app.use("/api/dock-cards", dockCardsRouter);
   app.use("/api/generate", generateRouter);
   app.use("/api/annotations", annotationsRouter);

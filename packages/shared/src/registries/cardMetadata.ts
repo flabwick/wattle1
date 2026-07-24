@@ -71,6 +71,15 @@ export const cardMetadataV1Schema = z.object({
       size: z.number(),
     })
     .optional(),
+  /** Set only on typeId "stack" Cards — which of its StackMembers (schema.prisma) is
+   *  currently the one "in" the page. Clamped to the member list's bounds wherever
+   *  it's read/written (stackService.ts), since a member can be removed out from
+   *  under whatever index this was last set to. */
+  stack: z
+    .object({
+      activeIndex: z.number().int().min(0),
+    })
+    .optional(),
   /** Pending/resolved diff, footnote, and highlight overlays — see annotationSchema
    *  above. Additive and process-agnostic: all three types share this one array. */
   annotations: z.array(annotationSchema).default([]),

@@ -9,6 +9,9 @@
   "dock.action.stopGeneration": "Stop",
   "dock.action.remove": "Remove",
   "dock.action.delete": "Delete",
+  "dock.action.deleteStack": "Delete Stack",
+  "dock.action.closeStack": "Close Stack",
+  "dock.action.makeStack": "Make a Stack",
   "dock.action.upload": "Upload File",
   "dock.action.move": "Move",
   "dock.action.cancelMove": "Cancel Move",
@@ -109,5 +112,7 @@
 
   "cardStack.previous": "Previous alternate",
   "cardStack.next": "Next alternate",
-  "cardStack.addAlternate": "Add alternate"
+  "cardStack.addAlternate": "Add alternate",
+  "cardStack.save": "Save this alternate",
+  "cardStack.removeMember": "Remove this alternate"
 }

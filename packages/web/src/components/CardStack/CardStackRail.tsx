@@ -1,92 +1,72 @@
-import { useState } from "react";
 import { Button, Icon } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 import "./CardStackRail.css";
 
-interface StackMember {
-  id: string;
-  title: string;
+interface CardStackRailProps {
+  index: number;
+  total: number;
+  atStart: boolean;
+  atEnd: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+  /** Both the last member's forward arrow (turns into this once atEnd) and — while
+   *  there's only one member — the rail's sole control. */
+  onAdd: () => void;
+  /** True while the active alternate has a generation streaming into it
+   *  (StackBody.tsx) — navigating away mid-stream would leave that generation
+   *  updating a member no longer in view, so the whole rail locks until it settles. */
+  disabled?: boolean;
 }
 
-/** Seed content for the T0 prototype — a real stack (T1) will hold PageCard alternates
- *  instead, but the rail's own ← → / + interaction doesn't care what a member is. */
-const MOCK_MEMBERS: StackMember[] = [
-  { id: "mock-1", title: "Question 1" },
-  { id: "mock-2", title: "Question 2" },
-  { id: "mock-3", title: "Question 3" },
-];
-
 /**
- * Horizontal exclusive slot: only `members[activeIndex]` is "in" the page — ← / →
- * swap which alternate is active, `+` adds another. This is the sideways counterpart
- * to PageNav's up/down between Pages, but exclusive rather than inclusive (see
- * Branch 3 plan §"Core concepts"): Pages stack vertically and all contribute to
- * generation context, stack members sit in one slot and only the active one does.
- *
- * T0: mock data only, entirely self-contained (no props). T1 wires this to
- * useCardStack/PageStack and swaps MOCK_MEMBERS for real PageCard alternates.
+ * T2: a small control cluster tucked into the top-right of the Card's own header
+ * row (StackBody.tsx renders this as a sibling of .card__header-start, not a
+ * separate bar above it) — no title of its own any more (the real title input
+ * already sits right there) and no boxed/bordered "active" slot either. A Stack
+ * with exactly one member reads as a plain Card with a quiet "+" in the corner;
+ * back-caret and the "n / total" count only appear once adding that "+" has
+ * actually made it a Stack (a second member exists) — there's nothing to navigate
+ * or count with just one.
  */
-export function CardStackRail() {
-  const [members, setMembers] = useState<StackMember[]>(MOCK_MEMBERS);
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const atStart = activeIndex === 0;
-  const atEnd = activeIndex === members.length - 1;
-  const active = members[activeIndex];
-
-  function goPrevious() {
-    setActiveIndex((i) => Math.max(0, i - 1));
-  }
-
-  function goNext() {
-    setActiveIndex((i) => Math.min(members.length - 1, i + 1));
-  }
-
-  function addAlternate() {
-    const nextNumber = members.length + 1;
-    const member: StackMember = { id: `mock-${nextNumber}`, title: `Question ${nextNumber}` };
-    setMembers((prev) => [...prev, member]);
-    setActiveIndex(members.length);
-  }
-
+export function CardStackRail({
+  index,
+  total,
+  atStart,
+  atEnd,
+  onPrevious,
+  onNext,
+  onAdd,
+  disabled = false,
+}: CardStackRailProps) {
   return (
     <div className="card-stack-rail">
+      {total > 1 && (
+        <>
+          <Button
+            iconOnly
+            aria-label={t("cardStack.previous")}
+            title={t("cardStack.previous")}
+            disabled={atStart || disabled}
+            onClick={onPrevious}
+          >
+            <Icon name="up" className="card-stack-rail__arrow card-stack-rail__arrow--left" />
+          </Button>
+          <span className="card-stack-rail__position">
+            {index + 1} / {total}
+          </span>
+        </>
+      )}
       <Button
         iconOnly
-        aria-label={t("cardStack.previous")}
-        title={t("cardStack.previous")}
-        disabled={atStart}
-        onClick={goPrevious}
+        aria-label={atEnd ? t("cardStack.addAlternate") : t("cardStack.next")}
+        title={atEnd ? t("cardStack.addAlternate") : t("cardStack.next")}
+        disabled={disabled}
+        onClick={atEnd ? onAdd : onNext}
       >
-        <Icon name="up" className="card-stack-rail__arrow card-stack-rail__arrow--left" />
-      </Button>
-
-      {/* T1 swaps this for the active member's real CardView; T0 just needs
-          something card-shaped to prove the rail's own layout and interaction. */}
-      <div className="card-stack-rail__active">
-        <span className="card-stack-rail__title">{active.title}</span>
-        <span className="card-stack-rail__position">
-          {activeIndex + 1} / {members.length}
-        </span>
-      </div>
-
-      <Button
-        iconOnly
-        aria-label={t("cardStack.next")}
-        title={t("cardStack.next")}
-        disabled={atEnd}
-        onClick={goNext}
-      >
-        <Icon name="up" className="card-stack-rail__arrow card-stack-rail__arrow--right" />
-      </Button>
-
-      <Button
-        iconOnly
-        aria-label={t("cardStack.addAlternate")}
-        title={t("cardStack.addAlternate")}
-        onClick={addAlternate}
-      >
-        <Icon name="plus" />
+        <Icon
+          name={atEnd ? "plus" : "up"}
+          className={atEnd ? undefined : "card-stack-rail__arrow card-stack-rail__arrow--right"}
+        />
       </Button>
     </div>
   );

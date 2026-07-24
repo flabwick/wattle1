@@ -179,6 +179,7 @@ interface PageStackProps {
     onAddCard: (content: string) => void;
     onOpenVault: () => void;
     onUploadFile: (file: File) => void;
+    onAddStack: () => void;
   } | null;
 }
 
@@ -331,6 +332,7 @@ export function PageStack({
               onAddCard={feedInput.onAddCard}
               onOpenVault={feedInput.onOpenVault}
               onUploadFile={feedInput.onUploadFile}
+              onAddStack={feedInput.onAddStack}
             />
           )}
         </div>

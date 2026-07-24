@@ -8,6 +8,9 @@ import { LinkPickerTile } from "../components/Card/types/link/LinkPickerTile.js"
 import { FileView } from "../components/Card/types/file/FileView.js";
 import { FileEditor } from "../components/Card/types/file/FileEditor.js";
 import { FilePickerTile } from "../components/Card/types/file/FilePickerTile.js";
+import { StackView } from "../components/Card/types/stack/StackView.js";
+import { StackEditor } from "../components/Card/types/stack/StackEditor.js";
+import { StackPickerTile } from "../components/Card/types/stack/StackPickerTile.js";
 
 let initialized = false;
 
@@ -35,6 +38,12 @@ export function initCardTypeUi(): void {
     View: FileView,
     Editor: FileEditor,
     PickerTile: FilePickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "stack",
+    View: StackView,
+    Editor: StackEditor,
+    PickerTile: StackPickerTile,
   });
   initialized = true;
 }

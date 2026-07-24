@@ -13,6 +13,7 @@ import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
+import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
@@ -87,6 +88,28 @@ interface DockProps {
   /** Saves every selected Card that has something pending — a no-op for any that
    *  don't (App.tsx batches the existing per-Card save-to-vault call). */
   onSaveSelected: () => void;
+  /** "Delete Stack" — only ever shown when the single selected Card is a "stack"
+   *  (isStackSelected below); removes the whole Stack and every member's own vault
+   *  Card, not just the container (stackService.deleteStack). Null is never actually
+   *  passed today, but kept optional-shaped like every other conditional Dock action
+   *  here for consistency. */
+  onDeleteStack: (() => void) | null;
+  /** "Close Stack" — the safe counterpart to onDeleteStack: takes the whole Stack off
+   *  the Page, promoting any still-unsaved member to the vault first
+   *  (stackService.closeStack), rather than deleting every member's vault Card too.
+   *  Same "single selected Stack" scoping as onDeleteStack. */
+  onCloseStack: (() => void) | null;
+  /** "Remove" — takes every selected Card off the Page only, vault Card untouched
+   *  (pageCardService.removeFromPage). Shown for any non-Stack selection — see
+   *  onCloseStack above for the Stack-as-a-whole equivalent, which needs its own
+   *  member-promoting logic a plain removeFromPage can't safely do. */
+  onRemoveSelected: (() => void) | null;
+  /** "Make a Stack" — turns the single selected Card into a Stack containing it
+   *  (stackService.convertCardToStack), shown whenever exactly one non-"stack" Card
+   *  is selected (converting a Stack into a Stack makes no sense — same "single
+   *  selection only" scoping isStackSelected below uses). Null is never actually
+   *  passed today, but kept optional-shaped like onDeleteStack for consistency. */
+  onConvertToStack: (() => void) | null;
   /** True from the moment a generation starts until it's fully saved — the Circle
    *  becomes a Stop action while this is true, same convention as the Feed Input
    *  Button's own Circle (FeedInputButton.tsx). */
@@ -307,6 +330,10 @@ export function Dock({
   annotationError,
   onDismissAnnotationError,
   onSaveSelected,
+  onDeleteStack,
+  onCloseStack,
+  onConvertToStack,
+  onRemoveSelected,
   generating,
   onStopGeneration,
   onGenerateSelected,
@@ -419,6 +446,9 @@ export function Dock({
   // formatting buttons specifically for that title-field moment (see the `actions`
   // ternary further down).
   const activeEditorFocused = useActiveEditorFocused();
+  // The selected Stack's active alternate — Save/Remove for it render in this row
+  // (below) rather than as inline buttons on the Card itself (activeStackRegistry.ts).
+  const activeStack = useActiveStackControls();
   const formattingState = useEditorState({
     editor: activeEditor,
     selector: ({ editor }: { editor: Editor | null }) => ({
@@ -797,6 +827,32 @@ export function Dock({
     const available = selectedCards
       .map((pc) => supportedOperationIds(getCardTypeId(pc.card)))
       .reduce((a, b) => new Set([...a].filter((id) => b.has(id))));
+    // A Stack Card's own two container-level actions (spec: "Delete Stack" and Move —
+    // Move is already unconditional below, same as for any other Card) — only
+    // meaningful for a single selected Stack, same "single selection only" scoping
+    // processActions/pendingDiffCount already use.
+    const isStackSelected =
+      selectedCards.length === 1 && getCardTypeId(selectedCards[0].card) === "stack";
+    // "Make a Stack" — the inverse scoping of isStackSelected: exactly one selected
+    // Card that isn't already one.
+    const isConvertibleToStack = selectedCards.length === 1 && !isStackSelected;
+    // "Remove" (plain, non-Stack Close) — any selection that isn't a single selected
+    // Stack; a Stack container needs its own member-promoting close (onCloseStack)
+    // rather than the plain removeFromPage a regular Card uses.
+    const isPlainSelection = !isStackSelected;
+    // "Generate", for a selected Stack, targets the Stack's own generation instance
+    // (activeStackRegistry.ts) instead of App.tsx's page-level one: it appends a new
+    // alternate and streams into *that*, rather than inserting a sibling PageCard the
+    // way generating with any other Card type selected does.
+    const stackGenerating = isStackSelected && !!activeStack?.isGenerating;
+    const effectiveGenerating = isStackSelected ? stackGenerating : generating;
+    const generateOnClick = isStackSelected
+      ? stackGenerating
+        ? activeStack?.stopGenerating
+        : activeStack?.generateNewAlternate
+      : generating
+        ? onStopGeneration
+        : onGenerateSelected;
     modeActions = [
       {
         key: "back",
@@ -808,10 +864,10 @@ export function Dock({
       {
         key: "generateSelected",
         operationId: null,
-        icon: generating ? ("stop" as const) : ("generate" as const),
-        spin: generating,
-        label: generating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
-        onClick: generating ? onStopGeneration : onGenerateSelected,
+        icon: effectiveGenerating ? ("stop" as const) : ("generate" as const),
+        spin: effectiveGenerating,
+        label: effectiveGenerating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
+        onClick: generateOnClick ?? onGenerateSelected,
       },
       // No Edit action: tapping an already-selected Card jumps straight into
       // editing it now (App.tsx's toggleSelectPageCard) — this button would be
@@ -840,6 +896,78 @@ export function Dock({
       // No separate Move to Dock: dropping onto the Dock is now one of Move's own
       // destinations — tap the Dock Cards toggle itself while moving (see
       // dockCardsAction below).
+      ...(isPlainSelection && onRemoveSelected
+        ? [
+            {
+              key: "removeSelected",
+              operationId: null,
+              icon: "remove" as const,
+              label: t("dock.action.remove"),
+              onClick: onRemoveSelected,
+            },
+          ]
+        : []),
+      ...(isConvertibleToStack && onConvertToStack
+        ? [
+            {
+              key: "makeStack",
+              operationId: null,
+              icon: "stackAdd" as const,
+              label: t("dock.action.makeStack"),
+              onClick: onConvertToStack,
+            },
+          ]
+        : []),
+      // The selected Stack's active alternate — Save/Remove act on whichever member
+      // CardStackRail currently has in view (activeStackRegistry.ts), not the
+      // container itself (which never has anything of its own to save — see
+      // stackCardType.ts). Kept out of the generic `save` action above since that one
+      // is gated on operationId "card.save", which a Stack container never supports.
+      ...(isStackSelected && activeStack?.hasUnsavedDraft
+        ? [
+            {
+              key: "saveStackAlternate",
+              operationId: null,
+              icon: "save" as const,
+              label: t("cardStack.save"),
+              onClick: activeStack.save,
+            },
+          ]
+        : []),
+      ...(isStackSelected && activeStack
+        ? [
+            {
+              key: "removeStackAlternate",
+              operationId: null,
+              icon: "remove" as const,
+              label: t("cardStack.removeMember"),
+              onClick: activeStack.remove,
+            },
+          ]
+        : []),
+      ...(isStackSelected && onCloseStack
+        ? [
+            {
+              key: "closeStack",
+              operationId: null,
+              icon: "close" as const,
+              label: t("dock.action.closeStack"),
+              onClick: onCloseStack,
+            },
+          ]
+        : []),
+      ...(isStackSelected && onDeleteStack
+        ? [
+            {
+              key: "deleteStack",
+              operationId: null,
+              icon: "delete" as const,
+              label: t("dock.action.deleteStack"),
+              danger: true,
+              onClick: onDeleteStack,
+            },
+          ]
+        : []),
       ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedDockCardIds.size > 0) {
