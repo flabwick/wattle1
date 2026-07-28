@@ -9,6 +9,10 @@ interface TabsPanelProps {
   currentIndex: number;
   onSelectTab: (index: number) => void;
   onCreateTab: () => void;
+  /** "Save as App" (Apps feature spec §5) with scope "tab" — this panel is where a
+   *  Tab is "in focus" the same way the Pages panel below is for a Page. Saves
+   *  whichever Tab is currently in view, not a specific row here. */
+  onSaveAsApp: () => void;
 }
 
 /**
@@ -17,9 +21,12 @@ interface TabsPanelProps {
  * to move between adjacent Tabs (App.tsx's pointer-based swipe handlers). A "+" row
  * creates a new Tab at the right-hand end.
  */
-export function TabsPanel({ tabs, currentIndex, onSelectTab, onCreateTab }: TabsPanelProps) {
+export function TabsPanel({ tabs, currentIndex, onSelectTab, onCreateTab, onSaveAsApp }: TabsPanelProps) {
   return (
     <div className="tabs-panel">
+      <button type="button" className="tabs-panel__save-as-app" onClick={onSaveAsApp}>
+        {t("apps.saveAsApp")}
+      </button>
       {tabs.map((tab, i) => (
         <button
           key={tab.id}

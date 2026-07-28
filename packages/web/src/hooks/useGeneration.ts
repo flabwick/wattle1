@@ -70,8 +70,11 @@ export interface UseGenerationResult {
   /** Opens the SSE stream for a selected Card — the sole model call for this
    *  generation. Builds up the ghost card tree in local state as it streams in, and
    *  saves it automatically the moment the stream ends cleanly. `instruction`, if
-   *  given, is the Feed Input Button's typed guide text (Step 6 spec §2.2). */
-  start: (pageCardId: string, instruction?: string) => void;
+   *  given, is the Feed Input Button's typed guide text (Step 6 spec §2.2) or a
+   *  Prompt Card's configured instructions (lib/actionJobs.ts). `standalone`, only
+   *  ever set by a Prompt Card's "on its own" mode, skips the Generation Rule
+   *  context entirely. */
+  start: (pageCardId: string, instruction?: string, standalone?: boolean) => void;
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
   startForPage: (pageId: string, instruction?: string) => void;
@@ -299,11 +302,13 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
   );
 
   const start = useCallback(
-    (pageCardId: string, instruction?: string) =>
-      openStream(
-        { type: "card", pageCardId },
-        `/api/generate/stream/${pageCardId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
-      ),
+    (pageCardId: string, instruction?: string, standalone?: boolean) => {
+      const params = new URLSearchParams();
+      if (instruction) params.set("instruction", instruction);
+      if (standalone) params.set("standalone", "1");
+      const query = params.toString();
+      openStream({ type: "card", pageCardId }, `/api/generate/stream/${pageCardId}${query ? `?${query}` : ""}`);
+    },
     [openStream],
   );
 

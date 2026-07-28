@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
-import type { Annotation } from "@wattle/shared";
+import type { Annotation, PageCardWithCard } from "@wattle/shared";
 import { flattenToPlainText } from "@wattle/shared";
 import type { AnnotationProcess } from "../../../api/client.js";
 import { SelectionMenu } from "../SelectionMenu.js";
@@ -17,8 +17,14 @@ import "../AnnotatedText.css";
 import "./CardRichText.css";
 
 export interface CardRichTextHandle {
-  /** Inserts a cardEmbed node at the cursor — see Card.tsx's "insert card link"
-   *  toolbar button. Replaces the old insertToken(`[[id]]`) string-splice. */
+  /** Inserts a cardEmbed node at the cursor — used by EmbeddableTextField.tsx's own
+   *  "insert card link" button (an Action Card's own content/instructions config).
+   *  Replaces the old insertToken(`[[id]]`) string-splice. A note's own main content
+   *  no longer inserts through this ref at all — that, and every other rich-text
+   *  insert action (action button, field), now goes through the Dock instead,
+   *  operating directly on activeEditorRegistry's globally-tracked instance
+   *  (Dock.tsx), since the Dock is a sibling of wherever the editor lives, not this
+   *  component's parent. */
   insertEmbed: (cardId: string) => void;
   editor: Editor | null;
 }
@@ -60,6 +66,20 @@ interface CardRichTextProps {
   /** card.contentPlaceholder for a top-level Card; card.contentPlaceholder is also
    *  the sole default — CardEmbed content has never had its own placeholder text. */
   placeholder?: string;
+  /** Only ever passed by Card.tsx (depth 0, the top-level Card actually placed on a
+   *  Page) — powers any inline actionButton/actionField nodes in this content (rich
+   *  text follow-up to the Apps feature). Never forwarded into a nested CardEmbed's
+   *  own recursive CardRichText, so an action button inside an *embedded* Card is
+   *  inert rather than acting on the wrong Page — see CardEditingContext.tsx's
+   *  ownerPageCard doc comment. */
+  ownerPageCard?: PageCardWithCard;
+  onRunActionJob?: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => void;
+  generatingPageCardId?: string | null;
+  pageSiblings?: PageCardWithCard[];
 }
 
 const EMPTY_EDITING_EMBED_IDS: ReadonlySet<string> = new Set();
@@ -111,11 +131,20 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
     onUpdateAnnotationText,
     hideFoldButton,
     placeholder,
+    ownerPageCard,
+    onRunActionJob,
+    generatingPageCardId,
+    pageSiblings,
   },
   ref,
 ) {
   const lastEmittedContent = useRef(content);
   const containerRef = useRef<HTMLDivElement>(null);
+  // actionField's never-persisted values (see CardEditingContext.tsx's doc comment)
+  // — a plain mutable ref rather than state, since updating it should never itself
+  // trigger a re-render of this whole rich-text tree on every keystroke in an
+  // unrelated field.
+  const actionFieldValues = useRef<Map<number, string>>(new Map());
   // Which diff/highlight/footnote popover is open, if any — same shape and
   // convention the old AnnotatedText.tsx used, just fed by the click-delegation
   // effect below instead of a per-span React onClick (decorations render plain DOM,
@@ -235,6 +264,19 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
     onRemoveAnnotation,
     onUpdateAnnotationText,
     hideFoldButton,
+    editable,
+    ownerPageCard,
+    onRunActionJob,
+    generatingPageCardId,
+    pageSiblings,
+    registerActionFieldValue: (pos, value) => {
+      actionFieldValues.current.set(pos, value);
+    },
+    unregisterActionFieldValue: (pos) => {
+      actionFieldValues.current.delete(pos);
+    },
+    getActionFieldValues: () =>
+      [...actionFieldValues.current.entries()].sort(([a], [b]) => a - b).map(([, value]) => value),
   };
 
   // Same convention the old CardContent.tsx's AnnotatedText used: the selection-menu
@@ -295,10 +337,8 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
     <CardEditingContext.Provider value={contextValue}>
       <div ref={containerRef} className="card-rich-text">
         <EditorContent editor={editor} />
-        {editor?.isEmpty && !editable && (
-          <p className="card__preview card-rich-text__empty">
-            {placeholder ?? t("card.emptyContent")}
-          </p>
+        {editor?.isEmpty && !editable && placeholder && (
+          <p className="card__preview card-rich-text__empty">{placeholder}</p>
         )}
         {selectionMenu}
         {annotationPopover}

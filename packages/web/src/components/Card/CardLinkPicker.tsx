@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { Card } from "@wattle/shared";
 import { Icon, InputField } from "../primitives/index.js";
 import { listCards } from "../../api/client.js";
@@ -8,15 +9,26 @@ import "./CardLinkPicker.css";
 interface CardLinkPickerProps {
   onSelect: (card: Card) => void;
   onClose: () => void;
+  /** Overrides the default position:absolute anchoring with fixed viewport
+   *  coordinates — needed when this opens from the Dock (Dock.tsx's "insert card
+   *  link" action): .dock__row scrolls horizontally (overflow-x: auto), which
+   *  clips an absolutely-positioned popover that escapes it upward even though it
+   *  still mounts (same reasoning ProcessPicker.tsx's fixed positioning follows). */
+  style?: CSSProperties;
+  /** Also excluded from the outside-click-to-close check, alongside this picker's
+   *  own root — set to the Dock's trigger-button wrapper selector so clicking it
+   *  again while open just closes rather than closing-then-reopening (same
+   *  reasoning as ProcessPicker's own trigger-button exclusion). */
+  excludeSelector?: string;
 }
 
 /**
- * A small anchored popover for picking a Card to embed (see Card.tsx's "insert card
- * link" toolbar button) — same search-as-you-type behaviour as VaultView/useVault,
- * but a compact positioned list instead of a full side panel, since this opens right
- * next to the cursor it's inserting a `[[cardId]]` token at.
+ * A small anchored popover for picking a Card to embed — same search-as-you-type
+ * behaviour as VaultView/useVault, but a compact positioned list instead of a full
+ * side panel, since this opens right next to (or, from the Dock, above) the cursor
+ * it's inserting a card-link embed at.
  */
-export function CardLinkPicker({ onSelect, onClose }: CardLinkPickerProps) {
+export function CardLinkPicker({ onSelect, onClose, style, excludeSelector }: CardLinkPickerProps) {
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<Card[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -30,7 +42,12 @@ export function CardLinkPicker({ onSelect, onClose }: CardLinkPickerProps) {
 
   useEffect(() => {
     function handlePointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+      const target = e.target as Element;
+      if (
+        rootRef.current &&
+        !rootRef.current.contains(target) &&
+        !(excludeSelector && target.closest(excludeSelector))
+      ) {
         onClose();
       }
     }
@@ -43,10 +60,10 @@ export function CardLinkPicker({ onSelect, onClose }: CardLinkPickerProps) {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, excludeSelector]);
 
   return (
-    <div ref={rootRef} className="card-link-picker">
+    <div ref={rootRef} className="card-link-picker" style={style}>
       <div className="card-link-picker__search-wrap">
         <Icon name="search" className="card-link-picker__search-icon" />
         <InputField

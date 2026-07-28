@@ -138,6 +138,31 @@ model StackMember {
   @@index([stackCardId])
 }
 
+/// A reusable Tab or Page template — see packages/shared/src/registries/appSnapshot.ts
+/// for the versioned `AppSnapshotV1` payload stored in `snapshot`. Core Apps (`isCore`)
+/// are seeded by prisma/seed.ts and are read-only from the API's perspective (appService.ts
+/// rejects update/delete against them regardless of what the frontend allows).
+model App {
+  id          String   @id @default(cuid())
+  /// Stable lookup key for core Apps ("blank", "note", "chat"); user-created Apps leave
+  /// this null since they have no need for a fixed identity.
+  slug        String?  @unique
+  name        String
+  description String?
+  /// Whether `snapshot` reconstructs a whole Tab (ordered Pages of ordered Cards) or a
+  /// single Page (ordered Cards) — see AppSnapshotV1.
+  scope       String
+  isCore      Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  /// Versioned JSON payload (AppSnapshotV1), stored as a JSON string for the same reason
+  /// as Card.metadata: the sqlite connector doesn't support Prisma's `Json` scalar. Never
+  /// built from or trusted as browser input — always serialized server-side from real
+  /// Tab/Page/Card data at save time (appService.ts).
+  snapshot    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 /// A Card's placement within a Page, including any unsaved draft edits.
 model PageCard {
   id        String   @id @default(cuid())

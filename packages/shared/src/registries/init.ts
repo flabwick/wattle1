@@ -3,6 +3,8 @@ import { noteCardTypeDefinition } from "./definitions/noteCardType.js";
 import { linkCardTypeDefinition } from "./definitions/linkCardType.js";
 import { fileCardTypeDefinition } from "./definitions/fileCardType.js";
 import { stackCardTypeDefinition } from "./definitions/stackCardType.js";
+import { actionCardTypeDefinition } from "./definitions/actionCardType.js";
+import { promptCardTypeDefinition } from "./definitions/promptCardType.js";
 
 let initialized = false;
 
@@ -17,5 +19,7 @@ export function initCardTypes(): void {
   cardTypeRegistry.register(linkCardTypeDefinition);
   cardTypeRegistry.register(fileCardTypeDefinition);
   cardTypeRegistry.register(stackCardTypeDefinition);
+  cardTypeRegistry.register(actionCardTypeDefinition);
+  cardTypeRegistry.register(promptCardTypeDefinition);
   initialized = true;
 }

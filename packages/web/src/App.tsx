@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import type { Card } from "@wattle/shared";
+import type { App as WattleApp, Card, PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
+import { Icon } from "./components/primitives/index.js";
 import type { DockPanel } from "./components/Dock/Dock.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
 import { PageStackEdges } from "./components/PageStack/PageStackEdges.js";
+import { SaveAsAppModal } from "./components/Apps/SaveAsAppModal.js";
+import { AppBrowser } from "./components/Apps/AppBrowser.js";
 import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
@@ -13,9 +16,16 @@ import { useDockCards } from "./hooks/useDockCards.js";
 import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
-import { getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
+import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
+import { runActionJob } from "./lib/actionJobs.js";
 import { t } from "./i18n/index.js";
+
+/** Move Mode never applies inside the fullscreen single-Card view (App.tsx's
+ *  focusedPageCardId) — shared, stable references so that <PageStack>'s "not
+ *  moving" props there don't churn on every render. */
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
+const NOOP_INDEX = (_index: number) => {};
 
 export function App() {
   /** The single currently-selected top-level Card, if any, on the current Page —
@@ -33,6 +43,12 @@ export function App() {
    *  `selectedPageCardIds` (toggleSelectPageCard below drops a deselected Card from
    *  this set too). Independent per-Card, same convention as editingEmbedIds. */
   const [editingPageCardIds, setEditingPageCardIds] = useState<Set<string>>(new Set());
+  /** The one Card currently open full-screen (a Card's own "expand" corner button —
+   *  see Card.tsx/StackBody.tsx), or null the rest of the time. Independent of
+   *  selection/editing: entering/leaving this doesn't touch either. Cleared
+   *  automatically below if the Card it points at stops being on the current Page
+   *  (removed, or the Page itself changed out from under it). */
+  const [focusedPageCardId, setFocusedPageCardId] = useState<string | null>(null);
   /** An independently-selected embedded Card (CardRichText.tsx/CardEmbed.tsx's
    *  click-to-select), separate from `selectedPageCardIds` — see Dock.tsx's
    *  embed-selected action row. `onRemove` is the exact splice closure captured at
@@ -86,6 +102,20 @@ export function App() {
    *  Tabs, never more than one at once. Lifted here so the Dock's own toggles and the
    *  Feed Input Button's "Open" action can all reach it. */
   const [openPanel, setOpenPanel] = useState<DockPanel | null>(null);
+  /** The Dock's "reveal hidden cards" toggle (Apps feature spec §2) — purely a
+   *  display preference for the current Page, not tied to any one Card/Tab, so it
+   *  isn't reset on navigation. */
+  const [revealHidden, setRevealHidden] = useState(false);
+  /** Apps feature spec §5's editingAppId — set only by the App browser's Edit
+   *  action, cleared by tapping the Dock's own badge (onStopEditingApp). Paired with
+   *  its name (not just the id) so the badge doesn't need an extra fetch. */
+  const [editingAppId, setEditingAppId] = useState<string | null>(null);
+  const [editingAppName, setEditingAppName] = useState<string | null>(null);
+  /** Non-null while the "Save as App" modal is open — snapshots which Tab/Page it
+   *  was triggered from at that moment, not read live from currentTabId/currentPage,
+   *  so navigating away while the modal is still open can't change the target. */
+  const [saveAsAppRequest, setSaveAsAppRequest] = useState<{ tabId?: string; pageId?: string } | null>(null);
+  const [appBrowserOpen, setAppBrowserOpen] = useState(false);
   /** Which Tab is currently in view (Step 6 spec §1.1) — null only during the brief
    *  window before the bootstrap effect below picks or creates one. */
   const [currentTabId, setCurrentTabId] = useState<string | null>(null);
@@ -209,10 +239,7 @@ export function App() {
     if (selectedPageCardIds.has(id)) {
       // A Stack container has no title/content of its own to edit — StackBody's
       // active member is always directly editable regardless of this flag (see
-      // StackEditor.tsx) — so there's nothing for a second tap to jump into. Letting
-      // it through would flip isEditingActive (App.tsx above) true, which collapses
-      // the Dock's row down to just formatting tools and hides Move/Delete Stack
-      // for as long as the container stays "editing".
+      // StackEditor.tsx) — so there's nothing for a second tap to jump into.
       const pageCard = currentPage?.pageCards.find((pc) => pc.id === id);
       if (pageCard && getCardTypeId(pageCard.card) === "stack") return;
       setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
@@ -262,20 +289,12 @@ export function App() {
     [dockCards.dockCards, selectedDockCardIds],
   );
 
-  /** True while whatever's currently selected (a Page Card, a Dock Card, or an embed)
-   *  is also in its own inline edit mode — Dock.tsx swaps its action row for the
-   *  rich-text formatting toolbar (bold/italic/heading/lists) for exactly this long. */
-  const isEditingActive =
-    (!!selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) ||
-    [...selectedPageCardIds].some((id) => editingPageCardIds.has(id)) ||
-    selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
-
   /** The formatting toolbar's own back-caret (Dock.tsx) — ends editing the same way
    *  each surface's own click-outside-to-close gesture already does: a Page Card
    *  fully deselects (exitEditPageCard), same as an independently-selected embed
    *  (handleDeselectEmbed); a Dock Card just drops out of edit mode and stays
    *  selected (toggleEditEmbed), same as CardEmbed.tsx's own click-outside effect
-   *  does for it. Checked in the same priority order isEditingActive above uses. */
+   *  does for it. Checked in the same priority order isEditingActive uses. */
   function exitEditing() {
     if (selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) {
       handleDeselectEmbed();
@@ -542,6 +561,49 @@ export function App() {
 
   const currentPageIndex = sortedPages.findIndex((p) => p.id === currentPageId);
   const currentPage = currentPageIndex === -1 ? null : sortedPages[currentPageIndex];
+
+  // A focused Card only ever makes sense while it's still actually on the current
+  // Page — if it was removed, or the Page changed out from under it (e.g. Page nav,
+  // still reachable from inside the fullscreen view since the Dock stays up), just
+  // fall back to the normal Page view instead of showing an empty fullscreen shell.
+  useEffect(() => {
+    if (focusedPageCardId && !currentPage?.pageCards.some((pc) => pc.id === focusedPageCardId)) {
+      setFocusedPageCardId(null);
+    }
+  }, [focusedPageCardId, currentPage]);
+
+  const focusedPage =
+    currentPage && focusedPageCardId
+      ? { ...currentPage, pageCards: currentPage.pageCards.filter((pc) => pc.id === focusedPageCardId) }
+      : null;
+
+  /** The header's top-right "+" corner button (Card.tsx) for a plain "note" Card —
+   *  turns it into a Stack and immediately adds a second (blank) alternate, in one
+   *  step. A Stack Card's own "+" doesn't call this at all — StackBody.tsx adds an
+   *  alternate directly via its own useCardStack instance. */
+  async function handleTurnIntoStackWithNewCard(pageCardId: string) {
+    const converted = await api.convertCardToStack(pageCardId);
+    await api.addStackMember(converted.card.id);
+    await refresh();
+  }
+
+  /** True while whatever's currently selected (a Page Card, a Dock Card, or an embed)
+   *  is also in its own inline edit mode *and* actually has rich text to format —
+   *  Dock.tsx swaps its action row for the formatting toolbar (bold/italic/heading/
+   *  lists) for exactly this long. A Page Card whose CardType isn't "note" (e.g.
+   *  "action") has nothing there to format, so editing one of those does *not* count
+   *  here — the Dock keeps showing that Card's ordinary selection actions
+   *  (Move/Remove/Save/etc., same as while merely selected) instead of a toolbar
+   *  with nothing relevant to do. Embeds and Dock Cards are always "note"-shaped
+   *  content, so those two clauses are unconditional. */
+  const editingSelectedPageCard = currentPage?.pageCards.find(
+    (pc) => selectedPageCardIds.has(pc.id) && editingPageCardIds.has(pc.id),
+  );
+  const isEditingActive =
+    (!!selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) ||
+    (editingSelectedPageCard ? getCardTypeId(editingSelectedPageCard.card) === "note" : false) ||
+    selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
+
   // Selection Lock (Step 6 spec §4.3): Page navigation arrows are disabled the whole
   // time one or more Cards are selected — the user has to deselect first. Move Mode
   // is deliberately exempt: it carries the selection forward (handleEnterMoveMode),
@@ -694,8 +756,13 @@ export function App() {
   /** Saves every selected Card that has something pending to the vault — a no-op for
    *  any that don't (Step 6 spec §4.2's batched Save). */
   async function handleSaveSelected() {
+    // Same title-required filter as Dock.tsx's own hasUnsavedDraft — a still-untitled
+    // Card just isn't eligible to save yet, rather than erroring against
+    // pageCardService.saveToVault's guard.
     const toSave = selectedPageCards.filter(
-      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
+      (pc) =>
+        (pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault) &&
+        (pc.draftTitle ?? pc.card.title).trim() !== "",
     );
     if (toSave.length === 0) return;
     await Promise.all(toSave.map((pc) => api.savePageCardToVault(pc.id)));
@@ -706,17 +773,23 @@ export function App() {
     await refresh();
   }
 
-  /** "Remove" (Dock.tsx's onRemoveSelected) — takes every selected Card off the Page
-   *  only, same safe promote-if-unsaved-then-detach rule as pageCardService's
-   *  removeFromPage; the vault Card itself is untouched. Dock.tsx only ever shows
-   *  this for a non-Stack selection — see closeStack below for the Stack-as-a-whole
-   *  equivalent. */
-  async function handleRemoveSelected() {
+  /** The Dock's "Hide"/"Show" action (selectedCards row, Dock.tsx) — flips
+   *  metadata.hidden on every selected Card at once via cardStore.editCard, same
+   *  "writes straight through, no draft" pattern the "action"/"prompt" CardTypes'
+   *  own calibration UI already uses (works on a Card regardless of savedToVault
+   *  state). Deselects afterward only when hiding (not showing) *and* the reveal
+   *  toggle is off — otherwise the Card vanishes from the Page immediately while
+   *  still technically "selected", which would leave the Dock showing actions for
+   *  something no longer visible. */
+  function handleToggleHiddenSelected() {
     if (selectedPageCards.length === 0) return;
-    const pageCardIds = selectedPageCards.map((pc) => pc.id);
-    deselectAll();
-    await Promise.all(pageCardIds.map((id) => api.removePageCardFromPage(id)));
-    await refresh();
+    const nextHidden = !selectedPageCards.every((pc) => pc.card.metadata.hidden);
+    for (const pc of selectedPageCards) {
+      editCard(pc.card.id, { metadata: { ...pc.card.metadata, hidden: nextHidden } });
+    }
+    if (nextHidden && !revealHidden) {
+      deselectAll();
+    }
   }
 
   /** Move's own "drop onto the Dock" destination for Page Cards (Dock.tsx's
@@ -759,6 +832,11 @@ export function App() {
   function handleEnterMoveMode() {
     if (selectedPageCardIds.size === 0) return;
     setMovingPageCardIds(new Set(selectedPageCardIds));
+    // Selection carries forward (movingPageCardIds above), but editing doesn't —
+    // without this, a Card whose type doesn't swap the Dock to the formatting
+    // toolbar while editing (e.g. "action", see isEditingActive) could reach Move
+    // mode while still rendering its own inline Editor underneath the drop zones.
+    setEditingPageCardIds(new Set());
   }
 
   function handleCancelMove() {
@@ -858,7 +936,7 @@ export function App() {
    *  if the field was empty. */
   async function handleAddCardToCurrentPage(content: string) {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, t("common.untitled"), content);
+    await createCardInPage(currentPage.id, "", content);
   }
 
   async function handleUploadFileToCurrentPage(file: File) {
@@ -878,39 +956,174 @@ export function App() {
     await refresh();
   }
 
-  /** "Delete Stack" (Dock.tsx's onDeleteStack) — removes the whole selected Stack and
-   *  every member's own vault Card (stackService.deleteStack), then deselects. Only
-   *  ever wired up while a single Stack Card is selected (Dock.tsx's
-   *  isStackSelected gates whether the button even renders). */
-  async function handleDeleteStack() {
-    if (selectedPageCards.length !== 1) return;
-    const stackCardId = selectedPageCards[0].card.id;
-    deselectAll();
-    await api.deleteStack(stackCardId);
+  /** The Feed Input Button's type-picker "Action" option — same "select this type
+   *  = create it right away" shape as handleAddStackToCurrentPage above, just via
+   *  plain addNewCardToPage (createCardInPage) with a metadata override rather
+   *  than a dedicated creation endpoint, since there's no extra row (like a
+   *  Stack's first StackMember) to seed. */
+  async function handleAddActionToCurrentPage() {
+    if (!currentPage) return;
+    await createCardInPage(currentPage.id, "", "", {
+      version: 1,
+      typeId: "action",
+      action: { label: "", jobId: null, jobParams: {} },
+    });
+  }
+
+  /** The Feed Input Button's type-picker "Prompt" option — see
+   *  handleAddActionToCurrentPage above for the same reasoning. */
+  async function handleAddPromptToCurrentPage() {
+    if (!currentPage) return;
+    await createCardInPage(currentPage.id, "", "", {
+      version: 1,
+      typeId: "prompt",
+      prompt: { input: "", output: null },
+    });
+  }
+
+  /** "Opening" an App (Apps feature spec §5) — instantiates a fresh copy server-side,
+   *  then navigates straight to it. Reused by both an "action" Card's "openApp" job
+   *  (handleRunActionJob below) and the App browser's own Open button. A scope "tab"
+   *  App creates a brand-new Tab that `tabs` doesn't know about yet, so it needs an
+   *  explicit refresh; a scope "page" App lands in the current Tab, so `refresh()`
+   *  (usePages, already scoped to currentTabId) is what picks up its new Page — doing
+   *  both unconditionally is simplest and the redundant one is harmless. */
+  async function handleOpenApp(appId: string) {
+    const result = await api.openApp(appId, currentTabId ? { tabId: currentTabId } : {});
+    if (result.scope === "tab") {
+      await tabs.refresh();
+    }
+    setCurrentTabId(result.tabId);
+    setCurrentPageId(result.pageId);
     await refresh();
   }
 
-  /** "Close Stack" (Dock.tsx's onCloseStack) — the Stack-as-a-whole counterpart to
-   *  handleRemoveSelected above: takes the whole Stack off the Page, promoting any
-   *  still-unsaved member to the vault first (stackService.closeStack), rather than
-   *  handleDeleteStack's deliberately destructive sweep. */
-  async function handleCloseStack() {
-    if (selectedPageCards.length !== 1) return;
-    const stackCardId = selectedPageCards[0].card.id;
-    deselectAll();
-    await api.closeStack(stackCardId);
-    await refresh();
+  /** An inline actionButton node's click (ActionButtonNodeView.tsx) — dispatches to
+   *  whichever of the small, fixed set of jobs (lib/actionJobs.ts) it's configured
+   *  for. */
+  function handleRunActionJob(
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) {
+    runActionJob(pageCard, jobId, jobParams, {
+      onCreateCard: (pc, title, content) => {
+        void createCardInPage(pc.pageId, title, content);
+      },
+      onOpenApp: (appId) => {
+        void handleOpenApp(appId);
+      },
+      // Anchored at the Action Card's own PageCard — same "insert directly below,
+      // context is everything above" placement every other card-level generation
+      // uses (generationService.ts's GenerationTarget), just triggered by this
+      // button instead of the Dock's Generate action. Auto-saves on completion,
+      // same as every other generation in the app today (useGeneration.ts).
+      onPromptCard: (pc, instructions, contextMode) => {
+        generation.start(pc.id, instructions, contextMode === "own");
+      },
+      onNewBlankPage: () => {
+        void handleAddPageAtBottom();
+      },
+      onNewBlankTab: () => {
+        void handleAddBlankTab();
+      },
+      onNavigatePage: (direction) => {
+        if (direction === "up") navigateUp();
+        else navigateDown();
+      },
+      onRemoveCard: (targetPageCardId) => {
+        api.removePageCardFromPage(targetPageCardId).then(refresh).catch(() => {});
+      },
+      onSaveCard: (targetPageCardId) => {
+        api.savePageCardToVault(targetPageCardId).then(() => refresh()).catch(() => {});
+      },
+    });
   }
 
-  /** "Make a Stack" (Dock.tsx's onConvertToStack) — turns the single selected Card
-   *  into a Stack containing it (stackService.convertCardToStack), same position in
-   *  the Page. Deselects first since the old selection's id is about to point at a
-   *  different Card (the new Stack container) entirely. */
-  async function handleConvertToStack() {
-    if (selectedPageCards.length !== 1) return;
-    const pageCardId = selectedPageCards[0].id;
-    deselectAll();
-    await api.convertCardToStack(pageCardId);
+  /** The "newBlankTab" Action Card job — unlike the Tabs panel's own "+"
+   *  (tabs.createTab, which stays put), this job's whole point is "go there": a
+   *  brand-new Tab with one blank Page, navigated to immediately. Built directly
+   *  from the API client rather than usePages' addPage, since that hook is bound to
+   *  whatever currentTabId already was — not the brand-new one this just created. */
+  async function handleAddBlankTab() {
+    const tab = await api.createTab();
+    const page = await api.createPage(tab.id);
+    await tabs.refresh();
+    setCurrentTabId(tab.id);
+    setCurrentPageId(page.id);
+  }
+
+  /** The Tabs panel's "Save as App" (Apps feature spec §5), scope "tab". While
+   *  editingAppId is set, this updates that same App in place instead of opening the
+   *  name/description modal — there's nothing new to ask for on a re-save. */
+  async function handleSaveAsAppFromTab() {
+    if (!currentTabId) return;
+    if (editingAppId) {
+      await api.updateAppSnapshot(editingAppId, { tabId: currentTabId });
+      return;
+    }
+    setSaveAsAppRequest({ tabId: currentTabId });
+  }
+
+  /** The Pages panel's "Save as App", scope "page" — same editingAppId short-circuit
+   *  as handleSaveAsAppFromTab above. */
+  async function handleSaveAsAppFromPage() {
+    if (!currentPage) return;
+    if (editingAppId) {
+      await api.updateAppSnapshot(editingAppId, { pageId: currentPage.id });
+      return;
+    }
+    setSaveAsAppRequest({ pageId: currentPage.id });
+  }
+
+  /** SaveAsAppModal's submit — only ever reached for a brand-new App (see the
+   *  editingAppId short-circuits above), so this always creates. */
+  async function handleSubmitSaveAsApp(name: string, description: string) {
+    if (!saveAsAppRequest) return;
+    await api.createApp({ name, description: description || null, ...saveAsAppRequest });
+    setSaveAsAppRequest(null);
+  }
+
+  /** The App browser's Open action — also reachable from an "action" Card's
+   *  "openApp" job (handleRunActionJob above), both via handleOpenApp. */
+  function handleOpenAppFromBrowser(app: WattleApp) {
+    setAppBrowserOpen(false);
+    void handleOpenApp(app.id);
+  }
+
+  /** The App browser's Edit action — opens a live copy exactly like Open does, but
+   *  also sets editingAppId/Name so a later "Save as App" updates this App instead
+   *  of creating a new one (Apps feature spec §5). Never offered for isCore Apps
+   *  (AppBrowser.tsx hides the button; appService.ts rejects it server-side too). */
+  function handleEditAppFromBrowser(app: WattleApp) {
+    setAppBrowserOpen(false);
+    setEditingAppId(app.id);
+    setEditingAppName(app.name);
+    void handleOpenApp(app.id);
+  }
+
+  function handleStopEditingApp() {
+    setEditingAppId(null);
+    setEditingAppName(null);
+  }
+
+  /** The per-Card "X" header button (Card.tsx/StackBody.tsx/FileView.tsx) — the
+   *  direct-from-the-Card equivalent of the Dock's old "Remove"/"Close Stack"
+   *  actions, now removed from the Dock in favor of this. Same two rules those had:
+   *  a Stack Card closes as a whole (stackService.closeStack, promoting any
+   *  unsaved member to the vault first) since "remove" doesn't mean anything at the
+   *  per-alternate level; anything else just detaches from the Page, vault Card
+   *  untouched (pageCardService.removeFromPage). */
+  async function handleRequestRemovePageCard(pageCardId: string) {
+    const pageCard = currentPage?.pageCards.find((pc) => pc.id === pageCardId);
+    if (!pageCard) return;
+    if (selectedPageCardIds.has(pageCardId)) deselectAll();
+    if (focusedPageCardId === pageCardId) setFocusedPageCardId(null);
+    if (getCardTypeId(pageCard.card) === "stack") {
+      await api.closeStack(pageCard.card.id);
+    } else {
+      await api.removePageCardFromPage(pageCardId);
+    }
     await refresh();
   }
 
@@ -961,8 +1174,64 @@ export function App() {
 
   const pagesAboveCount = currentPageIndex === -1 ? 0 : currentPageIndex;
 
+  // Mutually exclusive with the normal Page view below — takes over the same flex
+  // slot in .app (Dock stays put underneath either one) rather than overlaying on
+  // top of it, so there's no z-index/stacking to manage.
+  const focusedOverlay = focusedPage && (
+    <div className="fullscreen-card">
+      <button
+        type="button"
+        className="fullscreen-card__back"
+        aria-label={t("dock.action.back")}
+        title={t("dock.action.back")}
+        onClick={() => setFocusedPageCardId(null)}
+      >
+        <Icon name="back" />
+      </button>
+      <div className="fullscreen-card__body">
+        <PageStack
+          currentPage={focusedPage}
+          direction={null}
+          revealHidden={revealHidden}
+          selectedPageCardIds={selectedPageCardIds}
+          editingPageCardIds={editingPageCardIds}
+          onTogglePageCard={toggleSelectPageCard}
+          onCloseEditor={exitEditPageCard}
+          onRequestEditPageCard={requestEditPageCard}
+          onChangeDraft={handleChangeDraft}
+          selectedEmbedId={selectedEmbed?.cardId ?? null}
+          onSelectEmbed={selectEmbed}
+          onRequestEditEmbed={requestEditEmbed}
+          editingEmbedIds={editingEmbedIds}
+          onToggleEmbedEdit={toggleEditEmbed}
+          onRunProcess={handleRunProcess}
+          onCreateManualHighlight={handleCreateManualHighlight}
+          onAcceptDiff={handleAcceptDiff}
+          onRemoveAnnotation={handleRemoveAnnotation}
+          onUpdateAnnotationText={handleUpdateAnnotationText}
+          onRunActionJob={handleRunActionJob}
+          generatingPageCardId={
+            generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
+          }
+          onOpenFullscreen={setFocusedPageCardId}
+          onTurnIntoStack={handleTurnIntoStackWithNewCard}
+          onRequestRemove={handleRequestRemovePageCard}
+          movingPageCardIds={EMPTY_ID_SET}
+          onDropAt={NOOP_INDEX}
+          dockCardMoving={false}
+          onDropDockCardAt={NOOP_INDEX}
+          embedMoving={false}
+          onDropEmbedAt={NOOP_INDEX}
+          ghostCard={null}
+          feedInput={null}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="app">
+      {focusedOverlay ?? (
       <div
         className="page-viewport"
         onPointerDown={handleSwipeAreaPointerDown}
@@ -974,6 +1243,7 @@ export function App() {
           <PageStack
             currentPage={currentPage}
             direction={navDirection}
+            revealHidden={revealHidden}
             selectedPageCardIds={selectedPageCardIds}
             editingPageCardIds={editingPageCardIds}
             onTogglePageCard={toggleSelectPageCard}
@@ -990,6 +1260,13 @@ export function App() {
             onAcceptDiff={handleAcceptDiff}
             onRemoveAnnotation={handleRemoveAnnotation}
             onUpdateAnnotationText={handleUpdateAnnotationText}
+            onRunActionJob={handleRunActionJob}
+            generatingPageCardId={
+              generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
+            }
+            onOpenFullscreen={setFocusedPageCardId}
+            onTurnIntoStack={handleTurnIntoStackWithNewCard}
+            onRequestRemove={handleRequestRemovePageCard}
             movingPageCardIds={movingPageCardIds}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
             dockCardMoving={movingDockCardIds.size > 0}
@@ -1016,12 +1293,16 @@ export function App() {
                     onOpenVault: () => setOpenPanel("vault"),
                     onUploadFile: handleUploadFileToCurrentPage,
                     onAddStack: handleAddStackToCurrentPage,
+                    onAddAction: handleAddActionToCurrentPage,
+                    onAddPrompt: handleAddPromptToCurrentPage,
+                    onNewFromApp: () => setAppBrowserOpen(true),
                   }
                 : null
             }
           />
         </main>
       </div>
+      )}
 
       <Dock
         selectedCards={selectedPageCards}
@@ -1037,10 +1318,7 @@ export function App() {
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onSaveSelected={handleSaveSelected}
-        onDeleteStack={handleDeleteStack}
-        onCloseStack={handleCloseStack}
-        onConvertToStack={handleConvertToStack}
-        onRemoveSelected={handleRemoveSelected}
+        onToggleHiddenSelected={handleToggleHiddenSelected}
         generating={generation.isStreaming}
         onStopGeneration={generation.stop}
         onGenerateSelected={handleGenerateSelected}
@@ -1084,6 +1362,8 @@ export function App() {
         openPanel={openPanel}
         onOpenPanel={setOpenPanel}
         onClosePanel={() => setOpenPanel(null)}
+        revealHidden={revealHidden}
+        onToggleRevealHidden={() => setRevealHidden((r) => !r)}
         vaultSearchResults={vault.cards}
         vaultQuery={vault.query}
         onVaultQueryChange={vault.setQuery}
@@ -1131,7 +1411,21 @@ export function App() {
         currentTabIndex={currentTabIndex}
         onSelectTab={switchToTabIndex}
         onCreateTab={() => tabs.createTab()}
+        onSaveAsAppFromTab={handleSaveAsAppFromTab}
+        onSaveAsAppFromPage={handleSaveAsAppFromPage}
+        editingAppName={editingAppName}
+        onStopEditingApp={handleStopEditingApp}
       />
+      {saveAsAppRequest && (
+        <SaveAsAppModal onSubmit={handleSubmitSaveAsApp} onClose={() => setSaveAsAppRequest(null)} />
+      )}
+      {appBrowserOpen && (
+        <AppBrowser
+          onOpen={handleOpenAppFromBrowser}
+          onEdit={handleEditAppFromBrowser}
+          onClose={() => setAppBrowserOpen(false)}
+        />
+      )}
     </div>
   );
 }

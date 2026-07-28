@@ -9,10 +9,16 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@tiptap/core": "^3.28.0",
-    "@tiptap/html": "^3.28.0",
-    "@tiptap/pm": "^3.28.0",
-    "@tiptap/starter-kit": "^3.28.0",
+    "@tiptap/core": "3.29.1",
+    "@tiptap/extension-code-block-lowlight": "3.29.1",
+    "@tiptap/extension-image": "3.29.1",
+    "@tiptap/extension-list": "3.29.1",
+    "@tiptap/extension-table": "3.29.1",
+    "@tiptap/html": "3.29.1",
+    "@tiptap/pm": "3.29.1",
+    "@tiptap/starter-kit": "3.29.1",
+    "highlight.js": "^11.10.0",
+    "lowlight": "^3.3.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

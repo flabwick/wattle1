@@ -31,6 +31,17 @@ interface FeedInputButtonProps {
    *  onAddCard. Optional/no-op when absent (the Dock Card panel's own creation flow,
    *  showGenerate false, has no Page for a Stack to belong to). */
   onAddStack?: () => void;
+  /** Creates a new "action"-typed Card (registries/definitions/actionCardType.ts)
+   *  — the type picker's "Action" option, same "wired straight to a creator
+   *  instead of the stub highlight-only behavior" shape as onAddStack. */
+  onAddAction?: () => void;
+  /** Creates a new "prompt"-typed Card (registries/definitions/promptCardType.ts)
+   *  — same shape as onAddAction above. */
+  onAddPrompt?: () => void;
+  /** "New from App…" (Apps feature spec §5) — opens the App browser, alongside this
+   *  same popup's existing "add blank card"-adjacent options (Open from Vault,
+   *  Upload File). Optional/no-op when absent, same convention as onAddStack. */
+  onNewFromApp?: () => void;
   /** False inside the Dock Card panel's own creation flow (Step 6 spec §3.3): Dock
    *  Cards have no Page/Tab to draw generation context from, so there's no Circle —
    *  Add is the only way a Card actually gets created either way. */
@@ -58,10 +69,13 @@ interface FeedInputButtonProps {
  * the rest — Open from Vault, Upload File, and the card-type picker — rather than a
  * row of buttons competing with Add for the same line.
  *
- * The type picker is a stub (spec §6 "Out of scope": card types beyond the existing
- * three aren't populated yet) — selecting one only changes this component's own local
- * highlight, since neither addNewCardToPage nor generation currently accept a forced
- * type override.
+ * The type picker is mostly still a stub (spec §6 "Out of scope": most card types
+ * beyond the existing three aren't wired up yet) — selecting most of them only
+ * changes this component's own local highlight and does nothing further, since
+ * generation doesn't accept a forced type override. "Stack"/"Action"/"Prompt" are
+ * the exceptions: each is wired straight to its own creator (onAddStack/
+ * onAddAction/onAddPrompt) instead, since addNewCardToPage *does* accept a
+ * metadata override — those three just don't need generation to honor one too.
  */
 export function FeedInputButton({
   generating,
@@ -71,6 +85,9 @@ export function FeedInputButton({
   onOpenVault,
   onUploadFile,
   onAddStack,
+  onAddAction,
+  onAddPrompt,
+  onNewFromApp,
   showGenerate = true,
   showMoreOptions = true,
   placeholder,
@@ -196,6 +213,19 @@ export function FeedInputButton({
                 >
                   <Icon name="upload" />
                 </button>
+                {onNewFromApp && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onNewFromApp();
+                      collapse();
+                    }}
+                    aria-label={t("feedInput.newFromApp")}
+                    title={t("feedInput.newFromApp")}
+                  >
+                    <Icon name="apps" />
+                  </button>
+                )}
                 <div className="feed-input__type-wrap">
                   <button
                     type="button"
@@ -215,6 +245,16 @@ export function FeedInputButton({
                           onClick={() => {
                             if (def.id === "stack" && onAddStack) {
                               onAddStack();
+                              collapse();
+                              return;
+                            }
+                            if (def.id === "action" && onAddAction) {
+                              onAddAction();
+                              collapse();
+                              return;
+                            }
+                            if (def.id === "prompt" && onAddPrompt) {
+                              onAddPrompt();
                               collapse();
                               return;
                             }

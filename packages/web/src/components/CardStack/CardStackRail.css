@@ -1,8 +1,7 @@
 /* T2: a small control cluster, not a bar of its own — StackBody.tsx renders this as
    a sibling of .card__header-start inside the Card's existing .card__header row, so
    .card__header's own space-between tucks it flush into the top-right corner
-   without touching the title's layout at all (same slot Card.css's
-   .card__link-btn-wrap occupies for a plain note Card). */
+   without touching the title's layout at all. */
 .card-stack-rail {
   display: flex;
   align-items: center;

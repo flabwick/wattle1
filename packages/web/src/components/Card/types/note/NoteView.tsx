@@ -37,7 +37,7 @@ export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
               className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
             />
           </button>
-          <span className="card__title">{title || t("common.untitled")}</span>
+          {title && <span className="card__title">{title}</span>}
         </div>
       </div>
       {!collapsed && (

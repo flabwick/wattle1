@@ -14,6 +14,12 @@ interface PageCardSlotProps {
   pageCard: PageCardWithCard;
   selected: boolean;
   editing: boolean;
+  /** The Dock's "reveal hidden cards" toggle (App.tsx state) — a hidden Card
+   *  (card.metadata.hidden) renders nothing at all otherwise. Move Mode's drop-zone/
+   *  index math (toDestIndex below) is untouched either way: this only decides
+   *  whether *this* slot's content renders, not whether the slot itself exists in
+   *  the list PageStack maps over. */
+  revealHidden: boolean;
   onSelect: () => void;
   onCloseEditor: () => void;
   onRequestEdit: () => void;
@@ -35,6 +41,36 @@ interface PageCardSlotProps {
   onAcceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => void;
   onRemoveAnnotation: (cardId: string, annotationId: string) => void;
   onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
+  /** Powers any inline actionButton/actionField nodes in this Card's own rich
+   *  content (rich-text follow-up to the Apps feature) — only the "note" branch
+   *  below (CardView/Card.tsx) forwards these; the generic cardTypeUiRegistry path
+   *  has no CardType left that uses them (the whole-card "action" CardType this was
+   *  built for is gone — inline nodes replaced it entirely). */
+  onRunActionJob: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => void;
+  generatingPageCardId: string | null;
+  /** Every PageCard on this same Page — removeCard/saveCard's "pick a card on this
+   *  page" selector (an inline actionButton's ActionButtonConfigPopover.tsx). */
+  pageSiblings: PageCardWithCard[];
+  /** Every Card's top-right "expand" corner button — opens it full-screen (App.tsx's
+   *  focusedPageCardId). Forwarded to both the "note" branch (CardView) and the
+   *  generic cardTypeUiRegistry path (currently only "stack" uses it). */
+  onOpenFullscreen: (pageCardId: string) => void;
+  /** The "note" branch's top-right "+" corner button — turns this Card into a Stack
+   *  and adds a second alternate in one step (App.tsx's
+   *  handleTurnIntoStackWithNewCard). Not part of the generic CardTypeUi props: a
+   *  Stack Card's own "+" (StackBody.tsx) just adds another alternate directly,
+   *  no App.tsx round trip needed. */
+  onTurnIntoStack: (pageCardId: string) => void;
+  /** Every Card's top-right "X" corner button (App.tsx's
+   *  handleRequestRemovePageCard) — closes/removes this Card from the Page (a Stack
+   *  closes as a whole; anything else just detaches). Forwarded the same way as
+   *  onOpenFullscreen: to both the "note" branch and the generic cardTypeUiRegistry
+   *  path. */
+  onRequestRemove: (pageCardId: string) => void;
 }
 
 /**
@@ -49,6 +85,7 @@ function PageCardSlot({
   pageCard,
   selected,
   editing,
+  revealHidden,
   onSelect,
   onCloseEditor,
   onRequestEdit,
@@ -63,9 +100,26 @@ function PageCardSlot({
   onAcceptDiff,
   onRemoveAnnotation,
   onUpdateAnnotationText,
+  onRunActionJob,
+  generatingPageCardId,
+  pageSiblings,
+  onOpenFullscreen,
+  onTurnIntoStack,
+  onRequestRemove,
 }: PageCardSlotProps) {
+  // Excluded from normal Page rendering (Apps feature spec §2) — everything else
+  // about this slot (Move Mode's drop zones, index math) stays exactly as if this
+  // Card were rendering normally; only its own content disappears.
+  if (pageCard.card.metadata.hidden && !revealHidden) {
+    return null;
+  }
   const typeId = getCardTypeId(pageCard.card);
-  if (typeId === "note") {
+  // A Card's title/content columns are always valid regardless of typeId, so
+  // falling through to the plain "note" render is always safe — this is what
+  // keeps a stale/unrecognized typeId (e.g. a leftover value from a CardType
+  // that's since been removed) from crashing the entire Page instead of just
+  // showing that one Card oddly.
+  if (typeId === "note" || !cardTypeUiRegistry.has(typeId)) {
     return (
       <CardView
         pageCard={pageCard}
@@ -85,15 +139,40 @@ function PageCardSlot({
         onAcceptDiff={onAcceptDiff}
         onRemoveAnnotation={onRemoveAnnotation}
         onUpdateAnnotationText={onUpdateAnnotationText}
+        onRunActionJob={onRunActionJob}
+        generatingPageCardId={generatingPageCardId}
+        pageSiblings={pageSiblings}
+        onOpenFullscreen={() => onOpenFullscreen(pageCard.id)}
+        onTurnIntoStack={() => onTurnIntoStack(pageCard.id)}
+        onRequestRemove={() => onRequestRemove(pageCard.id)}
       />
     );
   }
   const ui = cardTypeUiRegistry.get(typeId);
   if (editing) {
-    return <ui.Editor pageCard={pageCard} onChangeDraft={onChangeDraft} />;
+    return (
+      <ui.Editor
+        pageCard={pageCard}
+        onChangeDraft={onChangeDraft}
+        onOpenFullscreen={onOpenFullscreen}
+        onRequestRemove={onRequestRemove}
+        onRunActionJob={onRunActionJob}
+        generatingPageCardId={generatingPageCardId}
+        pageSiblings={pageSiblings}
+      />
+    );
   }
   return (
-    <ui.View pageCard={pageCard} selected={selected} onSelect={onSelect} onRequestEdit={onRequestEdit} />
+    <ui.View
+      pageCard={pageCard}
+      selected={selected}
+      onSelect={onSelect}
+      onRequestEdit={onRequestEdit}
+      onOpenFullscreen={onOpenFullscreen}
+      onRequestRemove={onRequestRemove}
+      onRunActionJob={onRunActionJob}
+      generatingPageCardId={generatingPageCardId}
+    />
   );
 }
 
@@ -106,6 +185,9 @@ interface PageStackProps {
   /** Which way the last navigation moved (App.tsx's navDirection) — drives the slide
    *  animation below. Null on first load, so there's no animation on initial mount. */
   direction: "up" | "down" | null;
+  /** The Dock's "reveal hidden cards" toggle (App.tsx state) — see
+   *  PageCardSlotProps.revealHidden above. */
+  revealHidden: boolean;
   /** Only one Card selected at a time — tapping a Card replaces whatever was
    *  selected with it (App.tsx's toggleSelectPageCard). */
   selectedPageCardIds: ReadonlySet<string>;
@@ -140,6 +222,17 @@ interface PageStackProps {
   onAcceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => void;
   onRemoveAnnotation: (cardId: string, annotationId: string) => void;
   onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
+  /** See PageCardSlotProps.onRunActionJob/generatingPageCardId above. */
+  onRunActionJob: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => void;
+  generatingPageCardId: string | null;
+  /** See PageCardSlotProps.onOpenFullscreen/onTurnIntoStack/onRequestRemove above. */
+  onOpenFullscreen: (pageCardId: string) => void;
+  onTurnIntoStack: (pageCardId: string) => void;
+  onRequestRemove: (pageCardId: string) => void;
   /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
    *  transit as one batch (Step 6 spec §4.2's "Move" on a multi-selection), or empty
    *  when not moving. */
@@ -180,6 +273,9 @@ interface PageStackProps {
     onOpenVault: () => void;
     onUploadFile: (file: File) => void;
     onAddStack: () => void;
+    onAddAction: () => void;
+    onAddPrompt: () => void;
+    onNewFromApp: () => void;
   } | null;
 }
 
@@ -221,6 +317,7 @@ function DropZone({ onClick }: { onClick: () => void }) {
 export function PageStack({
   currentPage,
   direction,
+  revealHidden,
   selectedPageCardIds,
   editingPageCardIds,
   onTogglePageCard,
@@ -237,6 +334,11 @@ export function PageStack({
   onAcceptDiff,
   onRemoveAnnotation,
   onUpdateAnnotationText,
+  onRunActionJob,
+  generatingPageCardId,
+  onOpenFullscreen,
+  onTurnIntoStack,
+  onRequestRemove,
   movingPageCardIds,
   onDropAt,
   dockCardMoving,
@@ -288,6 +390,7 @@ export function PageStack({
                   pageCard={pageCard}
                   selected={selectedPageCardIds.has(pageCard.id)}
                   editing={editingPageCardIds.has(pageCard.id)}
+                  revealHidden={revealHidden}
                   onSelect={() => onTogglePageCard(pageCard.id)}
                   onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
@@ -302,6 +405,12 @@ export function PageStack({
                   onAcceptDiff={onAcceptDiff}
                   onRemoveAnnotation={onRemoveAnnotation}
                   onUpdateAnnotationText={onUpdateAnnotationText}
+                  onRunActionJob={onRunActionJob}
+                  generatingPageCardId={generatingPageCardId}
+                  pageSiblings={currentPage.pageCards}
+                  onOpenFullscreen={onOpenFullscreen}
+                  onTurnIntoStack={onTurnIntoStack}
+                  onRequestRemove={onRequestRemove}
                 />
                 {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}
               </div>
@@ -333,6 +442,9 @@ export function PageStack({
               onOpenVault={feedInput.onOpenVault}
               onUploadFile={feedInput.onUploadFile}
               onAddStack={feedInput.onAddStack}
+              onAddAction={feedInput.onAddAction}
+              onAddPrompt={feedInput.onAddPrompt}
+              onNewFromApp={feedInput.onNewFromApp}
             />
           )}
         </div>

@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { TouchEvent } from "react";
-import type { Card, PageCardWithCard } from "@wattle/shared";
+import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
-import { CardShell, Icon, InputField } from "../primitives/index.js";
+import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
-import type { CardRichTextHandle } from "./richtext/CardRichText.js";
-import { CardLinkPicker } from "./CardLinkPicker.js";
 import { useCard } from "../../hooks/useCard.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
@@ -60,6 +58,28 @@ interface CardProps {
   onAcceptDiff?: (cardId: string, annotationId: string, pageCardId?: string) => void;
   onRemoveAnnotation?: (cardId: string, annotationId: string) => void;
   onUpdateAnnotationText?: (cardId: string, annotationId: string, text: string) => void;
+  /** Powers any inline actionButton/actionField nodes in this Card's own rich
+   *  content (rich-text follow-up to the Apps feature) — see
+   *  CardRichText.tsx/CardEditingContext.tsx. Only ever passed at depth 0 (this
+   *  component only ever renders a top-level Card, never a nested embed), so an
+   *  action button here always has a real owning PageCard to act on. */
+  onRunActionJob?: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => void;
+  generatingPageCardId?: string | null;
+  pageSiblings?: PageCardWithCard[];
+  /** The header's "expand" corner button — opens this Card full-screen (App.tsx's
+   *  focusedPageCardId), independent of selection/editing state. */
+  onOpenFullscreen?: () => void;
+  /** The header's "+" corner button — turns this Card into a Stack and immediately
+   *  adds a second (blank) alternate to it, in one step (App.tsx's
+   *  handleTurnIntoStackWithNewCard). */
+  onTurnIntoStack?: () => void;
+  /** The header's "X" corner button — closes/removes this Card from the Page
+   *  (App.tsx's handleRequestRemovePageCard). */
+  onRequestRemove?: () => void;
 }
 
 /**
@@ -100,11 +120,16 @@ export function CardView({
   onAcceptDiff,
   onRemoveAnnotation,
   onUpdateAnnotationText,
+  onRunActionJob,
+  generatingPageCardId,
+  pageSiblings,
+  onOpenFullscreen,
+  onTurnIntoStack,
+  onRequestRemove,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
   const [collapsed, setCollapsed] = useState(false);
-  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
 
   const savedToVault = pageCard.card.savedToVault;
   // Once saved, `pageCard.card` (only as fresh as the last listPages fetch) stops
@@ -115,6 +140,9 @@ export function CardView({
   const canonicalCard = liveCard ?? pageCard.card;
   const title = savedToVault ? canonicalCard.title : pageCard.draftTitle ?? pageCard.card.title;
   const content = savedToVault ? canonicalCard.content : pageCard.draftContent ?? pageCard.card.content;
+  // Only relevant while the Dock's "reveal hidden cards" toggle is on — see
+  // PageStack.tsx's PageCardSlot, which doesn't render this Card at all otherwise.
+  const isHidden = Boolean(canonicalCard.metadata.hidden);
 
   function handleTitleChange(value: string) {
     if (savedToVault) {
@@ -151,14 +179,6 @@ export function CardView({
     : undefined;
 
   const editorRef = useRef<HTMLDivElement>(null);
-  const contentEditorRef = useRef<CardRichTextHandle>(null);
-
-  /** Inserts a cardEmbed node at whichever position was last focused — so linking a
-   *  Card from partway through a sentence lands where you were typing. */
-  function insertCardLink(card: Card) {
-    contentEditorRef.current?.insertEmbed(card.id);
-    setLinkPickerOpen(false);
-  }
 
   // Click-outside-to-close: only listens while editing, and only acts on presses
   // outside the editor itself (so clicking the title/content inputs, or the caret,
@@ -210,9 +230,63 @@ export function CardView({
     }
   }
 
+  const headerActions = (onOpenFullscreen || onTurnIntoStack || onRequestRemove) && (
+    <div className="card__header-actions">
+      {onTurnIntoStack && (
+        <Button
+          iconOnly
+          aria-label={t("card.addCard")}
+          title={t("card.addCard")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTurnIntoStack();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <Icon name="plus" />
+        </Button>
+      )}
+      {onOpenFullscreen && (
+        <Button
+          iconOnly
+          aria-label={t("card.openFullscreen")}
+          title={t("card.openFullscreen")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenFullscreen();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <Icon name="expand" />
+        </Button>
+      )}
+      {onRequestRemove && (
+        <Button
+          iconOnly
+          aria-label={t("card.remove")}
+          title={t("card.remove")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestRemove();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <Icon name="close" />
+        </Button>
+      )}
+    </div>
+  );
+
   if (editing) {
     return (
-      <div ref={editorRef} className="card-shell card-shell--editing card-shell--selected">
+      <div
+        ref={editorRef}
+        className={`card-shell card-shell--editing card-shell--selected${isHidden ? " card-shell--hidden" : ""}`}
+      >
+
         <div className="card__header">
           <div className="card__header-start">
             {/* Same slot the caret occupies in the static view, so the title lines
@@ -229,23 +303,9 @@ export function CardView({
               onChange={(e) => handleTitleChange(e.target.value)}
             />
           </div>
-          <div className="card__link-btn-wrap">
-            <button
-              type="button"
-              className="card__link-btn"
-              aria-label={t("card.insertLink")}
-              title={t("card.insertLink")}
-              onClick={() => setLinkPickerOpen((open) => !open)}
-            >
-              <Icon name="link" />
-            </button>
-            {linkPickerOpen && (
-              <CardLinkPicker onSelect={insertCardLink} onClose={() => setLinkPickerOpen(false)} />
-            )}
-          </div>
+          {headerActions}
         </div>
         <CardRichText
-          ref={contentEditorRef}
           content={content}
           onChangeContent={handleContentChange}
           editable
@@ -253,6 +313,10 @@ export function CardView({
           annotations={canonicalCard.metadata.annotations}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
+          ownerPageCard={pageCard}
+          onRunActionJob={onRunActionJob}
+          generatingPageCardId={generatingPageCardId}
+          pageSiblings={pageSiblings}
           selectedEmbedId={selectedEmbedId}
           onSelectEmbed={onSelectEmbed}
           onRequestEditEmbed={onRequestEditEmbed}
@@ -271,6 +335,7 @@ export function CardView({
   return (
     <CardShell
       selected={selected}
+      className={isHidden ? "card-shell--hidden" : undefined}
       onClick={onSelect}
       onDoubleClick={onRequestEdit}
       onTouchStart={handleTouchStart}
@@ -297,8 +362,9 @@ export function CardView({
               className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
             />
           </button>
-          <span className="card__title">{title || t("common.untitled")}</span>
+          {title && <span className="card__title">{title}</span>}
         </div>
+        {headerActions}
       </div>
       {!collapsed && (
         <CardRichText
@@ -319,6 +385,10 @@ export function CardView({
           onAcceptDiff={wrappedOnAcceptDiff}
           onRemoveAnnotation={onRemoveAnnotation}
           onUpdateAnnotationText={onUpdateAnnotationText}
+          ownerPageCard={pageCard}
+          onRunActionJob={onRunActionJob}
+          generatingPageCardId={generatingPageCardId}
+          pageSiblings={pageSiblings}
         />
       )}
     </CardShell>

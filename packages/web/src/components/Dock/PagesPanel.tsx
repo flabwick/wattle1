@@ -7,6 +7,9 @@ interface PagesPanelProps {
   pages: PageWithCards[];
   currentIndex: number;
   onSelectPage: (index: number) => void;
+  /** "Save as App" (Apps feature spec §5) with scope "page" — saves whichever Page
+   *  is currently in view (this panel's own "focus"), not a specific row here. */
+  onSaveAsApp: () => void;
 }
 
 /**
@@ -17,9 +20,12 @@ interface PagesPanelProps {
  * "Page N of Total" convention as PageNav's own dot row, plus a preview of its first
  * Card's title so rows are actually distinguishable from one another.
  */
-export function PagesPanel({ pages, currentIndex, onSelectPage }: PagesPanelProps) {
+export function PagesPanel({ pages, currentIndex, onSelectPage, onSaveAsApp }: PagesPanelProps) {
   return (
     <div className="pages-panel">
+      <button type="button" className="pages-panel__save-as-app" onClick={onSaveAsApp}>
+        {t("apps.saveAsApp")}
+      </button>
       {pages.length === 0 && <p className="pages-panel__empty">{t("pageStack.empty")}</p>}
       {pages.map((page, i) => (
         <button

@@ -45,6 +45,13 @@ function instructionParam(req: { query: Record<string, unknown> }): string | und
   return typeof raw === "string" && raw.trim() ? raw : undefined;
 }
 
+/** A Prompt Card's "on its own" context mode (lib/actionJobs.ts) — same query-param
+ *  convention as instructionParam above, for the same EventSource-can't-carry-a-body
+ *  reason. */
+function standaloneParam(req: { query: Record<string, unknown> }): boolean {
+  return req.query.standalone === "1";
+}
+
 // GET /api/generate/stream/:pageCardId — the sole model invocation for a generation
 // triggered from a selected Card (there is no separate preview call and persist call
 // any more). Read-only: it does not create a PageCard or persist anything — the
@@ -53,7 +60,7 @@ function instructionParam(req: { query: Record<string, unknown> }): string | und
 generateRouter.get("/stream/:pageCardId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGeneration(req.params.pageCardId, instructionParam(req)),
+    generationService.streamGeneration(req.params.pageCardId, instructionParam(req), standaloneParam(req)),
   );
 });
 

@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { Card, DockCardWithCard, Folder, FolderContents, PageCardWithCard, PageWithCards, Tab } from "@wattle/shared";
+import type {
+  ActionFieldKind,
+  Card,
+  CalloutKind,
+  DockCardWithCard,
+  Folder,
+  FolderContents,
+  PageCardWithCard,
+  PageWithCards,
+  Tab,
+} from "@wattle/shared";
 import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
@@ -11,9 +21,15 @@ import { DockCardsPanel } from "./DockCardsPanel.js";
 import { PagesPanel } from "./PagesPanel.js";
 import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
+import { CardLinkPicker } from "../Card/CardLinkPicker.js";
+import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js";
+import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
+import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
+import { uploadRichTextImage } from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
+import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
@@ -88,28 +104,12 @@ interface DockProps {
   /** Saves every selected Card that has something pending — a no-op for any that
    *  don't (App.tsx batches the existing per-Card save-to-vault call). */
   onSaveSelected: () => void;
-  /** "Delete Stack" — only ever shown when the single selected Card is a "stack"
-   *  (isStackSelected below); removes the whole Stack and every member's own vault
-   *  Card, not just the container (stackService.deleteStack). Null is never actually
-   *  passed today, but kept optional-shaped like every other conditional Dock action
-   *  here for consistency. */
-  onDeleteStack: (() => void) | null;
-  /** "Close Stack" — the safe counterpart to onDeleteStack: takes the whole Stack off
-   *  the Page, promoting any still-unsaved member to the vault first
-   *  (stackService.closeStack), rather than deleting every member's vault Card too.
-   *  Same "single selected Stack" scoping as onDeleteStack. */
-  onCloseStack: (() => void) | null;
-  /** "Remove" — takes every selected Card off the Page only, vault Card untouched
-   *  (pageCardService.removeFromPage). Shown for any non-Stack selection — see
-   *  onCloseStack above for the Stack-as-a-whole equivalent, which needs its own
-   *  member-promoting logic a plain removeFromPage can't safely do. */
-  onRemoveSelected: (() => void) | null;
-  /** "Make a Stack" — turns the single selected Card into a Stack containing it
-   *  (stackService.convertCardToStack), shown whenever exactly one non-"stack" Card
-   *  is selected (converting a Stack into a Stack makes no sense — same "single
-   *  selection only" scoping isStackSelected below uses). Null is never actually
-   *  passed today, but kept optional-shaped like onDeleteStack for consistency. */
-  onConvertToStack: (() => void) | null;
+  /** Flips `metadata.hidden` on every selected Card at once (App.tsx's
+   *  handleToggleHiddenSelected) — hidden Cards are skipped during normal Page
+   *  rendering unless the Dock's own "reveal hidden cards" toggle (revealHidden
+   *  below) is on. Works uniformly across every CardType, so — unlike Save/Move —
+   *  it's never gated by operationId/supportsOperations. */
+  onToggleHiddenSelected: () => void;
   /** True from the moment a generation starts until it's fully saved — the Circle
    *  becomes a Stop action while this is true, same convention as the Feed Input
    *  Button's own Circle (FeedInputButton.tsx). */
@@ -240,12 +240,27 @@ interface DockProps {
   onNavigateUp: () => void;
   onNavigateDown: () => void;
   onAddPage: () => void;
+  /** The base row's "reveal hidden cards" toggle (Apps feature spec §2) — while on,
+   *  every hidden Card (Card.metadata.hidden) on the current Page renders inline
+   *  with a dashed border instead of being excluded. Purely a display preference,
+   *  independent of selection/Move Mode. */
+  revealHidden: boolean;
+  onToggleRevealHidden: () => void;
   /** The Tabs panel (Step 6 spec §3.4) — left-to-right order, same indexing as
    *  App.tsx's sortedTabs/swipe gesture. */
   tabs: Tab[];
   currentTabIndex: number;
   onSelectTab: (index: number) => void;
   onCreateTab: () => void;
+  /** "Save as App" (Apps feature spec §5) — scope "tab" from the Tabs panel, scope
+   *  "page" from the Pages panel (the closest existing analogues to "a Tab/Page has
+   *  focus", since neither is a real tracked concept elsewhere in the app). */
+  onSaveAsAppFromTab: () => void;
+  onSaveAsAppFromPage: () => void;
+  /** The App currently being edited (Apps feature spec §5's editingAppId), or null —
+   *  shown as a small badge while set; tapping it clears back to null. */
+  editingAppName: string | null;
+  onStopEditingApp: () => void;
 }
 
 interface DockAction {
@@ -330,10 +345,7 @@ export function Dock({
   annotationError,
   onDismissAnnotationError,
   onSaveSelected,
-  onDeleteStack,
-  onCloseStack,
-  onConvertToStack,
-  onRemoveSelected,
+  onToggleHiddenSelected,
   generating,
   onStopGeneration,
   onGenerateSelected,
@@ -386,10 +398,16 @@ export function Dock({
   onNavigateUp,
   onNavigateDown,
   onAddPage,
+  revealHidden,
+  onToggleRevealHidden,
   tabs,
   currentTabIndex,
   onSelectTab,
   onCreateTab,
+  onSaveAsAppFromTab,
+  onSaveAsAppFromPage,
+  editingAppName,
+  onStopEditingApp,
 }: DockProps) {
   const vaultOpen = openPanel === "vault";
   const dockCardsOpen = openPanel === "dockCards";
@@ -435,6 +453,28 @@ export function Dock({
   const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
+  /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
+   *  every rich-text insert action lives here now, not a Card's own header (see
+   *  Card.tsx/CardRichText.tsx). Same anchored-popover convention as
+   *  processPickerPos/processButtonRef above. */
+  const [linkPickerPos, setLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const linkButtonRef = useRef<HTMLDivElement>(null);
+  const [fieldKindPickerPos, setFieldKindPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const fieldButtonRef = useRef<HTMLDivElement>(null);
+  /** "Insert link" (a plain `<a href>` mark, distinct from "insert card link"'s
+   *  `[[cardId]]` embed above) — same anchored-popover convention as
+   *  linkPickerPos/linkButtonRef. */
+  const [linkUrlPickerPos, setLinkUrlPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const hyperlinkButtonRef = useRef<HTMLDivElement>(null);
+  /** "Insert callout" — same anchored-popover convention as fieldKindPickerPos
+   *  above, picking which of the five fixed kinds (richText/calloutNode.ts) to
+   *  insert. */
+  const [calloutPickerPos, setCalloutPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const calloutButtonRef = useRef<HTMLDivElement>(null);
+  /** "Insert image" — no popover of its own; the toolbar button just clicks this
+   *  hidden native file input, same trigger-a-hidden-input pattern
+   *  FeedInputButton.tsx's own upload action uses. */
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   // The formatting toolbar's target — whichever CardRichText instance was most
   // recently focused (activeEditorRegistry.ts), reactively re-read here since Dock is
@@ -454,9 +494,20 @@ export function Dock({
     selector: ({ editor }: { editor: Editor | null }) => ({
       bold: editor?.isActive("bold") ?? false,
       italic: editor?.isActive("italic") ?? false,
-      heading: editor?.isActive("heading", { level: 2 }) ?? false,
+      strike: editor?.isActive("strike") ?? false,
+      underline: editor?.isActive("underline") ?? false,
+      // 0 = no heading active (a plain paragraph) — drives formatHeading's cycle
+      // (paragraph -> H1 -> H2 -> … -> H6 -> paragraph) below.
+      headingLevel:
+        ([1, 2, 3, 4, 5, 6] as const).find((level) => editor?.isActive("heading", { level }) ?? false) ?? 0,
       bulletList: editor?.isActive("bulletList") ?? false,
       orderedList: editor?.isActive("orderedList") ?? false,
+      blockquote: editor?.isActive("blockquote") ?? false,
+      codeBlock: editor?.isActive("codeBlock") ?? false,
+      link: editor?.isActive("link") ?? false,
+      linkHref: (editor?.getAttributes("link").href as string | undefined) ?? "",
+      taskList: editor?.isActive("taskList") ?? false,
+      insideTable: editor?.isActive("table") ?? false,
     }),
   });
 
@@ -646,7 +697,10 @@ export function Dock({
           const { type, id } = vaultRenaming;
           setVaultRenaming(null);
           if (type === "folder") onRenameVaultFolder(id, title);
-          else onRenameVaultCard(id, title);
+          // A vault Card's title is required (cardService.updateCard rejects blank
+          // for an already-saved Card) — rather than surfacing that as an error,
+          // blank just reverts to whatever title it already had.
+          else if (title.trim() !== "") onRenameVaultCard(id, title);
         }}
         onCancelRename={() => setVaultRenaming(null)}
         moving={vaultMoving}
@@ -818,8 +872,13 @@ export function Dock({
     // content from creation/generation — see schema.prisma's Card.savedToVault doc
     // comment) — the Save action below batches over every selected Card that
     // matches, not just a single one.
+    // A title is required to actually save to the vault (pageCardService.saveToVault),
+    // so a draft with no title yet doesn't count as "ready to save" — it stays
+    // page-local scratch content until it's given one.
     const hasUnsavedDraft = selectedCards.some(
-      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
+      (pc) =>
+        (pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault) &&
+        (pc.draftTitle ?? pc.card.title).trim() !== "",
     );
     // Only show an action every selected Card's own CardType actually supports —
     // the intersection, not the union, since e.g. Save shouldn't appear at all if
@@ -827,19 +886,16 @@ export function Dock({
     const available = selectedCards
       .map((pc) => supportedOperationIds(getCardTypeId(pc.card)))
       .reduce((a, b) => new Set([...a].filter((id) => b.has(id))));
-    // A Stack Card's own two container-level actions (spec: "Delete Stack" and Move —
-    // Move is already unconditional below, same as for any other Card) — only
-    // meaningful for a single selected Stack, same "single selection only" scoping
-    // processActions/pendingDiffCount already use.
+    // Whether a Stack's own generation targets its active alternate instead of the
+    // page-level generate below — only meaningful for a single selected Stack, same
+    // "single selection only" scoping processActions/pendingDiffCount already use.
     const isStackSelected =
       selectedCards.length === 1 && getCardTypeId(selectedCards[0].card) === "stack";
-    // "Make a Stack" — the inverse scoping of isStackSelected: exactly one selected
-    // Card that isn't already one.
-    const isConvertibleToStack = selectedCards.length === 1 && !isStackSelected;
-    // "Remove" (plain, non-Stack Close) — any selection that isn't a single selected
-    // Stack; a Stack container needs its own member-promoting close (onCloseStack)
-    // rather than the plain removeFromPage a regular Card uses.
-    const isPlainSelection = !isStackSelected;
+    // Whether the Hide action should read "Show" instead — true only once every
+    // selected Card is already hidden, same "every, not some" bulk-toggle
+    // convention a "select all" checkbox uses; a mixed selection (some hidden,
+    // some not) defaults back to "Hide", which then hides the rest too.
+    const allSelectedHidden = selectedCards.every((pc) => pc.card.metadata.hidden);
     // "Generate", for a selected Stack, targets the Stack's own generation instance
     // (activeStackRegistry.ts) instead of App.tsx's page-level one: it appends a new
     // alternate and streams into *that*, rather than inserting a sibling PageCard the
@@ -886,43 +942,14 @@ export function Dock({
       // ^ Present only while there's something to commit — once saved, it just
       // disappears from the row entirely rather than sticking around as a
       // disabled checkmark.
-      {
-        key: "move",
-        operationId: null,
-        icon: "move" as const,
-        label: t("dock.action.move"),
-        onClick: onEnterMoveMode,
-      },
-      // No separate Move to Dock: dropping onto the Dock is now one of Move's own
-      // destinations — tap the Dock Cards toggle itself while moving (see
-      // dockCardsAction below).
-      ...(isPlainSelection && onRemoveSelected
-        ? [
-            {
-              key: "removeSelected",
-              operationId: null,
-              icon: "remove" as const,
-              label: t("dock.action.remove"),
-              onClick: onRemoveSelected,
-            },
-          ]
-        : []),
-      ...(isConvertibleToStack && onConvertToStack
-        ? [
-            {
-              key: "makeStack",
-              operationId: null,
-              icon: "stackAdd" as const,
-              label: t("dock.action.makeStack"),
-              onClick: onConvertToStack,
-            },
-          ]
-        : []),
-      // The selected Stack's active alternate — Save/Remove act on whichever member
+      // The selected Stack's active alternate — Save acts on whichever member
       // CardStackRail currently has in view (activeStackRegistry.ts), not the
       // container itself (which never has anything of its own to save — see
       // stackCardType.ts). Kept out of the generic `save` action above since that one
       // is gated on operationId "card.save", which a Stack container never supports.
+      // Same position in the row as the generic `save` above (before Move) — the two
+      // are mutually exclusive (a Stack container never matches hasUnsavedDraft), so
+      // this just fills the same "Save" slot for a Stack selection instead.
       ...(isStackSelected && activeStack?.hasUnsavedDraft
         ? [
             {
@@ -934,40 +961,25 @@ export function Dock({
             },
           ]
         : []),
-      ...(isStackSelected && activeStack
-        ? [
-            {
-              key: "removeStackAlternate",
-              operationId: null,
-              icon: "remove" as const,
-              label: t("cardStack.removeMember"),
-              onClick: activeStack.remove,
-            },
-          ]
-        : []),
-      ...(isStackSelected && onCloseStack
-        ? [
-            {
-              key: "closeStack",
-              operationId: null,
-              icon: "close" as const,
-              label: t("dock.action.closeStack"),
-              onClick: onCloseStack,
-            },
-          ]
-        : []),
-      ...(isStackSelected && onDeleteStack
-        ? [
-            {
-              key: "deleteStack",
-              operationId: null,
-              icon: "delete" as const,
-              label: t("dock.action.deleteStack"),
-              danger: true,
-              onClick: onDeleteStack,
-            },
-          ]
-        : []),
+      {
+        key: "move",
+        operationId: null,
+        icon: "move" as const,
+        label: t("dock.action.move"),
+        onClick: onEnterMoveMode,
+      },
+      {
+        key: "toggleHidden",
+        operationId: null,
+        icon: allSelectedHidden ? ("eye" as const) : ("eyeOff" as const),
+        label: allSelectedHidden ? t("dock.action.show") : t("dock.action.hide"),
+        onClick: onToggleHiddenSelected,
+      },
+      // No separate Move to Dock: dropping onto the Dock is now one of Move's own
+      // destinations — tap the Dock Cards toggle itself while moving (see
+      // dockCardsAction below). No "Remove"/"Make a Stack" actions here either —
+      // both now live directly on the Card itself (its header's "X"/"+" buttons,
+      // Card.tsx/StackBody.tsx/FileView.tsx) rather than the Dock.
       ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedDockCardIds.size > 0) {
@@ -1055,12 +1067,47 @@ export function Dock({
       disabled: !activeEditor,
     },
     {
+      key: "formatStrike",
+      operationId: null,
+      icon: "strikethrough" as const,
+      label: t("dock.action.strikethrough"),
+      onClick: () => activeEditor?.chain().focus().toggleStrike().run(),
+      active: formattingState?.strike ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatUnderline",
+      operationId: null,
+      icon: "underline" as const,
+      label: t("dock.action.underline"),
+      onClick: () => activeEditor?.chain().focus().toggleUnderline().run(),
+      active: formattingState?.underline ?? false,
+      disabled: !activeEditor,
+    },
+    {
       key: "formatHeading",
       operationId: null,
       icon: "heading" as const,
       label: t("dock.action.heading"),
-      onClick: () => activeEditor?.chain().focus().toggleHeading({ level: 2 }).run(),
-      active: formattingState?.heading ?? false,
+      // Cycles paragraph -> H1 -> H2 -> … -> H6 -> paragraph on repeated clicks,
+      // rather than a fixed single level — StarterKit's Heading already supports
+      // every level 1-6 (input rules "# " through "###### " already work today),
+      // this just gives the toolbar a way to reach them all with one button
+      // instead of a level picker.
+      onClick: () => {
+        if (!activeEditor) return;
+        const level = formattingState?.headingLevel ?? 0;
+        if (level >= 6) {
+          activeEditor.chain().focus().setParagraph().run();
+        } else {
+          activeEditor
+            .chain()
+            .focus()
+            .setHeading({ level: (level + 1) as 1 | 2 | 3 | 4 | 5 | 6 })
+            .run();
+        }
+      },
+      active: (formattingState?.headingLevel ?? 0) > 0,
       disabled: !activeEditor,
     },
     {
@@ -1079,6 +1126,162 @@ export function Dock({
       label: t("dock.action.orderedList"),
       onClick: () => activeEditor?.chain().focus().toggleOrderedList().run(),
       active: formattingState?.orderedList ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatTaskList",
+      operationId: null,
+      icon: "taskList" as const,
+      label: t("card.insertTaskList"),
+      onClick: () => activeEditor?.chain().focus().toggleTaskList().run(),
+      active: formattingState?.taskList ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatBlockquote",
+      operationId: null,
+      icon: "blockquote" as const,
+      label: t("dock.action.blockquote"),
+      onClick: () => activeEditor?.chain().focus().toggleBlockquote().run(),
+      active: formattingState?.blockquote ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatCodeBlock",
+      operationId: null,
+      icon: "codeBlock" as const,
+      label: t("dock.action.codeBlock"),
+      onClick: () => activeEditor?.chain().focus().toggleCodeBlock().run(),
+      active: formattingState?.codeBlock ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "formatHorizontalRule",
+      operationId: null,
+      icon: "horizontalRule" as const,
+      label: t("dock.action.horizontalRule"),
+      onClick: () => activeEditor?.chain().focus().setHorizontalRule().run(),
+      disabled: !activeEditor,
+    },
+    // "Insert link" (plain <a href>, distinct from "insert card link" below) opens
+    // its own anchored popover (LinkUrlPicker, rendered specially further down)
+    // pre-filled with the selection's existing href if the cursor already sits on
+    // a link — same "open a popover rather than fire directly" precedent
+    // insertCardLink/insertActionField already use.
+    {
+      key: "formatLink",
+      operationId: null,
+      icon: "externalLink" as const,
+      label: t("card.insertHyperlink"),
+      onClick: () => {
+        setLinkUrlPickerPos((open) => {
+          if (open) return null;
+          const rect = hyperlinkButtonRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+        });
+      },
+      active: formattingState?.link ?? false,
+      disabled: !activeEditor,
+    },
+    {
+      key: "insertTable",
+      operationId: null,
+      icon: "table" as const,
+      label: t("card.insertTable"),
+      onClick: () => activeEditor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+      active: formattingState?.insideTable ?? false,
+      disabled: !activeEditor,
+    },
+    // No popover — clicks straight through to the hidden file input below (same
+    // trigger-a-hidden-input shape FeedInputButton.tsx's own upload action uses),
+    // uploads, then inserts the resulting URL as an `<img>` node at the cursor.
+    {
+      key: "insertImage",
+      operationId: null,
+      icon: "image" as const,
+      label: t("card.insertImage"),
+      onClick: () => imageFileInputRef.current?.click(),
+      disabled: !activeEditor,
+    },
+    // Opens CalloutKindPicker (rendered specially in the row below, same as
+    // insertCardLink/insertActionField) rather than inserting directly — there's no
+    // single obvious default kind the way insertActionButton has.
+    {
+      key: "insertCallout",
+      operationId: null,
+      icon: "callout" as const,
+      label: t("card.insertCallout"),
+      onClick: () => {
+        setCalloutPickerPos((open) => {
+          if (open) return null;
+          const rect = calloutButtonRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+        });
+      },
+      disabled: !activeEditor,
+    },
+    // Inserts a blank mathInline atom, which MathNodeView.tsx opens straight into
+    // its own editing state (empty latex) — no picker/prompt needed here.
+    {
+      key: "insertMath",
+      operationId: null,
+      icon: "math" as const,
+      label: t("card.insertMath"),
+      onClick: () => activeEditor?.chain().focus().insertContent({ type: "mathInline", attrs: { latex: "" } }).run(),
+      disabled: !activeEditor,
+    },
+    // The three rich-text insert actions (Apps feature follow-up) — moved here from
+    // a Card's own header (Card.tsx) so every action lives in the Dock. "Insert card
+    // link"/"insert field" open their own anchored popover (rendered specially in
+    // the row below, same as "process" above) rather than firing immediately;
+    // "insert action button" needs no configuration to be usable, so it inserts
+    // straight away, same as the formatting toggles above it.
+    {
+      key: "insertCardLink",
+      operationId: null,
+      icon: "link" as const,
+      label: t("card.insertLink"),
+      onClick: () => {
+        setLinkPickerPos((open) => {
+          if (open) return null;
+          const rect = linkButtonRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+        });
+      },
+      disabled: !activeEditor,
+    },
+    {
+      key: "insertActionButton",
+      operationId: null,
+      icon: "insertButton" as const,
+      label: t("card.insertActionButton"),
+      onClick: () =>
+        activeEditor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: "actionButton",
+            attrs: { label: t("actionCard.defaultLabel"), jobId: null, jobParams: "{}" },
+          })
+          .run(),
+      disabled: !activeEditor,
+    },
+    {
+      key: "insertActionField",
+      operationId: null,
+      icon: "insertTextbox" as const,
+      label: t("card.insertActionField"),
+      onClick: () => {
+        setFieldKindPickerPos((open) => {
+          if (open) return null;
+          const rect = fieldButtonRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+        });
+      },
       disabled: !activeEditor,
     },
   ];
@@ -1183,6 +1386,7 @@ export function Dock({
           onSelectPage(index);
           onClosePanel();
         }}
+        onSaveAsApp={onSaveAsAppFromPage}
       />
     </div>
   );
@@ -1197,6 +1401,7 @@ export function Dock({
           onClosePanel();
         }}
         onCreateTab={onCreateTab}
+        onSaveAsApp={onSaveAsAppFromTab}
       />
     </div>
   );
@@ -1283,6 +1488,17 @@ export function Dock({
           vault-item Move, and Selection Lock (Step 6 spec §4.3) all take priority —
           `actions` itself already resolves to just Cancel / the selected-card row in
           those states, so this only ever shows once nothing else claims the row. */}
+      {editingAppName !== null && (
+        <button
+          type="button"
+          className="dock__editing-app-badge"
+          onClick={onStopEditingApp}
+          title={t("apps.stopEditing")}
+        >
+          {t("apps.editingBadgePrefix")}
+          {editingAppName}
+        </button>
+      )}
       <div className="dock__bottom-row">
         <div className="dock__row">
           {actions.map((action) =>
@@ -1301,18 +1517,76 @@ export function Dock({
                   <Icon name={action.icon} spin={action.spin} />
                 </Button>
               </div>
+            ) : action.key === "insertCardLink" ? (
+              <div key="insertCardLink" className="dock__insert-wrap" ref={linkButtonRef}>
+                <Button
+                  iconOnly
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} />
+                </Button>
+              </div>
+            ) : action.key === "insertActionField" ? (
+              <div key="insertActionField" className="dock__insert-wrap" ref={fieldButtonRef}>
+                <Button
+                  iconOnly
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} />
+                </Button>
+              </div>
+            ) : action.key === "formatLink" ? (
+              <div key="formatLink" className="dock__insert-wrap" ref={hyperlinkButtonRef}>
+                <Button
+                  iconOnly
+                  className={action.active ? "button--pressed" : undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} />
+                </Button>
+              </div>
+            ) : action.key === "insertCallout" ? (
+              <div key="insertCallout" className="dock__insert-wrap" ref={calloutButtonRef}>
+                <Button
+                  iconOnly
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} />
+                </Button>
+              </div>
             ) : (
               <Button
                 key={action.key}
                 iconOnly
                 variant={action.danger ? "danger" : "default"}
                 className={action.active ? "button--pressed" : undefined}
-                // Formatting buttons must not steal focus from the ProseMirror
-                // contentEditable on mousedown — doing so collapses the text
-                // selection before the click's toggleBold()/etc. command runs.
-                // Every other DockAction is a plain fire-and-forget click, so this
-                // is scoped to the "format*" keys rather than applied to all of them.
-                onMouseDown={action.key.startsWith("format") ? (e) => e.preventDefault() : undefined}
+                // Formatting/insert buttons must not steal focus from the
+                // ProseMirror contentEditable on mousedown — doing so collapses the
+                // text selection/cursor before the click's toggleBold()/insertContent()/
+                // etc. command runs. Every other DockAction is a plain fire-and-forget
+                // click, so this is scoped to "format*"/"insert*" keys rather than
+                // applied to all of them.
+                onMouseDown={
+                  action.key.startsWith("format") || action.key.startsWith("insert")
+                    ? (e) => e.preventDefault()
+                    : undefined
+                }
                 onClick={action.onClick}
                 disabled={action.disabled}
                 aria-label={action.label}
@@ -1368,6 +1642,16 @@ export function Dock({
             )}
             <button
               type="button"
+              className={revealHidden ? "dock__page-nav-toggle--active" : undefined}
+              onClick={onToggleRevealHidden}
+              aria-pressed={revealHidden}
+              aria-label={t("dock.revealHidden")}
+              title={t("dock.revealHidden")}
+            >
+              <Icon name="eye" />
+            </button>
+            <button
+              type="button"
               onClick={() => (pagesOpen ? onClosePanel() : onOpenPanel("pages"))}
               aria-label={pagesOpen ? t("dock.pages.close") : t("dock.pages.open")}
               title={pagesOpen ? t("dock.pages.close") : t("dock.pages.open")}
@@ -1401,6 +1685,88 @@ export function Dock({
           onClose={() => setProcessPickerPos(null)}
         />
       )}
+      {linkPickerPos && (
+        <CardLinkPicker
+          style={{
+            position: "fixed",
+            top: "auto",
+            right: "auto",
+            left: linkPickerPos.left,
+            bottom: linkPickerPos.bottom,
+          }}
+          excludeSelector=".dock__insert-wrap"
+          onSelect={(card: Card) => {
+            activeEditor?.chain().focus().insertContent({ type: "cardEmbed", attrs: { cardId: card.id } }).run();
+            setLinkPickerPos(null);
+          }}
+          onClose={() => setLinkPickerPos(null)}
+        />
+      )}
+      {fieldKindPickerPos && (
+        <ActionFieldKindPicker
+          style={{ left: fieldKindPickerPos.left, bottom: fieldKindPickerPos.bottom }}
+          excludeSelector=".dock__insert-wrap"
+          onSelect={(kind: ActionFieldKind) => {
+            activeEditor
+              ?.chain()
+              .focus()
+              .insertContent({ type: "actionField", attrs: defaultActionFieldAttrs(kind) })
+              .run();
+            setFieldKindPickerPos(null);
+          }}
+          onClose={() => setFieldKindPickerPos(null)}
+        />
+      )}
+      {linkUrlPickerPos && (
+        <LinkUrlPicker
+          style={{ left: linkUrlPickerPos.left, bottom: linkUrlPickerPos.bottom }}
+          excludeSelector=".dock__insert-wrap"
+          initialUrl={formattingState?.linkHref ?? ""}
+          onSubmit={(url) => {
+            activeEditor?.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+            setLinkUrlPickerPos(null);
+          }}
+          onRemove={
+            formattingState?.link
+              ? () => {
+                  activeEditor?.chain().focus().extendMarkRange("link").unsetLink().run();
+                  setLinkUrlPickerPos(null);
+                }
+              : undefined
+          }
+          onClose={() => setLinkUrlPickerPos(null)}
+        />
+      )}
+      {calloutPickerPos && (
+        <CalloutKindPicker
+          style={{ left: calloutPickerPos.left, bottom: calloutPickerPos.bottom }}
+          excludeSelector=".dock__insert-wrap"
+          onSelect={(kind: CalloutKind) => {
+            activeEditor
+              ?.chain()
+              .focus()
+              .insertContent({ type: "callout", attrs: { kind }, content: [{ type: "paragraph" }] })
+              .run();
+            setCalloutPickerPos(null);
+          }}
+          onClose={() => setCalloutPickerPos(null)}
+        />
+      )}
+      {/* Hidden native file input backing the "insertImage" action above — no
+          visible UI of its own, just a click target reached via imageFileInputRef. */}
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept="image/*"
+        className="dock__hidden-file-input"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file || !activeEditor) return;
+          const { url } = await uploadRichTextImage(file);
+          activeEditor.chain().focus().setImage({ src: url }).run();
+        }}
+      />
     </footer>
   );
 }

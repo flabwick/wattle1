@@ -1,0 +1,40 @@
+/* No border/box — this field reads as plain flowing WYSIWYG text, same as any
+   note's own content, not a separate bordered sub-widget. */
+.action-card-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.action-card-editor__field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.action-card-editor__field-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* position: relative so CardLinkPicker (position: absolute) anchors right below
+   this button. */
+.action-card-editor__link-btn-wrap {
+  position: relative;
+}
+
+.action-card-editor__link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-sm);
+  min-height: var(--touch-target-sm);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.action-card-editor__link-btn:hover {
+  color: var(--color-text);
+}

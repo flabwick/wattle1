@@ -19,7 +19,10 @@
 
 .card-rich-text .ProseMirror h1,
 .card-rich-text .ProseMirror h2,
-.card-rich-text .ProseMirror h3 {
+.card-rich-text .ProseMirror h3,
+.card-rich-text .ProseMirror h4,
+.card-rich-text .ProseMirror h5,
+.card-rich-text .ProseMirror h6 {
   margin: 0 0 var(--space-2);
   color: var(--color-text);
   font-family: var(--font-family-heading);
@@ -43,6 +46,110 @@
   color: var(--color-text-muted);
 }
 
+.card-rich-text .ProseMirror hr {
+  margin: var(--space-3) 0;
+  border: none;
+  border-top: var(--border-width-bold) solid var(--color-border-strong);
+}
+
+.card-rich-text .ProseMirror a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* Inline code (StarterKit's `code` mark) — a quiet box, distinct from a fenced
+   code *block* (`pre` below), which gets the app's "retro terminal" treatment. */
+.card-rich-text .ProseMirror code {
+  font-family: var(--font-family-mono);
+  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+/* Fenced code blocks (codeBlockExtension — @wattle/shared's CodeBlockLowlight) —
+   same terminal palette/hljs token colors as FileView.tsx's markdown preview
+   (Card.css), since a code block reads as "a screen-within-a-screen" either way. */
+.card-rich-text .ProseMirror pre {
+  margin: 0 0 var(--space-2);
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
+  border: var(--border-width-thin) solid var(--color-terminal-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  overflow-x: auto;
+}
+
+.card-rich-text .ProseMirror pre code {
+  font-family: var(--font-family-mono);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.card-rich-text .ProseMirror .hljs-comment,
+.card-rich-text .ProseMirror .hljs-quote,
+.card-rich-text .ProseMirror .hljs-deletion,
+.card-rich-text .ProseMirror .hljs-meta {
+  color: var(--color-terminal-text-muted);
+}
+
+.card-rich-text .ProseMirror .hljs-keyword,
+.card-rich-text .ProseMirror .hljs-selector-tag,
+.card-rich-text .ProseMirror .hljs-literal,
+.card-rich-text .ProseMirror .hljs-section,
+.card-rich-text .ProseMirror .hljs-link {
+  color: var(--color-terminal-text-green);
+}
+
+.card-rich-text .ProseMirror .hljs-string,
+.card-rich-text .ProseMirror .hljs-title,
+.card-rich-text .ProseMirror .hljs-name,
+.card-rich-text .ProseMirror .hljs-type,
+.card-rich-text .ProseMirror .hljs-attribute,
+.card-rich-text .ProseMirror .hljs-symbol,
+.card-rich-text .ProseMirror .hljs-bullet,
+.card-rich-text .ProseMirror .hljs-addition,
+.card-rich-text .ProseMirror .hljs-variable,
+.card-rich-text .ProseMirror .hljs-template-tag,
+.card-rich-text .ProseMirror .hljs-template-variable {
+  color: var(--color-terminal-text-cream);
+}
+
+.card-rich-text .ProseMirror .hljs-emphasis {
+  font-style: italic;
+}
+
+.card-rich-text .ProseMirror .hljs-strong {
+  font-weight: var(--font-weight-bold);
+}
+
+/* CodeBlockNodeView.tsx's mermaid-fence live preview — a plain-surface panel below
+   the raw source (still visible/editable above, in its own `pre`), distinct from
+   the terminal-styled `pre` itself since a diagram is a rendered graphic, not a
+   monospace readout. */
+.code-block-node__mermaid-preview {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+.code-block-node__mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.code-block-node__mermaid-error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  color: var(--color-danger);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+}
+
 /* A cardEmbed node's own CardEmbed component already carries its full box styling
    (card-shell) — just spacing between it and whatever sits next to it, same margin
    the old string-splice version (CardContentEditor.css) used. */
@@ -56,4 +163,80 @@
 
 .card-rich-text__empty {
   pointer-events: none;
+}
+
+/* GFM-style table (tableExtension — @wattle/shared's TableKit). */
+.card-rich-text .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 var(--space-2);
+}
+
+.card-rich-text .ProseMirror th,
+.card-rich-text .ProseMirror td {
+  border: var(--border-width-thin) solid var(--color-border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.card-rich-text .ProseMirror th {
+  background: var(--color-surface-raised);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-rich-text .ProseMirror td > p,
+.card-rich-text .ProseMirror th > p {
+  margin: 0;
+}
+
+/* ProseMirror-tables' own class for a multi-cell selection. */
+.card-rich-text .ProseMirror .selectedCell {
+  background: var(--color-highlight);
+}
+
+/* GFM-style task list (taskListExtension/taskItemExtension). */
+.card-rich-text .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+  margin: 0 0 var(--space-2);
+}
+
+.card-rich-text .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.card-rich-text .ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
+  user-select: none;
+}
+
+.card-rich-text .ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-rich-text .ProseMirror ul[data-type="taskList"] li > div > p {
+  margin: 0;
+}
+
+.card-rich-text .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* Inline image (imageExtension). */
+.card-rich-text .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: var(--border-width-thin) solid var(--color-border);
+}
+
+.card-rich-text .ProseMirror img.ProseMirror-selectednode {
+  outline: var(--border-width-thin) solid var(--color-accent);
+  outline-offset: 2px;
 }

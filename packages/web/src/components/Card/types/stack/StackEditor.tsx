@@ -6,10 +6,15 @@ import { StackBody } from "./StackBody.js";
  *  cardTypeUiRegistry.register requires an Editor for every type (same reasoning as
  *  FileEditor.tsx). `onChangeDraft` is unused: the container itself has no draft of
  *  its own, only its active member does (staged inside useCardStack.ts instead). */
-export function StackEditor({ pageCard }: CardTypeEditorProps) {
+export function StackEditor({ pageCard, onOpenFullscreen, onRequestRemove }: CardTypeEditorProps) {
   return (
     <div className="card-shell card-shell--selected">
-      <StackBody stackCardId={pageCard.card.id} selected />
+      <StackBody
+        stackCardId={pageCard.card.id}
+        selected
+        onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+        onRequestRemove={onRequestRemove && (() => onRequestRemove(pageCard.id))}
+      />
     </div>
   );
 }

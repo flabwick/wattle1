@@ -1,16 +1,19 @@
-/* Positioned by its parent (Card.tsx's editing view sets position: relative and
-   anchors this absolutely below the toolbar button) — this file only has the
-   popover's own box/list styling, borrowed from VaultView.css's compact file-list
-   look rather than CardShell's "thick stock" treatment (a search popover isn't a
-   physical card). */
+/* Positioned by its parent by default (EmbeddableTextField.tsx's own
+   .action-card-editor__link-btn-wrap sets position: relative and anchors this
+   absolutely below its toolbar button) — this file only has the popover's own
+   box/list styling, borrowed from VaultView.css's compact file-list look rather
+   than CardShell's "thick stock" treatment (a search popover isn't a physical
+   card). The Dock's own "insert card link" action (Dock.tsx) overrides this
+   entirely via the `style` prop instead, since .dock__row's horizontal scrolling
+   would clip a CSS-anchored popover. */
 .card-link-picker {
   position: absolute;
   z-index: 10;
   top: calc(100% + var(--space-1));
-  /* Anchored from the right, not the left: the toolbar button this hangs off of
-     (.card__link-btn-wrap) sits flush against the card's right edge (.card__header's
-     space-between), so a left-anchored popover would overshoot the card — and often
-     the viewport — to the right. */
+  /* Anchored from the right, not the left, in the default (non-Dock) case: the
+     toolbar button this hangs off of sits flush against its container's right
+     edge, so a left-anchored popover would overshoot it — and often the
+     viewport — to the right. */
   right: 0;
   width: min(280px, 80vw);
   max-height: 260px;

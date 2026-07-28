@@ -60,7 +60,13 @@ export async function getCard(id: string): Promise<Card | null> {
   return card ? serializeCard(card) : null;
 }
 
+/** Creates a Card directly in the vault (savedToVault defaults to true — see
+ *  schema.prisma) — unlike a Page-local/Dock-local Card, there's no later "save"
+ *  transition to enforce a title at, so it's required from the start here. */
 export async function createCard(input: CreateCardInput): Promise<Card> {
+  if (input.title.trim() === "") {
+    throw new Error("A title is required to save a Card to the vault");
+  }
   const metadata = input.metadata === undefined ? defaultMetadata() : cardMetadataV1Schema.parse(input.metadata);
   const card = await prisma.card.create({
     data: {
@@ -82,10 +88,21 @@ export async function moveCard(id: string, folderId: string | null): Promise<Car
   return serializeCard(card);
 }
 
+/** Used both for a genuine vault Card rename (VaultView) and for a still page-local
+ *  Dock Card's "writes straight through" editing (see dockCardService's doc comment
+ *  on DockCard) — so blank is only rejected once the Card is actually savedToVault;
+ *  a not-yet-saved Dock Card can still go blank freely, same as any other scratch
+ *  content. */
 export async function updateCard(
   id: string,
   input: UpdateCardInput,
 ): Promise<Card> {
+  if (input.title !== undefined && input.title.trim() === "") {
+    const existing = await prisma.card.findUniqueOrThrow({ where: { id } });
+    if (existing.savedToVault) {
+      throw new Error("A title is required to save a Card to the vault");
+    }
+  }
   const card = await prisma.card.update({
     where: { id },
     data: {

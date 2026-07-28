@@ -12,7 +12,8 @@
     "dev:web": "npm run dev -w @wattle/web",
     "build": "npm run build -w @wattle/shared && npm run build -w @wattle/prompt-engine && npm run build -w @wattle/api && npm run build -w @wattle/web",
     "db:migrate": "npm run db:migrate -w @wattle/api",
-    "db:studio": "npm run db:studio -w @wattle/api"
+    "db:studio": "npm run db:studio -w @wattle/api",
+    "db:seed": "npm run db:seed -w @wattle/api"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

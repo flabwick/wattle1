@@ -11,6 +11,12 @@ import { FilePickerTile } from "../components/Card/types/file/FilePickerTile.js"
 import { StackView } from "../components/Card/types/stack/StackView.js";
 import { StackEditor } from "../components/Card/types/stack/StackEditor.js";
 import { StackPickerTile } from "../components/Card/types/stack/StackPickerTile.js";
+import { ActionCardView } from "../components/Card/types/action/ActionCardView.js";
+import { ActionCardEditor } from "../components/Card/types/action/ActionCardEditor.js";
+import { ActionCardPickerTile } from "../components/Card/types/action/ActionCardPickerTile.js";
+import { PromptCardView } from "../components/Card/types/prompt/PromptCardView.js";
+import { PromptCardEditor } from "../components/Card/types/prompt/PromptCardEditor.js";
+import { PromptCardPickerTile } from "../components/Card/types/prompt/PromptCardPickerTile.js";
 
 let initialized = false;
 
@@ -44,6 +50,18 @@ export function initCardTypeUi(): void {
     View: StackView,
     Editor: StackEditor,
     PickerTile: StackPickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "action",
+    View: ActionCardView,
+    Editor: ActionCardEditor,
+    PickerTile: ActionCardPickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "prompt",
+    View: PromptCardView,
+    Editor: PromptCardEditor,
+    PickerTile: PromptCardPickerTile,
   });
   initialized = true;
 }

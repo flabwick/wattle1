@@ -118,7 +118,7 @@ function GhostCardEmbed({ nodeId, nodes }: GhostCardTreeProps) {
           >
             <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
           </button>
-          <span className="card__title">{node.title || t("common.untitled")}</span>
+          {node.title && <span className="card__title">{node.title}</span>}
         </div>
       </div>
       {!folded && <GhostCardBody nodeId={nodeId} nodes={nodes} />}
@@ -189,7 +189,7 @@ export function GhostCard({ nodeId, nodes }: GhostCardTreeProps) {
           <span className="card__caret-btn card__caret-btn--static" aria-hidden="true">
             <Icon name="down" className="card__caret" />
           </span>
-          <span className="card__title">{node.title || t("common.untitled")}</span>
+          {node.title && <span className="card__title">{node.title}</span>}
         </div>
       </div>
       <GhostCardBody nodeId={nodeId} nodes={nodes} />

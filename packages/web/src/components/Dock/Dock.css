@@ -13,6 +13,12 @@
   justify-content: center;
 }
 
+/* The "insertImage" formatting action's hidden trigger — see FeedInputButton.css's
+   identical .feed-input__file-input for the same pattern. */
+.dock__hidden-file-input {
+  display: none;
+}
+
 /* Step 8: a smaller, denser Dock — its buttons (including the Vault toggle, now the
    first button in this same row rather than a header row of its own) shrink to
    --touch-target-sm/--icon-size-sm rather than the app-wide default, since these are
@@ -196,6 +202,27 @@
   opacity: 0.55;
 }
 
+/* "Reveal hidden cards" while on — same cluster, same size, just the one toggle
+   that has a persistent on/off state rather than opening a panel. */
+.dock__page-nav button.dock__page-nav-toggle--active {
+  color: var(--color-accent);
+}
+
+/* editingAppId's badge (Apps feature spec §5) — sits just above the action row,
+   tappable to stop editing (clears back to null) rather than a purely static label,
+   since there'd otherwise be no way out of this mode. */
+.dock__editing-app-badge {
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding: var(--space-1);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border: none;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
 .dock__page-nav button.dock__page-nav-tabs:hover {
   opacity: 1;
 }
@@ -227,6 +254,13 @@
    anchored via CSS, since this row's overflow-x: auto would clip an
    absolutely-positioned popover that escapes it upward. */
 .dock__process-wrap {
+  display: flex;
+}
+
+/* Same reasoning as .dock__process-wrap above — wraps "insert card link"/"insert
+   field" so Dock.tsx can hold a ref to whichever one was clicked; both open a
+   position: fixed sibling popover (CardLinkPicker/ActionFieldKindPicker). */
+.dock__insert-wrap {
   display: flex;
 }
 

@@ -1,11 +1,16 @@
 import type {
+  App,
+  AppWithSnapshot,
   Card,
+  CreateAppInput,
   CreateCardInput,
   DockCardWithCard,
   Folder,
   FolderContents,
   GeneratedCardPart,
   GenerateResponse,
+  OpenAppInput,
+  OpenAppResult,
   Page,
   PageCard,
   PageCardWithCard,
@@ -14,6 +19,7 @@ import type {
   StackMember,
   StackMemberWithCard,
   Tab,
+  UpdateAppSnapshotInput,
   UpdateCardInput,
 } from "@wattle/shared";
 
@@ -47,6 +53,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Apps — reusable Tab/Page templates (Apps feature spec). Snapshots are always built
+// server-side from a real Tab/Page reference; this client only ever sends ids.
+export const listApps = () => request<App[]>("/apps");
+export const getApp = (id: string) => request<AppWithSnapshot>(`/apps/${id}`);
+export const createApp = (input: CreateAppInput) =>
+  request<AppWithSnapshot>("/apps", { method: "POST", body: JSON.stringify(input) });
+export const updateAppSnapshot = (id: string, input: UpdateAppSnapshotInput) =>
+  request<AppWithSnapshot>(`/apps/${id}`, { method: "PUT", body: JSON.stringify(input) });
+export const deleteApp = (id: string) => request<void>(`/apps/${id}`, { method: "DELETE" });
+export const openApp = (id: string, input: OpenAppInput = {}) =>
+  request<OpenAppResult>(`/apps/${id}/open`, { method: "POST", body: JSON.stringify(input) });
+
 // Vault
 export const listCards = (q?: string) =>
   request<Card[]>(`/cards${q ? `?q=${encodeURIComponent(q)}` : ""}`);
@@ -58,6 +76,9 @@ export const updateCard = (id: string, input: UpdateCardInput) =>
 export const deleteCard = (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" });
 export const moveCard = (id: string, folderId: string | null) =>
   request<Card>(`/cards/${id}/move`, { method: "PATCH", body: JSON.stringify({ folderId }) });
+/** Direct URL (not routed through `request()`) for a "file"-typed Card's uploaded
+ *  bytes — used as an <iframe>/<img> src or fetched as raw text, never as JSON. */
+export const getCardFileUrl = (id: string) => `/api/cards/${id}/file`;
 
 // Vault Folders
 export const getFolderContents = (folderId: string | null) =>
@@ -91,10 +112,10 @@ export const reorderPages = (orderedIds: string[]) =>
 // Page <-> Card membership
 export const addExistingCardToPage = (pageId: string, cardId: string) =>
   request<PageCard>(`/pages/${pageId}/cards`, { method: "POST", body: JSON.stringify({ cardId }) });
-export const addNewCardToPage = (pageId: string, title: string, content: string) =>
+export const addNewCardToPage = (pageId: string, title: string, content: string, metadata?: unknown) =>
   request<PageCardWithCard>(`/pages/${pageId}/cards`, {
     method: "POST",
-    body: JSON.stringify({ title, content }),
+    body: JSON.stringify(metadata !== undefined ? { title, content, metadata } : { title, content }),
   });
 /** Multipart, unlike every other call here — bypasses `request()` so the browser sets
  *  its own `Content-Type: multipart/form-data; boundary=...` instead of the JSON one
@@ -114,6 +135,22 @@ export const reorderPageCards = (pageId: string, orderedIds: string[]) =>
     method: "PUT",
     body: JSON.stringify({ orderedIds }),
   });
+
+/** The rich-text editor's "insert image" toolbar action (Dock.tsx) — uploads bytes
+ *  and gets back a plain URL, unlike uploadFileToPage above: no Card is created,
+ *  this backs a TipTap `image` node embedded inline in whatever Card is being
+ *  edited, not a new sibling Card. Same multipart/bypass-request() shape as
+ *  uploadFileToPage. */
+export const uploadRichTextImage = async (file: File): Promise<{ url: string }> => {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch("/api/rich-text-images", { method: "POST", body });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ url: string }>;
+};
 
 // Dock actions on a single PageCard
 export const updatePageCardDraft = (

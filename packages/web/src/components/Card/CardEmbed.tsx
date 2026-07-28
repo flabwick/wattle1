@@ -241,7 +241,7 @@ export function CardEmbed({
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <span className="card__title">{card.title || t("common.untitled")}</span>
+            card.title && <span className="card__title">{card.title}</span>
           )}
         </div>
       </div>

@@ -66,3 +66,122 @@ input {
     margin: 0 auto;
   }
 }
+
+/* A Card's own "expand" corner button (App.tsx's focusedPageCardId) — takes over
+   .page-viewport's own flex slot in .app entirely (App.tsx renders one or the
+   other, never both), so the Dock underneath still works exactly as if this one
+   Card were simply the whole Page. */
+.fullscreen-card {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  animation: fullscreen-card-in 180ms ease-out;
+}
+
+@keyframes fullscreen-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fullscreen-card {
+    animation: none;
+  }
+}
+
+.fullscreen-card__back {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  margin: var(--space-2);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease-out;
+}
+
+.fullscreen-card__back:hover {
+  color: var(--color-text);
+}
+
+.fullscreen-card__back:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+.fullscreen-card__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The Card itself IS the screen here — same "no border/shadow folio box" treatment
+   PageStack.css gives a normal Page, applied one level down: strips the "thick
+   stock" card-shell box (border/shadow/rounding/outer margin) that every Card
+   normally has (CardShell.css) and the page-stack's own padding, so this single
+   Card's own box expands to fill the full viewport edge to edge instead of reading
+   as a bordered card floating inside a page-shaped container. min-height (not
+   height) on .card-shell so a Card with more content than fits still grows past
+   100% and scrolls normally (.fullscreen-card__body's own overflow-y), rather than
+   clipping. `:not(.card-embed)` is what keeps this scoped to just the one top-level
+   Card being focused — CardEmbed.tsx/GhostCard.tsx reuse
+   the exact same "card-shell" class for any Card embedded in *its* rich content,
+   which must keep its own normal boxed-card look, not inherit the fullscreen
+   treatment too. */
+.fullscreen-card .page-stack {
+  height: 100%;
+  padding: 0;
+}
+
+.fullscreen-card .page-stack__page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fullscreen-card .card-shell:not(.card-embed) {
+  flex: 1;
+  min-height: 100%;
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--space-6) var(--space-5);
+}
+
+@media (min-width: 900px) {
+  .fullscreen-card .card-shell:not(.card-embed) {
+    padding: var(--space-6) max(var(--space-6), calc(50% - 360px));
+  }
+}
+
+/* A document, not a compact list row — the title reads at document scale here,
+   distinct from the small, dense heading a Card normally uses everywhere else
+   (Card.css's .card__title/.card__title-input). Scoped via the same
+   `> .card__header` relationship as the rule above (only the OUTER Card's own
+   header is ever a direct child of a non-embed card-shell) so a Card embedded in
+   *this* Card's own content keeps its normal compact title, not document scale. */
+.fullscreen-card .card-shell:not(.card-embed) > .card__header .card__title,
+.fullscreen-card .card-shell:not(.card-embed) > .card__header .card__title-input {
+  font-size: var(--font-size-xl);
+}
+
+.fullscreen-card .card-shell:not(.card-embed) > .card__header {
+  margin-bottom: var(--space-4);
+}

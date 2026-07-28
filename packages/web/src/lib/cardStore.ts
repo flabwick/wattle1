@@ -31,7 +31,7 @@ const inflightFetches = new Map<string, Promise<Card>>();
  *  edits that arrive while one is in flight get merged into `pending` and sent as a
  *  single follow-up request once it resolves. */
 const writeInFlight = new Set<string>();
-const writePending = new Map<string, { title?: string; content?: string }>();
+const writePending = new Map<string, { title?: string; content?: string; metadata?: unknown }>();
 
 /** Notified whenever a write durably lands on the server (as opposed to the
  *  optimistic local patch, which fires immediately) — usePages.ts subscribes so a
@@ -137,11 +137,19 @@ async function flushWrite(cardId: string) {
 /** Edits a vault Card directly — no page-local draft/Save step the way a PageCard
  *  has, since an embed isn't "in" any one Page. Updates the shared cache immediately
  *  (every mounted view of this Card re-renders with the new value right away) and
- *  queues the PATCH, coalesced per cardId. */
-export function editCard(cardId: string, patch: { title?: string; content?: string }): void {
+ *  queues the PATCH, coalesced per cardId. `metadata`, when passed, must be the
+ *  Card's *whole* metadata object (not a sparse patch) — same "pass the complete
+ *  shape" contract UpdateCardInput/cardMetadataV1Schema.parse expects everywhere
+ *  else; the "action"/"prompt" CardTypes (ActionCardEditor.tsx/PromptCardBody.tsx)
+ *  are today's only callers, both of which read the current metadata first
+ *  (useCard.ts) and spread it before setting their own sub-field. */
+export function editCard(
+  cardId: string,
+  patch: { title?: string; content?: string; metadata?: unknown },
+): void {
   const current = cache.get(cardId);
   if (current) {
-    cache.set(cardId, { ...current, ...patch });
+    cache.set(cardId, { ...current, ...patch } as Card);
     notify(cardId);
   }
   writePending.set(cardId, { ...writePending.get(cardId), ...patch });

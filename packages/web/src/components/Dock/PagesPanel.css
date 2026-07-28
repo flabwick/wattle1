@@ -51,3 +51,20 @@
   white-space: nowrap;
   max-width: 100%;
 }
+
+.pages-panel__save-as-app {
+  min-height: var(--touch-target-sm);
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-1);
+  text-align: left;
+  background: none;
+  border: var(--border-width-thin) dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.pages-panel__save-as-app:hover {
+  background: var(--color-surface-raised);
+}

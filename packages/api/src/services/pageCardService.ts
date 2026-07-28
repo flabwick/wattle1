@@ -1,5 +1,5 @@
 import type { PageCard, PageCardWithCard } from "@wattle/shared";
-import { defaultMetadata } from "@wattle/shared";
+import { cardMetadataV1Schema, defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
 import { serializeCard } from "./cardService.js";
 
@@ -49,11 +49,15 @@ export async function addExistingCardToPage(
 
 /** Create a brand-new blank Card directly in a Page's slot (spec1.md Part 3 "Pages").
  *  Page-local scratch content, not yet a Vault entry — see schema.prisma's
- *  Card.savedToVault doc comment. */
+ *  Card.savedToVault doc comment. `metadata`, if given, replaces the plain "note"
+ *  default entirely (e.g. the Feed Input Button's "Action" type-picker option sets
+ *  `typeId: "action"` plus its own default button config) — validated the same way
+ *  cardService.createCard validates a caller-supplied metadata. */
 export async function addNewCardToPage(
   pageId: string,
   title: string,
   content: string,
+  metadata?: unknown,
 ): Promise<PageCardWithCard> {
   const bottom = await prisma.pageCard.aggregate({
     where: { pageId },
@@ -67,7 +71,7 @@ export async function addNewCardToPage(
         create: {
           title,
           content,
-          metadata: JSON.stringify(defaultMetadata()),
+          metadata: JSON.stringify(metadata === undefined ? defaultMetadata() : cardMetadataV1Schema.parse(metadata)),
           savedToVault: false,
         },
       },
@@ -134,17 +138,24 @@ export async function updateDraft(
 
 /** Persist a PageCard's draft edits back to its vault Card, then clear the draft.
  *  Also the one place a Card ever flips from page-local to a real, independently
- *  accessible Vault entry (savedToVault: true) — see schema.prisma's doc comment. */
+ *  accessible Vault entry (savedToVault: true) — see schema.prisma's doc comment.
+ *  A title is optional for page-local scratch content but required from this point
+ *  on, so this is where that's enforced (removeFromPage's own auto-promotion below
+ *  deliberately does NOT enforce this — see its doc comment). */
 export async function saveToVault(pageCardId: string): Promise<PageCard> {
   const pageCard = await prisma.pageCard.findUniqueOrThrow({
     where: { id: pageCardId },
     include: { card: true },
   });
+  const title = pageCard.draftTitle ?? pageCard.card.title;
+  if (title.trim() === "") {
+    throw new Error("A title is required to save a Card to the vault");
+  }
 
   await prisma.card.update({
     where: { id: pageCard.cardId },
     data: {
-      title: pageCard.draftTitle ?? pageCard.card.title,
+      title,
       content: pageCard.draftContent ?? pageCard.card.content,
       savedToVault: true,
     },
@@ -163,7 +174,10 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
  *  Card from the vault): a Card that was still page-local scratch content
  *  (savedToVault: false) gets auto-promoted to the vault first, carrying over
  *  whatever draft it had, so removing it from a Page can never silently destroy
- *  unsaved work. */
+ *  unsaved work. Deliberately does not enforce saveToVault's title requirement — an
+ *  untitled Card promoted this way just becomes an untitled vault Card, rather than
+ *  risking losing it entirely over a missing title during a safety-net promotion the
+ *  user didn't explicitly ask for. */
 export async function removeFromPage(pageCardId: string): Promise<void> {
   const pageCard = await prisma.pageCard.findUniqueOrThrow({
     where: { id: pageCardId },

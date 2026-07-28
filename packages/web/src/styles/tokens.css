@@ -65,6 +65,11 @@
   --color-text: #241a12;
   --color-text-muted: #7a6a55;
 
+  /* A hidden Card, shown via the Dock's "reveal hidden cards" toggle (Apps feature
+     spec §2) — dashed rather than solid, so it reads as "not normally part of the
+     page" at a glance even while revealed. */
+  --color-hidden-border: #9c8a68;
+
   /* Heritage brights — styling.md §2 "amber, oxblood/terracotta, deep aubergine,
      muted teal", used per §2's usage rule: one dominant accent per screen (accent),
      the others reserved for secondary/tertiary emphasis rather than mixed freely. */
@@ -92,6 +97,13 @@
   --color-terminal-bg: #241c14;
   --color-terminal-text: #d9a441;
   --color-terminal-border: #4a3a26;
+  /* Syntax-highlighting accents for code blocks (FileView.tsx's markdown preview) —
+     same "amber, warm green, or cream monospace" retro-terminal trio as above, just
+     split into three roles instead of one flat color, so highlight.js token classes
+     (.hljs-keyword etc.) read as distinct without reaching for an unrelated theme. */
+  --color-terminal-text-green: #8fae6b;
+  --color-terminal-text-cream: #e8dcc0;
+  --color-terminal-text-muted: #8a7550;
 
   /* styling.md §6 "Iconography": "simple, refined line icons (1.5px weight) with
      consistent geometry" — every Icon (components/primitives/Icon.tsx) draws from
@@ -122,6 +134,7 @@
     --color-border-strong: #f0e4c8;
     --color-text: #f2e6cf;
     --color-text-muted: #ab9b82;
+    --color-hidden-border: #7a6a4c;
 
     --color-accent: #e08a4a;
     --color-accent-text: #201810;

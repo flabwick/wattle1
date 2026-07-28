@@ -20,37 +20,6 @@
   flex: 1;
 }
 
-/* The editing view's "insert card link" button — a sibling of .card__header-start so
-   .card__header's space-between pins it flush right, same slot the Dock's actions
-   would occupy on a top-level Card. Positioned so CardLinkPicker.css's absolutely
-   positioned popover anchors right below this button rather than the whole card. */
-.card__link-btn-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.card__link-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.card__link-btn:hover {
-  color: var(--color-text);
-}
-
-.card__link-btn .icon {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-}
-
 /* Deliberately not the Button primitive — a small, quiet disclosure triangle, not
    another bordered/shadowed tactile object competing with the title. Plain reset,
    muted color, no border/background/shadow. */
@@ -89,6 +58,48 @@
 
 .card__caret--collapsed {
   transform: rotate(-90deg);
+}
+
+/* Every Card's own top-right corner controls (open fullscreen / add card) — same
+   quiet, borderless ghost-button treatment as CardStackRail.css's rail buttons, sized
+   down to --touch-target-sm/--icon-size-sm rather than the app-wide button default
+   since these sit in a header row, not the main action surface. Sits as a sibling of
+   .card__header-start inside .card__header, so that row's own flex layout (the start
+   group has flex: 1) pushes this flush to the right without any extra positioning. */
+.card__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.card__header-actions .button {
+  flex-shrink: 0;
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text-muted);
+}
+
+.card__header-actions .button.button--icon {
+  width: var(--touch-target-sm);
+}
+
+.card__header-actions .button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.card__header-actions .button:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+
+.card__header-actions .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .card__title {
@@ -138,4 +149,116 @@
   border: none;
   box-shadow: none;
   outline: none;
+}
+
+/* Same "quiet, optional" treatment as .card__title--placeholder above, but for the
+   empty title *input* itself — an untitled scratch Card shouldn't look like it's
+   missing something mandatory while you're mid-edit. */
+.input-field.card__title-input::placeholder {
+  font-family: var(--font-family-base);
+  font-weight: normal;
+  font-style: italic;
+}
+
+/* "file" CardType previews (FileView.tsx) — a PDF via the browser's built-in viewer,
+   a .md file's rendered markdown. */
+/* A4/Letter-ish portrait page proportions, not an arbitrary fixed height — so the
+   card reads as "a page", scaling with the card's own width rather than clipping a
+   fixed viewport fraction. */
+.card__file-pdf {
+  width: 100%;
+  aspect-ratio: 1 / 1.4;
+  border: none;
+}
+
+.card__file-markdown {
+  /* No max-height/overflow-y here on purpose — a long .md file's card should grow
+     to its full content length like a note Card does, not scroll inside a clipped
+     box. Horizontal scroll stays local (wide tables/code), see below. */
+  overflow-x: auto;
+  padding: var(--space-2);
+}
+
+/* GFM tables (remark-gfm). */
+.card__file-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-2) 0;
+}
+
+.card__file-markdown th,
+.card__file-markdown td {
+  border: var(--border-width-thin) solid var(--color-border);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+
+.card__file-markdown th {
+  background: var(--color-surface-raised);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Fenced code blocks (rehype-highlight) get the app's "retro terminal" treatment —
+   same tokens as styling.md §2's terminal readouts, since a code block is exactly
+   that: a screen-within-a-screen, constant across light/dark theme. Inline code gets
+   a plain quiet box instead — a whole terminal block reads wrong for one word. */
+.card__file-markdown :not(pre) > code {
+  font-family: var(--font-family-mono);
+  background: var(--color-surface-raised);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+.card__file-markdown pre {
+  background: var(--color-terminal-bg);
+  color: var(--color-terminal-text);
+  border: var(--border-width-thin) solid var(--color-terminal-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  overflow-x: auto;
+}
+
+.card__file-markdown pre code {
+  font-family: var(--font-family-mono);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.card__file-markdown .hljs-comment,
+.card__file-markdown .hljs-quote,
+.card__file-markdown .hljs-deletion,
+.card__file-markdown .hljs-meta {
+  color: var(--color-terminal-text-muted);
+}
+
+.card__file-markdown .hljs-keyword,
+.card__file-markdown .hljs-selector-tag,
+.card__file-markdown .hljs-literal,
+.card__file-markdown .hljs-section,
+.card__file-markdown .hljs-link {
+  color: var(--color-terminal-text-green);
+}
+
+.card__file-markdown .hljs-string,
+.card__file-markdown .hljs-title,
+.card__file-markdown .hljs-name,
+.card__file-markdown .hljs-type,
+.card__file-markdown .hljs-attribute,
+.card__file-markdown .hljs-symbol,
+.card__file-markdown .hljs-bullet,
+.card__file-markdown .hljs-addition,
+.card__file-markdown .hljs-variable,
+.card__file-markdown .hljs-template-tag,
+.card__file-markdown .hljs-template-variable {
+  color: var(--color-terminal-text-cream);
+}
+
+.card__file-markdown .hljs-emphasis {
+  font-style: italic;
+}
+
+.card__file-markdown .hljs-strong {
+  font-weight: var(--font-weight-bold);
 }

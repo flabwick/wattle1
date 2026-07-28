@@ -94,7 +94,7 @@ export function DockCardsPanel({
   }
 
   function handleAddCard(content: string) {
-    onCreateCard(t("common.untitled"), content);
+    onCreateCard("", content);
     landOnNewCard();
   }
 

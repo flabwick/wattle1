@@ -95,9 +95,10 @@ export function usePages(tabId: string | null) {
   );
 
   const createCardInPage = useCallback(
-    async (pageId: string, title: string, content: string) => {
-      await api.addNewCardToPage(pageId, title, content);
+    async (pageId: string, title: string, content: string, metadata?: unknown) => {
+      const pageCard = await api.addNewCardToPage(pageId, title, content, metadata);
       await refresh();
+      return pageCard;
     },
     [refresh],
   );

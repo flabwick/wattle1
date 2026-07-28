@@ -1,0 +1,22 @@
+.math-node {
+  cursor: text;
+  border-radius: var(--radius-sm);
+}
+
+.math-node--block {
+  display: block;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  text-align: center;
+  overflow-x: auto;
+}
+
+.math-node--selected {
+  outline: var(--border-width-thin) solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.math-node__input {
+  min-width: 160px;
+  font-family: var(--font-family-mono);
+}

@@ -38,16 +38,18 @@ pagesRouter.put("/reorder", async (req, res) => {
   res.status(204).end();
 });
 
-// POST /api/pages/:pageId/cards  { cardId } | { title, content } — open existing vs. create new.
+// POST /api/pages/:pageId/cards  { cardId } | { title, content, metadata? } — open
+// existing vs. create new. `metadata`, if present, is raw/unvalidated (see
+// pageCardService.addNewCardToPage) — omit for a plain "note".
 pagesRouter.post("/:pageId/cards", async (req, res) => {
   const { pageId } = req.params;
-  const { cardId, title, content } = req.body ?? {};
+  const { cardId, title, content, metadata } = req.body ?? {};
 
   if (typeof cardId === "string") {
     return res.status(201).json(await pageCardService.addExistingCardToPage(pageId, cardId));
   }
   if (typeof title === "string" && typeof content === "string") {
-    return res.status(201).json(await pageCardService.addNewCardToPage(pageId, title, content));
+    return res.status(201).json(await pageCardService.addNewCardToPage(pageId, title, content, metadata));
   }
   res.status(400).json({ error: "Provide either { cardId } or { title, content }" });
 });

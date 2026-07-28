@@ -80,11 +80,42 @@ export const cardMetadataV1Schema = z.object({
       activeIndex: z.number().int().min(0),
     })
     .optional(),
+  /** Display-only: excludes this Card from normal Page rendering when set (the Dock's
+   *  "reveal hidden cards" toggle shows it inline instead, with a dashed-border design
+   *  token to mark it as hidden). Never special-cased in context-assembly logic — a
+   *  hidden Card still counts as "everything above the target", exactly like any other
+   *  Card (generationService.ts). Settable on any existing Card type, starting with
+   *  "note". */
+  hidden: z.boolean().optional(),
   /** Pending/resolved diff, footnote, and highlight overlays — see annotationSchema
    *  above. Additive and process-agnostic: all three types share this one array. */
   annotations: z.array(annotationSchema).default([]),
   /** Accepted diffs' pre-change text — see diffHistoryEntrySchema above. */
   diffHistory: z.array(diffHistoryEntrySchema).default([]),
+  /** Set only on typeId "action" Cards — a single calibrated job button, the
+   *  whole-card counterpart to an inline actionButton node
+   *  (richText/actionButtonNode.ts — same jobId/jobParams shape, calibrated
+   *  through the same ActionJobFields UI). `jobParams` is a plain object here, not
+   *  the JSON-encoded string the TipTap node attr needs — Card.metadata is already
+   *  free-form JSON, no ProseMirror attrs-must-be-primitive constraint to work
+   *  around. */
+  action: z
+    .object({
+      label: z.string(),
+      jobId: z.string().nullable(),
+      jobParams: z.record(z.unknown()),
+    })
+    .optional(),
+  /** Set only on typeId "prompt" Cards — a self-contained input/output box: typed
+   *  instructions in, a standalone (no Page context) AI completion streamed back
+   *  and saved in place below it — see PromptCardBody.tsx/usePromptGeneration.ts.
+   *  `output` is null until the first send completes. */
+  prompt: z
+    .object({
+      input: z.string(),
+      output: z.string().nullable(),
+    })
+    .optional(),
 });
 
 export type CardMetadataV1 = z.infer<typeof cardMetadataV1Schema>;

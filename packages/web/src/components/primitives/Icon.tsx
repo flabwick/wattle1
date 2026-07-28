@@ -40,7 +40,25 @@ export type IconName =
   | "italic"
   | "heading"
   | "bulletList"
-  | "orderedList";
+  | "orderedList"
+  | "eye"
+  | "apps"
+  | "insertButton"
+  | "insertTextbox"
+  | "settings"
+  | "expand"
+  | "strikethrough"
+  | "underline"
+  | "blockquote"
+  | "horizontalRule"
+  | "codeBlock"
+  | "externalLink"
+  | "taskList"
+  | "table"
+  | "image"
+  | "callout"
+  | "math"
+  | "eyeOff";
 
 interface IconProps {
   name: IconName;
@@ -279,6 +297,173 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M9 6h11" />
       <path d="M9 12h11" />
       <path d="M9 18h11" />
+    </>
+  ),
+  // A standard open-eye glyph — the Dock's "reveal hidden cards" toggle (Apps
+  // feature spec §2), distinct from every other icon here by shape alone since
+  // nothing else in the vocabulary is about visibility.
+  eye: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  // Same open-eye glyph plus a diagonal slash — the Dock's "Hide" action
+  // (selectedCards row), distinct from "eye" (that toggle *reveals* already-hidden
+  // Cards; this one *sets* metadata.hidden on the current selection).
+  eyeOff: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M4 4l16 16" />
+    </>
+  ),
+  // Four squares — the classic "app launcher" glyph, distinct from every existing
+  // container-shaped icon here (vault/tray/folder) since Apps (the feature) are
+  // templates, not a storage destination. FeedInputButton's "New from App…" and the
+  // App browser both use this.
+  apps: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1" />
+      <rect x="13" y="4" width="7" height="7" rx="1" />
+      <rect x="4" y="13" width="7" height="7" rx="1" />
+      <rect x="13" y="13" width="7" height="7" rx="1" />
+    </>
+  ),
+  // A rounded rectangle with a short center line — inserting an inline action
+  // button into a Card's rich content (rich-text follow-up to the Apps feature),
+  // distinct from "plus" (adding a whole new Card/Page).
+  insertButton: (
+    <>
+      <rect x="3" y="8" width="18" height="8" rx="2.5" />
+      <path d="M9 12h6" />
+    </>
+  ),
+  // A rectangle with a blinking-cursor bar — inserting an inline text-box
+  // placeholder, distinct from "insertButton" by the cursor mark instead of a line.
+  insertTextbox: (
+    <>
+      <rect x="3" y="8" width="18" height="8" rx="1.5" />
+      <path d="M8 10v4" />
+    </>
+  ),
+  // A gear — an actionField's own "calibrate this field" toggle (min/max/options/
+  // etc., ActionFieldConfigPopover.tsx), distinct from the field's own control,
+  // which stays devoted to entering its actual value.
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v3M12 18v3M4.2 7.8l2.6 1.5M17.2 14.7l2.6 1.5M4.2 16.2l2.6-1.5M17.2 9.3l2.6-1.5M3 12h3M18 12h3" />
+    </>
+  ),
+  // Four corner brackets — the standard "expand to fullscreen" glyph, distinct from
+  // "eye" (visibility toggle, not a navigation action): every Card's own "open in
+  // fullscreen" corner button (Card.tsx/StackBody.tsx).
+  expand: (
+    <>
+      <path d="M4 9V4h5" />
+      <path d="M20 9V4h-5" />
+      <path d="M4 15v5h5" />
+      <path d="M20 15v5h-5" />
+    </>
+  ),
+  // An abstract "S" with a strike line through it — the Dock formatting toolbar's
+  // strikethrough toggle, same "abstract letterform" convention as bold/italic.
+  strikethrough: (
+    <>
+      <path d="M4 12h16" />
+      <path d="M8 7c1-1.5 2.5-2 4-2 2 0 4 1 4 2.5" />
+      <path d="M8 17c1 1.5 2.5 2 4 2 2 0 4-1 4-2.5" />
+    </>
+  ),
+  // A "U" with a baseline rule — the Dock formatting toolbar's underline toggle,
+  // same shape logic as "heading" (letterform + rule).
+  underline: (
+    <>
+      <path d="M6 4v8a6 6 0 0 0 12 0V4" />
+      <path d="M4 20h16" />
+    </>
+  ),
+  // Two comma-shaped quote marks — the Dock formatting toolbar's blockquote toggle.
+  blockquote: (
+    <>
+      <path d="M7 7c-1.5 0-3 1.2-3 3.5S5.5 14 7 14c0 2-1 3-3 3" />
+      <path d="M17 7c-1.5 0-3 1.2-3 3.5S15.5 14 17 14c0 2-1 3-3 3" />
+    </>
+  ),
+  // A bold rule with end ticks — the Dock formatting toolbar's "insert horizontal
+  // rule" action, distinct from a plain strike/underline line by the ticks marking
+  // it as its own block-level divider rather than a mark on text.
+  horizontalRule: (
+    <>
+      <path d="M4 12h16" />
+      <path d="M4 9v6" />
+      <path d="M20 9v6" />
+    </>
+  ),
+  // The classic "</>" glyph — the Dock formatting toolbar's code-block toggle,
+  // distinct from every letterform-based icon above by shape alone.
+  codeBlock: (
+    <>
+      <path d="M8 6l-5 6 5 6" />
+      <path d="M16 6l5 6-5 6" />
+    </>
+  ),
+  // A box with an arrow breaking out its top-right corner — the standard "external
+  // link" glyph, distinct from "link" (the chain icon used for Wattle's own
+  // card-embed insert) since this instead sets a plain `<a href>` mark on text.
+  externalLink: (
+    <>
+      <path d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+      <path d="M14 4h6v6" />
+      <path d="M20 4L10 14" />
+    </>
+  ),
+  // A checked checkbox with a rule — the Dock formatting toolbar's task-list
+  // toggle, same "mark + rule" shape as bulletList/orderedList above.
+  taskList: (
+    <>
+      <rect x="3" y="5" width="6" height="6" rx="1" />
+      <path d="M4.5 8l1 1 2-2" />
+      <path d="M12 8h9" />
+      <rect x="3" y="14" width="6" height="6" rx="1" />
+      <path d="M12 17h9" />
+    </>
+  ),
+  // A grid — the Dock formatting toolbar's "insert table" action.
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M3 10h18" />
+      <path d="M3 16h18" />
+      <path d="M11 4v16" />
+    </>
+  ),
+  // A framed landscape glyph (mountain + sun) — the Dock formatting toolbar's
+  // "insert image" action, standard image-placeholder iconography.
+  image: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
+      <path d="M3 17l5.5-5.5a2 2 0 0 1 2.8 0L17 17" />
+      <path d="M14 14l1.5-1.5a2 2 0 0 1 2.8 0L21 15.5" />
+    </>
+  ),
+  // A speech-bubble variant with an exclamation mark — the Dock formatting
+  // toolbar's "insert callout" action, distinct from "annotate" (a plain
+  // rectangular comment bubble) by the rounded shape and interior mark.
+  callout: (
+    <>
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4 4V6z" />
+      <path d="M12 7v5" />
+      <circle cx="12" cy="15" r="0.2" fill="currentColor" stroke="currentColor" strokeWidth="2" />
+    </>
+  ),
+  // A square-root glyph — the Dock formatting toolbar's "insert math" action.
+  math: (
+    <>
+      <path d="M4 14l3 3 4-9" />
+      <path d="M11 8h9" />
     </>
   ),
 };

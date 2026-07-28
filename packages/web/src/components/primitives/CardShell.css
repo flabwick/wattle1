@@ -47,3 +47,11 @@
   border-style: dashed;
   opacity: 0.85;
 }
+
+/* A hidden Card (Card.metadata.hidden), shown only while the Dock's "reveal hidden
+   cards" toggle is on — see PageStack.tsx. Dashed in a distinct color from --ghost so
+   the two "not a normal card" states read differently at a glance. */
+.card-shell--hidden {
+  border-style: dashed;
+  border-color: var(--color-hidden-border);
+}

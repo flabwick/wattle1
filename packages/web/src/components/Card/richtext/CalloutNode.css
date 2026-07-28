@@ -1,0 +1,63 @@
+/* Obsidian-style callout (CalloutNodeView.tsx) — a colored left border + tinted
+   background per `kind`, reusing the app's existing accent-role tokens rather than
+   inventing a new palette (styling.md §2's "one dominant accent, others reserved
+   for secondary/tertiary emphasis" — here each kind IS its own emphasis role). */
+.callout {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.callout--note {
+  border-left-color: var(--color-accent-secondary);
+}
+
+.callout--tip {
+  border-left-color: var(--color-highlight);
+}
+
+.callout--important {
+  border-left-color: var(--color-accent-tertiary);
+}
+
+.callout--warning {
+  border-left-color: var(--color-accent);
+}
+
+.callout--danger {
+  border-left-color: var(--color-danger);
+}
+
+.callout__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  margin-bottom: var(--space-1);
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+}
+
+.callout__caret {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  transition: transform 120ms ease;
+}
+
+.callout__caret--collapsed {
+  transform: rotate(-90deg);
+}
+
+.callout__body--hidden {
+  display: none;
+}
+
+.callout__body > *:last-child {
+  margin-bottom: 0;
+}

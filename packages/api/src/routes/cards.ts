@@ -1,7 +1,9 @@
+import path from "node:path";
 import { Router } from "express";
 import type { Card } from "@wattle/shared";
 import * as cardService from "../services/cardService.js";
 import { runOperation } from "../operations/run.js";
+import { uploadsDir } from "../uploads.js";
 
 export const cardsRouter = Router();
 
@@ -15,6 +17,21 @@ cardsRouter.get("/:id", async (req, res) => {
   const card = await cardService.getCard(req.params.id);
   if (!card) return res.status(404).json({ error: "Card not found" });
   res.json(card);
+});
+
+// GET /api/cards/:id/file — streams a "file"-typed Card's uploaded bytes back to the
+// browser (PDF viewer iframe, markdown-source fetch, etc.) — see metadata.file.
+cardsRouter.get("/:id/file", async (req, res) => {
+  const card = await cardService.getCard(req.params.id);
+  const file = card?.metadata.file;
+  if (!file) return res.status(404).json({ error: "Card has no uploaded file" });
+
+  const filePath = path.join(uploadsDir, file.storedName);
+  res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(file.originalName)}"`);
+  res.sendFile(filePath, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: "File not found" });
+  });
 });
 
 cardsRouter.post("/", async (req, res) => {

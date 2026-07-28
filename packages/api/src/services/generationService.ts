@@ -1,5 +1,13 @@
 import type { GeneratedCardPart, GenerationContextEntry, GenerateResponse, PageCard, StackMember } from "@wattle/shared";
-import { cardTypeRegistry, defaultMetadata, migrateMetadata, modelProviderRegistry } from "@wattle/shared";
+import {
+  cardTypeRegistry,
+  defaultMetadata,
+  findEmbeddedCardIds,
+  flattenToPlainText,
+  htmlToDoc,
+  migrateMetadata,
+  modelProviderRegistry,
+} from "@wattle/shared";
 import type { CardBlockEvent } from "@wattle/prompt-engine";
 import { CardBlockParser, compilePrompt } from "@wattle/prompt-engine";
 import { prisma } from "../db.js";
@@ -146,16 +154,48 @@ export function assembleContext(pageCardId: string): Promise<GenerationContextEn
  * only forwards these events on to the frontend's local ghost-card state; persisting
  * only happens if/when the user explicitly accepts it (see persistGeneratedCard(ToPage)).
  */
+/** Expands every `<wattle-embed data-card-id="...">` inside an instruction (an
+ *  Action Card's configured Prompt Card instructions, or in principle any future
+ *  instruction source) into that Card's actual title + plain-text content, appended
+ *  after the instruction's own flattened text — a `[[cardId]]`-era embed contributes
+ *  *nothing* to flattenToPlainText by design (see richText/plainText.ts), so without
+ *  this the model would just see an empty gap where the reference was. Referenced
+ *  Cards that no longer exist are silently skipped, same "don't fail the whole
+ *  generation over a dangling reference" convention as this app's other embed
+ *  lookups (CardEmbed.tsx). */
+async function resolveInstructionEmbeds(instructionHtml: string): Promise<string> {
+  const doc = htmlToDoc(instructionHtml);
+  const plain = flattenToPlainText(doc).text;
+  const cardIds = findEmbeddedCardIds(doc);
+  if (cardIds.length === 0) return plain;
+
+  const cards = await prisma.card.findMany({ where: { id: { in: cardIds } } });
+  const byId = new Map(cards.map((c) => [c.id, c]));
+  const resolved = cardIds
+    .map((id) => byId.get(id))
+    .filter((c): c is NonNullable<typeof c> => c !== undefined)
+    .map((c) => `### ${c.title || "Untitled"}\n${flattenToPlainText(htmlToDoc(c.content)).text}`)
+    .join("\n\n");
+
+  return resolved ? `${plain}\n\n${resolved}` : plain;
+}
+
 async function* streamForTarget(
   target: GenerationTarget,
   instruction?: string,
+  /** True for a Prompt Card's "on its own" mode (Apps feature follow-up) — skips the
+   *  Generation Rule entirely (renderContext's own "(no context above)" placeholder
+   *  degrades gracefully to this) so the model sees only the instruction. */
+  standalone?: boolean,
 ): AsyncGenerator<CardBlockEvent> {
-  const context = await assembleContextForTarget(target);
+  const context = standalone ? [] : await assembleContextForTarget(target);
+  const resolvedInstruction = instruction ? await resolveInstructionEmbeds(instruction) : undefined;
   // An instruction typed into the Feed Input Button's expanded text field (Step 6
-  // spec §2.2) reuses the existing "interactive" prompt mode — it was already built
-  // for exactly this "override instruction alongside the normal context" shape.
-  const { systemPrompt, userMessage } = instruction
-    ? compilePrompt({ mode: "interactive", context, overridePrompt: instruction })
+  // spec §2.2), or configured on a Prompt Card, reuses the existing "interactive"
+  // prompt mode — it was already built for exactly this "override instruction
+  // alongside the normal context" shape (context is just empty in standalone mode).
+  const { systemPrompt, userMessage } = resolvedInstruction
+    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
     : compilePrompt({ mode: "generate", context });
 
   const providerId = activeProviderId();
@@ -198,9 +238,15 @@ async function* streamForTarget(
   for (const event of finalEvents) yield event;
 }
 
-/** Card-level generation — GET /api/generate/stream/:pageCardId. */
-export function streamGeneration(pageCardId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "card", pageCardId }, instruction);
+/** Card-level generation — GET /api/generate/stream/:pageCardId. `standalone` is
+ *  only ever true for a Prompt Card's "on its own" job (lib/actionJobs.ts on the web
+ *  side) — every other caller (Dock's Generate, the Feed Input Button) omits it. */
+export function streamGeneration(
+  pageCardId: string,
+  instruction?: string,
+  standalone?: boolean,
+): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "card", pageCardId }, instruction, standalone);
 }
 
 /** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */

@@ -5,6 +5,7 @@
  */
 
 import type { CardMetadataV1 } from "./registries/cardMetadata.js";
+import type { AppScope, AppSnapshotV1 } from "./registries/appSnapshot.js";
 
 /** A Card as it lives in the vault — the single source of truth for its saved content. */
 export interface Card {
@@ -177,6 +178,58 @@ export interface GenerateResponse {
 
 export interface SearchCardsQuery {
   q?: string;
+}
+
+/** A reusable Tab or Page template — see schema.prisma's App model and
+ *  registries/appSnapshot.ts's AppSnapshotV1. */
+export interface App {
+  id: string;
+  slug: string | null;
+  name: string;
+  description: string | null;
+  scope: AppScope;
+  isCore: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An App plus its full (server-built) template payload — GET /api/apps/:id and the
+ *  create/update responses, as opposed to the lightweight GET /api/apps list. */
+export interface AppWithSnapshot extends App {
+  snapshot: AppSnapshotV1;
+}
+
+/**
+ * Save-as-App and re-save-on-Edit both go through this shape: exactly one of `tabId`/
+ * `pageId` must be set (determines `scope`), and the API always (re)builds the
+ * snapshot itself from that Tab/Page's real current data — never from a payload the
+ * browser constructed.
+ */
+export interface CreateAppInput {
+  name: string;
+  description?: string | null;
+  tabId?: string;
+  pageId?: string;
+}
+
+export interface UpdateAppSnapshotInput {
+  tabId?: string;
+  pageId?: string;
+}
+
+/** Required only when opening a scope: "page" App — which Tab to append the fresh
+ *  Page into. Ignored for a scope: "tab" App, which always gets a brand-new Tab. */
+export interface OpenAppInput {
+  tabId?: string;
+}
+
+/** Ids of what "opening" an App just instantiated, so the frontend can navigate
+ *  straight to it. */
+export interface OpenAppResult {
+  scope: AppScope;
+  tabId: string;
+  pageId: string;
 }
 
 /** A Folder in the vault — see schema.prisma's Folder model. */

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Icon, InputField } from "../../../primitives/index.js";
+import { Button, Icon, InputField } from "../../../primitives/index.js";
 import { CardRichText } from "../../richtext/CardRichText.js";
 import { GhostCard } from "../../GhostCard.js";
 import { FeedInputButton } from "../../../FeedInputButton/FeedInputButton.js";
@@ -14,8 +14,8 @@ import "../../Card.css";
  * The "stack" CardType's actual content — the currently active member's own title +
  * rich text, always directly editable in place, exactly like a plain note Card.
  * CardStackRail (← / n-of-m / +) tucks into the top-right corner of the same
- * .card__header row the title already occupies (Card.css's space-between slot,
- * same one .card__link-btn-wrap uses) rather than a bar of its own — and while
+ * .card__header row the title already occupies (Card.css's space-between slot)
+ * rather than a bar of its own — and while
  * there's only one member, it's just the "+" (see CardStackRail.tsx): a Stack that
  * hasn't actually branched yet should read as a plain Card. A member has no
  * separate "edit mode" of its own to enter — same
@@ -31,10 +31,10 @@ import "../../Card.css";
  * whichever of GhostCard/FeedInputButton/CardRichText below is currently showing —
  * folds away.
  *
- * Save/Remove for the active alternate live in the Dock, not as inline buttons here
- * (Dock.tsx's isStackSelected row) — this only publishes the callbacks they need
- * (activeStackRegistry.ts) while `selected` is true, so the rail itself stays down
- * to just navigation.
+ * Save for the active alternate lives in the Dock, not as an inline button here
+ * (Dock.tsx's isStackSelected row) — this only publishes the callback it needs
+ * (activeStackRegistry.ts) while `selected` is true. Closing the Stack as a whole
+ * (removing it from the Page) is the header's own "X" button below, not the Dock.
  *
  * A blank alternate (added via the rail's "+", never touched since) shows its own
  * Feed Input Button — Generate + a typed guide, same as a blank Page — instead of
@@ -49,12 +49,35 @@ import "../../Card.css";
  * rather than App.tsx's page-level Generate inserting a sibling Card the way
  * selecting any other Card would.
  */
-export function StackBody({ stackCardId, selected }: { stackCardId: string; selected: boolean }) {
+export function StackBody({
+  stackCardId,
+  selected,
+  onOpenFullscreen,
+  onRequestRemove,
+}: {
+  stackCardId: string;
+  selected: boolean;
+  /** The header's "expand" corner button — see Card.tsx's own prop of the same
+   *  name; StackView/StackEditor forward this down from the generic CardTypeUi
+   *  props (registries/cardTypeUi.ts). */
+  onOpenFullscreen?: () => void;
+  /** The header's "X" corner button — see Card.tsx's own prop of the same name;
+   *  same forwarding as onOpenFullscreen above. Closes the whole Stack (every
+   *  alternate) off the Page in one step — there's no separate "remove just this
+   *  alternate" affordance any more (see CardStackRail's own "+"/next toggle for
+   *  adding/browsing alternates instead). */
+  onRequestRemove?: () => void;
+}) {
   const stack = useCardStack(stackCardId);
   const data = stack.data;
   const active = data && data.members.length > 0 ? data.members[data.activeIndex] : undefined;
+  // Same title-required gate as the Dock's own hasUnsavedDraft (stackService.
+  // saveMemberToVault rejects a blank title) — an untitled alternate isn't
+  // "ready to save" yet.
   const hasUnsavedDraft =
-    !!active && (active.draftTitle !== null || active.draftContent !== null || !active.card.savedToVault);
+    !!active &&
+    (active.draftTitle !== null || active.draftContent !== null || !active.card.savedToVault) &&
+    (active.draftTitle ?? active.card.title).trim() !== "";
   const generation = useGeneration(stack.refresh);
   // Purely a display preference, not app state — same "doesn't need to be lifted"
   // reasoning as Card.tsx's own `collapsed`.
@@ -131,6 +154,38 @@ export function StackBody({ stackCardId, selected }: { stackCardId: string; sele
           onAdd={stack.addMember}
           disabled={generation.isStreaming}
         />
+        <div className="card__header-actions">
+          {onOpenFullscreen && (
+            <Button
+              iconOnly
+              aria-label={t("card.openFullscreen")}
+              title={t("card.openFullscreen")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFullscreen();
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="expand" />
+            </Button>
+          )}
+          {onRequestRemove && (
+            <Button
+              iconOnly
+              aria-label={t("card.remove")}
+              title={t("card.remove")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRequestRemove();
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="close" />
+            </Button>
+          )}
+        </div>
       </div>
       {!collapsed &&
         (generation.isStreaming && generation.rootId !== null ? (
