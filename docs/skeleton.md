@@ -45,15 +45,31 @@ through Step 5; see the note at the end of this list for what's changed since):
   formatting toolbar; embeds are a real `cardEmbed` node instead of `[[cardId]]`
   bracket tokens; diff/footnote/highlight annotations anchor against the document
   model instead of raw substrings.
+- [step11-stacks.md](./step11-stacks.md) — "stack" CardType: branching alternates
+  for a Card, each a real independent Card, with only the active one ever
+  rendering on the Page or contributing to generation context.
+- [step12-apps-and-actions.md](./step12-apps-and-actions.md) — Apps (save the
+  current Tab/Page as a reusable snapshot, re-open fresh copies later) and inline
+  Actions (a calibrated, clickable job button + input fields, placeable inside any
+  note's rich text, driven by a small fixed job registry).
+- [step13-rich-text-formatting.md](./step13-rich-text-formatting.md) — strikethrough/
+  underline/links/syntax-highlighted code blocks/blockquote/horizontal rule/full
+  H1-H6 headings, plus new node types: GFM tables, task lists, inline images,
+  Obsidian-style callouts, KaTeX math, and live Mermaid diagram previews.
+- [step14-cards-and-polish.md](./step14-cards-and-polish.md) — file Cards render
+  PDFs/Markdown properly; every CardType's header behaves consistently (fullscreen/
+  remove buttons, action ordering); two new CardTypes ("action", a whole-Card job
+  button, and "prompt", a self-contained input/AI-response box); a Hide/Show Dock
+  action finishing the previously half-built hidden-Card feature.
 
 **Status note**: the sections below (architecture decisions, data model, API
 endpoints, frontend file-by-file breakdown) describe the app **as of Step 5** and
-have not been rewritten for Steps 6–10 — treat them as historical background on the
+have not been rewritten for Steps 6–14 — treat them as historical background on the
 original shape, and read each linked step doc above for what actually changed. In
 particular: `Card.content` is HTML, not markdown, as of Step 10; the API endpoint
-table below predates `/api/tabs`, `/api/dock-cards`, `/api/folders`, and the
-streaming/annotation routes added in Steps 6–10; and `PageNav.tsx` (referenced below)
-was deleted in Step 9, merged into the Dock's own base bar.
+table below predates `/api/tabs`, `/api/dock-cards`, `/api/folders`, `/api/apps`, and
+the streaming/annotation routes added in Steps 6–14; and `PageNav.tsx` (referenced
+below) was deleted in Step 9, merged into the Dock's own base bar.
 
 As of Step 5, the foundation described by these steps is complete: adding a new card
 type, operation, model provider, parser, prompt template, locale, or metadata field
