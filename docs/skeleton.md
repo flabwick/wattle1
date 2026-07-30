@@ -61,14 +61,27 @@ through Step 5; see the note at the end of this list for what's changed since):
   remove buttons, action ordering); two new CardTypes ("action", a whole-Card job
   button, and "prompt", a self-contained input/AI-response box); a Hide/Show Dock
   action finishing the previously half-built hidden-Card feature.
+- [step15-rewrite-in-place.md](./step15-rewrite-in-place.md) — the Dock's magic
+  button, for a single selected plain Card, now redoes that Card's own content in
+  place via an instructed diff (reviewed through the existing diff UI) instead of
+  generating a new sibling Card.
+- [step16-prompt-card-rework.md](./step16-prompt-card-rework.md) — the "prompt"
+  CardType is now a flip card with an append-only iteration history, real rich-text
+  output, and four context modes (page/tab/specific cards/none); a dormant
+  "selection" prompt mode gets wired up for a new text-selection quick lookup.
+- [step17-multi-select-and-quotes.md](./step17-multi-select-and-quotes.md) — several
+  Cards can be selected at once now; dragging text and confirming it via the Dock's
+  quotation-mark action turns it into a persistent, Kindle-style highlighted "Quote";
+  both feed the Dock's own prompt panel as combined context, with everything driven
+  from the Dock rather than floating popups.
 
 **Status note**: the sections below (architecture decisions, data model, API
 endpoints, frontend file-by-file breakdown) describe the app **as of Step 5** and
-have not been rewritten for Steps 6–14 — treat them as historical background on the
+have not been rewritten for Steps 6–17 — treat them as historical background on the
 original shape, and read each linked step doc above for what actually changed. In
 particular: `Card.content` is HTML, not markdown, as of Step 10; the API endpoint
 table below predates `/api/tabs`, `/api/dock-cards`, `/api/folders`, `/api/apps`, and
-the streaming/annotation routes added in Steps 6–14; and `PageNav.tsx` (referenced
+the streaming/annotation routes added in Steps 6–17; and `PageNav.tsx` (referenced
 below) was deleted in Step 9, merged into the Dock's own base bar.
 
 As of Step 5, the foundation described by these steps is complete: adding a new card
