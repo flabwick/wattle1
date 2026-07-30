@@ -157,6 +157,12 @@ export interface GenerateRequest {
   pageCardId: string;
 }
 
+/** The "prompt" CardType's context-mode selector (cardMetadata.ts's `prompt.context`,
+ *  generationService.ts's assemblePromptCardContext) — shared between client
+ *  (usePromptGeneration.ts) and server (routes/generate.ts) so both sides read the
+ *  same fixed set of values. */
+export type PromptCardContextMode = "page" | "tab" | "cards" | "none";
+
 /** One piece of an accepted generation's content, in stream order: either literal
  *  text, or a nested card block to be materialized as its own standalone Card (see
  *  generationService.persistGeneratedCard) and spliced into the parent's content as a

@@ -16,7 +16,9 @@ import { useDockCards } from "./hooks/useDockCards.js";
 import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
+import { useGlobalSelectionTracking } from "./hooks/useGlobalSelectionTracking.js";
 import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
+import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
 import { runActionJob } from "./lib/actionJobs.js";
 import { t } from "./i18n/index.js";
@@ -28,13 +30,14 @@ const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 const NOOP_INDEX = (_index: number) => {};
 
 export function App() {
-  /** The single currently-selected top-level Card, if any, on the current Page —
-   *  only ever one at a time (toggleSelectPageCard replaces rather than adds to
-   *  this); tapping an already-selected Card again jumps into editing it instead.
-   *  Still a Set (rather than a plain id) since most call sites batch-shaped code
-   *  over it unchanged. Selection Lock (§4.3) keeps Page/Tab navigation disabled the
-   *  whole time this is non-empty, so its id is guaranteed to belong to
-   *  `currentPage` — nothing can navigate out from under it. */
+  /** Every currently-selected top-level Card on the current Page — multiple Cards
+   *  can be selected at once (toggleSelectPageCard adds rather than replaces);
+   *  tapping an already-selected Card's body is a no-op, its own header's edit/
+   *  deselect icons act on it instead. Dock actions (Save/Move/Hide/remove/the
+   *  prompt panel's context) all operate over the whole set. Selection Lock (§4.3)
+   *  keeps Page/Tab navigation disabled the whole time this is non-empty, so every
+   *  id in it is guaranteed to belong to `currentPage` — nothing can navigate out
+   *  from under it. */
   const [selectedPageCardIds, setSelectedPageCardIds] = useState<Set<string>>(new Set());
   /** Which Page fills the screen right now (Step 7: Pages are full-screen, navigated
    *  with the up/down arrows, one visible at a time — not a click-to-select thing). */
@@ -206,6 +209,10 @@ export function App() {
   // no flash of "nothing there" in between.
   const generation = useGeneration(refresh);
   const annotations = useAnnotations();
+  // Publishes the live text selection (any Card's rich text, root or embedded,
+  // read-only or mid-edit) to liveSelectionRegistry.ts — Dock.tsx reads it to know
+  // when to show its own "Quote" action, no separate mount needed here.
+  useGlobalSelectionTracking();
 
   // The currently-selected Card/embed's own live annotations, for the Dock's process/
   // accept-all-diffs actions (pendingDiffCount) — an embed's Card only lives in
@@ -228,34 +235,31 @@ export function App() {
     }
   }, [sortedPages, currentPageId]);
 
-  /** A plain tap on a Card (Card.tsx's onSelect) — replaces whatever was selected
-   *  with just this one Card (only ever one Page Card selected at a time now — no
-   *  more cumulative multi-select), or, if it's already the one selected, jumps
-   *  straight into editing it instead of deselecting — deselecting is no longer a
-   *  tap gesture at all; see exitEditPageCard and the Dock's own back-caret action.
-   *  Always hands focus away from whatever embed was independently selected, same
-   *  as before. */
+  /** A plain tap toggles a Card's own membership in the current (possibly
+   *  multi-Card) selection — tapping a not-yet-selected Card adds it, tapping an
+   *  already-selected one removes it again (via exitEditPageCard, so it drops out
+   *  of editingPageCardIds too if it was mid-edit) — same click-to-select/
+   *  click-to-deselect model Dock.tsx's own Quote highlights use, everything else
+   *  (Edit, Save, Move, Hide, remove) reached from the Dock instead of a per-Card
+   *  popup. Always hands focus away from whatever embed/Dock Card was independently
+   *  selected — those keep their own separate single-select mechanisms, untouched
+   *  by this. */
   function toggleSelectPageCard(id: string) {
     if (selectedPageCardIds.has(id)) {
-      // A Stack container has no title/content of its own to edit — StackBody's
-      // active member is always directly editable regardless of this flag (see
-      // StackEditor.tsx) — so there's nothing for a second tap to jump into.
-      const pageCard = currentPage?.pageCards.find((pc) => pc.id === id);
-      if (pageCard && getCardTypeId(pageCard.card) === "stack") return;
-      setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+      exitEditPageCard(id);
       return;
     }
-    setSelectedPageCardIds(new Set([id]));
-    setEditingPageCardIds(new Set());
+    setSelectedPageCardIds((prev) => new Set(prev).add(id));
     setSelectedEmbed(null);
     // Mutually exclusive with Dock Card selection (see toggleSelectDockCard) — the
-    // Dock's action row only ever shows one selection's actions at a time.
+    // Dock's action row only ever shows one *kind* of selection's actions at a time.
     setSelectedDockCardIds(new Set());
   }
 
-  /** The click-outside-to-close effect (Card.tsx's onCloseEditor) — exits editing
-   *  and deselects this Card, same net effect toggleSelectPageCard used to have when
-   *  tapping an already-selected+editing Card removed it from both sets. */
+  /** Exits editing and drops this one Card out of the current (possibly
+   *  multi-Card) selection, leaving every other selected Card untouched — the
+   *  click-outside-to-close effect (Card.tsx's onCloseEditor) and each selected
+   *  Card's own header "deselect" icon (headerActions) both call this. */
   function exitEditPageCard(id: string) {
     setEditingPageCardIds((prev) => {
       if (!prev.has(id)) return prev;
@@ -417,14 +421,15 @@ export function App() {
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [selectedPageCardIds, selectedDockCardIds, movingPageCardIds, movingDockCardIds]);
 
-  // Double-click / long-press a Card (Card.tsx) to jump straight into editing it —
-  // replaces whatever else was selected with just this one Card and opens its
-  // editor, regardless of what was selected/being edited before (a deliberate,
-  // explicit "edit this one now" gesture, distinct from the cumulative
-  // tap-to-add-to-selection gesture toggleSelectPageCard above handles).
+  // Double-click / long-press a Card, or its own header's explicit edit icon
+  // (Card.tsx/etc.'s headerActions) — adds it to editing (and to the selection, if
+  // it wasn't already) *alongside* whatever else is currently selected, same
+  // cumulative spirit as toggleSelectPageCard above. Unlike that function, this
+  // always ensures the Card ends up both selected and editing, even if it was
+  // already selected but not yet editing.
   function requestEditPageCard(id: string) {
-    setSelectedPageCardIds(new Set([id]));
-    setEditingPageCardIds(new Set([id]));
+    setSelectedPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+    setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setSelectedEmbed(null);
     setSelectedDockCardIds(new Set());
   }
@@ -695,9 +700,10 @@ export function App() {
     process: AnnotationProcess,
     selectionText?: string,
     pageCardId?: string,
+    instruction?: string,
   ) {
-    console.debug("[annot] App.handleRunProcess", { cardId, process, selectionText, pageCardId });
-    await annotations.runProcess(cardId, process, selectionText, pageCardId);
+    console.debug("[annot] App.handleRunProcess", { cardId, process, selectionText, pageCardId, instruction });
+    await annotations.runProcess(cardId, process, selectionText, pageCardId, instruction);
     await refresh();
     console.debug("[annot] App.handleRunProcess refresh() done");
   }
@@ -742,15 +748,26 @@ export function App() {
     generation.startForPage(currentPage.id, instruction);
   }
 
-  /** The Dock's Circle when one or more Cards are selected (Step 6 spec §4.2) —
-   *  anchored to the selection rather than the bottom of the Page: inserts directly
-   *  below whichever selected Card sorts last (the bottommost one, if more than one
-   *  is selected), same "insert directly below the trigger" semantics as a single
-   *  Card's generation always had, just extended to pick an anchor out of a group. */
-  function handleGenerateSelected() {
-    if (selectedPageCards.length === 0) return;
-    const bottommost = [...selectedPageCards].sort((a, b) => b.order - a.order)[0];
-    generation.start(bottommost.id);
+  /** The Dock's magic button when a single plain (non-Stack) Card is selected
+   *  (Dock.tsx's rewriteBoxOpen flow) — no longer inserts a new sibling Card the way
+   *  every other generation in the app does. Instead this redoes the Card's own
+   *  content in place: an instructed "diff" annotation run (annotationService.ts's
+   *  broader system-instructed.md prompt, threaded through as `instruction`) whose
+   *  proposed edits land as ordinary pending diffs, reviewed via the same
+   *  accept/accept-all UI every other diff run already uses — never a freestanding
+   *  new Card. A blank instruction (the box left empty) falls back to "diff"'s
+   *  original narrow proofread-only behavior. A selected Stack keeps its own
+   *  separate "append a new alternate" generation (Dock.tsx's isStackSelected),
+   *  untouched by this. */
+  function handleRewriteSelected(instruction: string) {
+    if (!singleSelectedCard) return;
+    handleRunProcess(
+      singleSelectedCard.card.id,
+      "diff",
+      undefined,
+      singleSelectedCard.id,
+      instruction.trim() || undefined,
+    );
   }
 
   /** Saves every selected Card that has something pending to the vault — a no-op for
@@ -939,6 +956,22 @@ export function App() {
     await createCardInPage(currentPage.id, "", content);
   }
 
+  // Lets the Dock's text-selection quick-lookup row (Dock.tsx's showLookupRow) add
+  // its result to the current Page/Dock without needing a prop threaded down to
+  // it — see quickAddRegistry.ts's doc comment. Re-registers on every relevant
+  // change since these are plain overwritten closures, not something anything else
+  // observes reactively.
+  useEffect(() => {
+    registerQuickAddHandlers({
+      addToPage: (html) => {
+        if (currentPage) void createCardInPage(currentPage.id, "", html);
+      },
+      addToDock: (html) => {
+        void dockCards.createCard("", html);
+      },
+    });
+  }, [currentPage, createCardInPage, dockCards.createCard]);
+
   async function handleUploadFileToCurrentPage(file: File) {
     if (!currentPage) return;
     await uploadFileToPage(currentPage.id, file);
@@ -977,7 +1010,7 @@ export function App() {
     await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "prompt",
-      prompt: { input: "", output: null },
+      prompt: { input: "", iterations: [], activeIndex: 0, context: { mode: "none", cardIds: [] } },
     });
   }
 
@@ -1107,17 +1140,20 @@ export function App() {
     setEditingAppName(null);
   }
 
-  /** The per-Card "X" header button (Card.tsx/StackBody.tsx/FileView.tsx) — the
-   *  direct-from-the-Card equivalent of the Dock's old "Remove"/"Close Stack"
-   *  actions, now removed from the Dock in favor of this. Same two rules those had:
-   *  a Stack Card closes as a whole (stackService.closeStack, promoting any
-   *  unsaved member to the vault first) since "remove" doesn't mean anything at the
-   *  per-alternate level; anything else just detaches from the Page, vault Card
-   *  untouched (pageCardService.removeFromPage). */
+  /** Removes one Card from the Page — the per-Card unit handleRemoveSelected below
+   *  loops over for the Dock's own bulk "remove selected" action (there's no longer
+   *  a per-Card "X" button; removal now only ever happens for the whole selection
+   *  at once, see Card.tsx's headerActions doc comment). Same two rules the old
+   *  per-Card button had: a Stack Card closes as a whole (stackService.closeStack,
+   *  promoting any unsaved member to the vault first) since "remove" doesn't mean
+   *  anything at the per-alternate level; anything else just detaches from the
+   *  Page, vault Card untouched (pageCardService.removeFromPage). Deliberately
+   *  doesn't touch selection state itself — handleRemoveSelected below deselects
+   *  once, after every removal in the batch has gone through, rather than each
+   *  call here doing it mid-loop. */
   async function handleRequestRemovePageCard(pageCardId: string) {
     const pageCard = currentPage?.pageCards.find((pc) => pc.id === pageCardId);
     if (!pageCard) return;
-    if (selectedPageCardIds.has(pageCardId)) deselectAll();
     if (focusedPageCardId === pageCardId) setFocusedPageCardId(null);
     if (getCardTypeId(pageCard.card) === "stack") {
       await api.closeStack(pageCard.card.id);
@@ -1125,6 +1161,19 @@ export function App() {
       await api.removePageCardFromPage(pageCardId);
     }
     await refresh();
+  }
+
+  /** The Dock's bulk "Remove" action (selectedCards row) — removes every currently
+   *  selected Card from the Page in one go, then clears the selection (there's
+   *  nothing left on the Page for it to point at). Sequential, not Promise.all: each
+   *  call's own refresh() re-fetches `pages`, so a later iteration's
+   *  currentPage.pageCards lookup (handleRequestRemovePageCard) sees the previous
+   *  removal already reflected rather than racing against a stale snapshot. */
+  async function handleRemoveSelected() {
+    for (const id of [...selectedPageCardIds]) {
+      await handleRequestRemovePageCard(id);
+    }
+    deselectAll();
   }
 
   // Pages are only ever added at the bottom of the stack (the down arrow becomes a
@@ -1215,7 +1264,6 @@ export function App() {
           }
           onOpenFullscreen={setFocusedPageCardId}
           onTurnIntoStack={handleTurnIntoStackWithNewCard}
-          onRequestRemove={handleRequestRemovePageCard}
           movingPageCardIds={EMPTY_ID_SET}
           onDropAt={NOOP_INDEX}
           dockCardMoving={false}
@@ -1266,7 +1314,6 @@ export function App() {
             }
             onOpenFullscreen={setFocusedPageCardId}
             onTurnIntoStack={handleTurnIntoStackWithNewCard}
-            onRequestRemove={handleRequestRemovePageCard}
             movingPageCardIds={movingPageCardIds}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
             dockCardMoving={movingDockCardIds.size > 0}
@@ -1318,10 +1365,9 @@ export function App() {
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onSaveSelected={handleSaveSelected}
+        onRemoveSelected={handleRemoveSelected}
         onToggleHiddenSelected={handleToggleHiddenSelected}
-        generating={generation.isStreaming}
-        onStopGeneration={generation.stop}
-        onGenerateSelected={handleGenerateSelected}
+        onRewriteSelected={handleRewriteSelected}
         onRunProcess={
           dockAnnotationCardId
             ? (process) => {

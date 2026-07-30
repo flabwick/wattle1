@@ -13,7 +13,10 @@ import "./ActionCard.css";
  * "select, then run" step, same as the inline node's own view-mode click); the
  * header's gear button jumps into ActionCardEditor.tsx to calibrate it instead —
  * same "+"-slot convention as a note Card's "turn into stack" (Card.tsx), just a
- * settings icon rather than a plus since there's nothing to add, only configure.
+ * settings icon rather than a plus since there's nothing to add, only configure. A
+ * tap elsewhere on the card toggles selection (App.tsx's toggleSelectPageCard) — in
+ * if not already selected, out again if it was; everything else (Save, Move, Hide,
+ * remove) is reached from the Dock.
  */
 export function ActionCardView({
   pageCard,
@@ -21,7 +24,6 @@ export function ActionCardView({
   onSelect,
   onRequestEdit,
   onOpenFullscreen,
-  onRequestRemove,
   onRunActionJob,
   generatingPageCardId,
 }: CardTypeViewProps) {
@@ -67,21 +69,6 @@ export function ActionCardView({
               onTouchStart={(e) => e.stopPropagation()}
             >
               <Icon name="expand" />
-            </Button>
-          )}
-          {onRequestRemove && (
-            <Button
-              iconOnly
-              aria-label={t("card.remove")}
-              title={t("card.remove")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRequestRemove(pageCard.id);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="close" />
             </Button>
           )}
         </div>

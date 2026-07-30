@@ -34,6 +34,10 @@ export interface SelectionModeInput {
   context: ContextEntry[];
   /** The highlighted/selected text this sub-prompt is scoped to. */
   selectedText: string;
+  /** An optional free-text instruction from the quick-lookup popup's own textbox
+   *  (QuickLookupMenu.tsx) — when omitted or blank, the model defaults to a plain,
+   *  short clarification of the selected text (see prompts/selection/system.md). */
+  instruction?: string;
 }
 
 export interface InteractiveModeInput {
@@ -86,11 +90,15 @@ export function compilePrompt(input: CompilePromptInput): CompiledPrompt {
   switch (input.mode) {
     case "generate":
       return { systemPrompt, userMessage: contextText };
-    case "selection":
+    case "selection": {
+      const instruction = input.instruction?.trim();
       return {
         systemPrompt,
-        userMessage: `${contextText}\n\n---\nSelected text:\n${input.selectedText}`,
+        userMessage: `${contextText}\n\n---\nSelected text:\n${input.selectedText}${
+          instruction ? `\n\n---\nUser instruction:\n${instruction}` : ""
+        }`,
       };
+    }
     case "interactive":
       return {
         systemPrompt,

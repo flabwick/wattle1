@@ -8,15 +8,17 @@ import * as annotationService from "../services/annotationService.js";
 export const annotationsRouter = Router();
 
 // POST /api/annotations/run  { process, cardId, selection?: { cardId, text },
-// pageCardId? } — the sole model invocation for a diff/footnote/highlight run,
-// whole-card (root + nested) or scoped to a text selection. `pageCardId`, if the
+// pageCardId?, instruction? } — the sole model invocation for a diff/footnote/highlight
+// run, whole-card (root + nested) or scoped to a text selection. `pageCardId`, if the
 // target Card is currently open on a Page, resolves its *effective* (draft-aware)
 // content — see annotationService.ts's resolveDraftTarget doc comment: a not-yet-saved
 // Card's real content can be empty/stale while the PageCard's own draftContent is what
-// the user is actually looking at. Returns every Card that received a new annotation.
+// the user is actually looking at. `instruction`, only meaningful for process "diff",
+// drives the Dock's magic-button rewrite-in-place flow instead of its default narrow
+// proofread-only behavior. Returns every Card that received a new annotation.
 annotationsRouter.post("/run", async (req, res) => {
-  const { process, cardId, selection, pageCardId } = req.body ?? {};
-  const cards = await annotationService.runAnnotationProcess(process, cardId, selection, pageCardId);
+  const { process, cardId, selection, pageCardId, instruction } = req.body ?? {};
+  const cards = await annotationService.runAnnotationProcess(process, cardId, selection, pageCardId, instruction);
   res.json({ cards });
 });
 

@@ -21,6 +21,7 @@ import { CalloutNodeView } from "./CalloutNodeView.js";
 import { MathNodeView } from "./MathNodeView.js";
 import { CodeBlockNodeView } from "./CodeBlockNodeView.js";
 import { AnnotationDecorations } from "./AnnotationDecorations.js";
+import { SelectionHighlightDecoration } from "./SelectionHighlightDecoration.js";
 
 /** Same node name/schema as the server's headless baseRichTextExtensions
  *  (@wattle/shared), extended with a React NodeView so it actually renders as a
@@ -91,4 +92,5 @@ export const richTextExtensions: Extensions = [
   ActionButtonNodeExtension,
   ActionFieldNodeExtension,
   AnnotationDecorations,
+  SelectionHighlightDecoration,
 ];

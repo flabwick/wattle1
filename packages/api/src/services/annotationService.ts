@@ -158,8 +158,12 @@ async function resolveScopeCards(
  *  are short JSON arrays, not long-form content, so there's no need for the SSE
  *  streaming/ghost-card machinery generationService.ts uses — one blocking call is
  *  simpler and sufficient. */
-async function callModel(process: AnnotationProcess, cards: AnnotationTargetCard[]): Promise<string> {
-  const { systemPrompt, userMessage } = compileAnnotationPrompt({ process, cards });
+async function callModel(
+  process: AnnotationProcess,
+  cards: AnnotationTargetCard[],
+  instruction?: string,
+): Promise<string> {
+  const { systemPrompt, userMessage } = compileAnnotationPrompt({ process, cards, instruction });
 
   const providerId = activeProviderId();
   const provider = modelProviderRegistry.get(providerId);
@@ -251,12 +255,16 @@ async function patchAnnotations(
  * Runs an AI annotation process against a whole Card (+ its nested Cards) or a single
  * selection within one Card. Returns the updated Card for every Card that actually
  * received a new annotation — none, if every proposed entry failed its anchor check.
+ * `instruction`, only meaningful for process "diff", drives the Dock's magic-button
+ * rewrite-in-place flow (App.tsx's handleRewriteSelected) — see
+ * annotationCompiler.ts's doc comment on CompileAnnotationInput.instruction.
  */
 export async function runAnnotationProcess(
   process: AnnotationProcess,
   targetCardId: string,
   selection?: AnnotationSelection,
   targetPageCardId?: string,
+  instruction?: string,
 ): Promise<Card[]> {
   let targets: AnnotationTargetCard[];
   let contentByCardId: Map<string, string>;
@@ -282,7 +290,7 @@ export async function runAnnotationProcess(
     return [];
   }
 
-  const raw = await callModel(process, targets);
+  const raw = await callModel(process, targets, instruction);
   const entries = parseAnnotationResponse(raw);
   console.log(
     `[annot] runAnnotationProcess(${process}) parsed ${entries.length} syntactically-valid entr${entries.length === 1 ? "y" : "ies"} from the model's response`,

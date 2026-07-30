@@ -141,6 +141,90 @@
   color: var(--color-text);
 }
 
+/* The text-selection quick-lookup panel (Dock.tsx's showLookupRow) — an *addition*
+   above .dock__bottom-row, not a replacement of it (the row keeps showing the
+   formatting toolbar/normal actions underneath, unaffected), same "extra content
+   needs real room, not a single icon row" reasoning as the error/notice banners
+   above, but its own quieter surface rather than a colored banner since this isn't
+   an error state. */
+.dock__lookup-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.dock__lookup-ask {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* "12 words, 2 cards, 1 quote" (Dock.tsx's lookupWordCount) — a quiet status line,
+   not another action, so it reads distinctly from the ask row above it. */
+.dock__lookup-summary {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+}
+
+.dock__lookup-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-bold) solid var(--color-border);
+  padding: 0 0 2px;
+}
+
+.dock__lookup-input:focus {
+  outline: none;
+  border-bottom-color: var(--color-accent);
+}
+
+.dock__lookup-input::placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.dock__lookup-generating {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.dock__lookup-result {
+  font-size: var(--font-size-sm);
+}
+
+.dock__lookup-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dock__lookup-actions .button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.dock__lookup-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
 .dock__bottom-row {
   display: flex;
   align-items: center;
@@ -153,6 +237,32 @@
   overflow-x: auto;
   flex: 1;
   min-width: 0;
+  align-items: center;
+}
+
+/* The magic button's rewrite-in-place text box (Dock.tsx's rewriteBoxOpen) — sits
+   between the row's back-caret and send buttons, same inline-underline convention as
+   FeedInputButton.css's own feed-input__inline-input. */
+.dock__rewrite-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-bold) solid var(--color-border);
+  padding: 0 0 2px;
+}
+
+.dock__rewrite-input:focus {
+  outline: none;
+  border-bottom-color: var(--color-accent);
+}
+
+.dock__rewrite-input::placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 /* The Page nav cluster (merged up/down/add + Pages panel toggle — formerly the

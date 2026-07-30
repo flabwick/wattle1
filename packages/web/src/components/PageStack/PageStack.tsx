@@ -65,12 +65,6 @@ interface PageCardSlotProps {
    *  Stack Card's own "+" (StackBody.tsx) just adds another alternate directly,
    *  no App.tsx round trip needed. */
   onTurnIntoStack: (pageCardId: string) => void;
-  /** Every Card's top-right "X" corner button (App.tsx's
-   *  handleRequestRemovePageCard) — closes/removes this Card from the Page (a Stack
-   *  closes as a whole; anything else just detaches). Forwarded the same way as
-   *  onOpenFullscreen: to both the "note" branch and the generic cardTypeUiRegistry
-   *  path. */
-  onRequestRemove: (pageCardId: string) => void;
 }
 
 /**
@@ -105,7 +99,6 @@ function PageCardSlot({
   pageSiblings,
   onOpenFullscreen,
   onTurnIntoStack,
-  onRequestRemove,
 }: PageCardSlotProps) {
   // Excluded from normal Page rendering (Apps feature spec §2) — everything else
   // about this slot (Move Mode's drop zones, index math) stays exactly as if this
@@ -144,7 +137,6 @@ function PageCardSlot({
         pageSiblings={pageSiblings}
         onOpenFullscreen={() => onOpenFullscreen(pageCard.id)}
         onTurnIntoStack={() => onTurnIntoStack(pageCard.id)}
-        onRequestRemove={() => onRequestRemove(pageCard.id)}
       />
     );
   }
@@ -155,7 +147,6 @@ function PageCardSlot({
         pageCard={pageCard}
         onChangeDraft={onChangeDraft}
         onOpenFullscreen={onOpenFullscreen}
-        onRequestRemove={onRequestRemove}
         onRunActionJob={onRunActionJob}
         generatingPageCardId={generatingPageCardId}
         pageSiblings={pageSiblings}
@@ -169,7 +160,6 @@ function PageCardSlot({
       onSelect={onSelect}
       onRequestEdit={onRequestEdit}
       onOpenFullscreen={onOpenFullscreen}
-      onRequestRemove={onRequestRemove}
       onRunActionJob={onRunActionJob}
       generatingPageCardId={generatingPageCardId}
     />
@@ -188,16 +178,17 @@ interface PageStackProps {
   /** The Dock's "reveal hidden cards" toggle (App.tsx state) — see
    *  PageCardSlotProps.revealHidden above. */
   revealHidden: boolean;
-  /** Only one Card selected at a time — tapping a Card replaces whatever was
-   *  selected with it (App.tsx's toggleSelectPageCard). */
+  /** Multiple Cards can be selected at once now — tapping a not-yet-selected Card
+   *  adds it (App.tsx's toggleSelectPageCard); tapping an already-selected Card's
+   *  body is a no-op (its own header's edit/deselect icons act on it instead). */
   selectedPageCardIds: ReadonlySet<string>;
   /** A Card only ever edits if it's also selected (App.tsx's exitEditPageCard/the
    *  Dock's own back-caret action both clear a Card from this set and
    *  selectedPageCardIds together), but not every selected Card is necessarily
    *  editing — same independent-per-Card convention as editingEmbedIds. */
   editingPageCardIds: ReadonlySet<string>;
-  /** A tap — selects if not already selected, or (if it already was) jumps into
-   *  edit mode instead (App.tsx's toggleSelectPageCard). */
+  /** A tap on a not-yet-selected Card adds it to the selection; a no-op on an
+   *  already-selected one (App.tsx's toggleSelectPageCard). */
   onTogglePageCard: (id: string) => void;
   /** The click-outside-to-close effect (Card.tsx) calls this instead — fully exits
    *  editing and deselects just this one Card (App.tsx's exitEditPageCard). */
@@ -229,10 +220,9 @@ interface PageStackProps {
     jobParams: Record<string, unknown> | undefined,
   ) => void;
   generatingPageCardId: string | null;
-  /** See PageCardSlotProps.onOpenFullscreen/onTurnIntoStack/onRequestRemove above. */
+  /** See PageCardSlotProps.onOpenFullscreen/onTurnIntoStack above. */
   onOpenFullscreen: (pageCardId: string) => void;
   onTurnIntoStack: (pageCardId: string) => void;
-  onRequestRemove: (pageCardId: string) => void;
   /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
    *  transit as one batch (Step 6 spec §4.2's "Move" on a multi-selection), or empty
    *  when not moving. */
@@ -338,7 +328,6 @@ export function PageStack({
   generatingPageCardId,
   onOpenFullscreen,
   onTurnIntoStack,
-  onRequestRemove,
   movingPageCardIds,
   onDropAt,
   dockCardMoving,
@@ -410,7 +399,6 @@ export function PageStack({
                   pageSiblings={currentPage.pageCards}
                   onOpenFullscreen={onOpenFullscreen}
                   onTurnIntoStack={onTurnIntoStack}
-                  onRequestRemove={onRequestRemove}
                 />
                 {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}
               </div>

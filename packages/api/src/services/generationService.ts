@@ -1,4 +1,11 @@
-import type { GeneratedCardPart, GenerationContextEntry, GenerateResponse, PageCard, StackMember } from "@wattle/shared";
+import type {
+  GeneratedCardPart,
+  GenerationContextEntry,
+  GenerateResponse,
+  PageCard,
+  PromptCardContextMode,
+  StackMember,
+} from "@wattle/shared";
 import {
   cardTypeRegistry,
   defaultMetadata,
@@ -180,24 +187,13 @@ async function resolveInstructionEmbeds(instructionHtml: string): Promise<string
   return resolved ? `${plain}\n\n${resolved}` : plain;
 }
 
-async function* streamForTarget(
-  target: GenerationTarget,
-  instruction?: string,
-  /** True for a Prompt Card's "on its own" mode (Apps feature follow-up) — skips the
-   *  Generation Rule entirely (renderContext's own "(no context above)" placeholder
-   *  degrades gracefully to this) so the model sees only the instruction. */
-  standalone?: boolean,
-): AsyncGenerator<CardBlockEvent> {
-  const context = standalone ? [] : await assembleContextForTarget(target);
-  const resolvedInstruction = instruction ? await resolveInstructionEmbeds(instruction) : undefined;
-  // An instruction typed into the Feed Input Button's expanded text field (Step 6
-  // spec §2.2), or configured on a Prompt Card, reuses the existing "interactive"
-  // prompt mode — it was already built for exactly this "override instruction
-  // alongside the normal context" shape (context is just empty in standalone mode).
-  const { systemPrompt, userMessage } = resolvedInstruction
-    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
-    : compilePrompt({ mode: "generate", context });
-
+/** The shared tail every prompt-compilation path streams through: calls the active
+ *  ModelProvider with an already-compiled {systemPrompt, userMessage} pair, pushes its
+ *  raw text through a CardBlockParser, and yields that parser's events. Split out of
+ *  streamForTarget so the prompt-card/quick-lookup generators below (which compile
+ *  their own prompts against different context rules — see assemblePromptCardContext)
+ *  can reuse this same provider/parser plumbing and logging instead of duplicating it. */
+async function* streamCompiledPrompt(systemPrompt: string, userMessage: string): AsyncGenerator<CardBlockEvent> {
   const providerId = activeProviderId();
   const provider = modelProviderRegistry.get(providerId);
   const settings = configuredProviderSettings(providerId);
@@ -206,7 +202,7 @@ async function* streamForTarget(
   // characterized. Runs server-side (Node), so it only shows up in the terminal
   // running `npm run dev`/`npm run dev:api`, never in the browser console.
   console.log(
-    `[gen] streamForTarget provider=${providerId} model=${settings?.model ?? "(default)"} maxTokens=${settings?.maxTokens ?? "(default)"}`,
+    `[gen] streamCompiledPrompt provider=${providerId} model=${settings?.model ?? "(default)"} maxTokens=${settings?.maxTokens ?? "(default)"}`,
   );
 
   const parser = new CardBlockParser();
@@ -238,6 +234,28 @@ async function* streamForTarget(
   for (const event of finalEvents) yield event;
 }
 
+async function* streamForTarget(
+  target: GenerationTarget,
+  instruction?: string,
+  /** True for the "promptCard" action job's "on its own" context mode (lib/actionJobs.ts
+   *  on the web side) — skips the Generation Rule entirely (renderContext's own "(no
+   *  context above)" placeholder degrades gracefully to this) so the model sees only
+   *  the instruction. Distinct from the "prompt" CardType's own generation
+   *  (streamPromptCardGeneration below), which has its own four-way context mode. */
+  standalone?: boolean,
+): AsyncGenerator<CardBlockEvent> {
+  const context = standalone ? [] : await assembleContextForTarget(target);
+  const resolvedInstruction = instruction ? await resolveInstructionEmbeds(instruction) : undefined;
+  // An instruction typed into the Feed Input Button's expanded text field (Step 6
+  // spec §2.2), or the "promptCard" action job, reuses the existing "interactive"
+  // prompt mode — it was already built for exactly this "override instruction
+  // alongside the normal context" shape (context is just empty in standalone mode).
+  const { systemPrompt, userMessage } = resolvedInstruction
+    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
+    : compilePrompt({ mode: "generate", context });
+  yield* streamCompiledPrompt(systemPrompt, userMessage);
+}
+
 /** Card-level generation — GET /api/generate/stream/:pageCardId. `standalone` is
  *  only ever true for a Prompt Card's "on its own" job (lib/actionJobs.ts on the web
  *  side) — every other caller (Dock's Generate, the Feed Input Button) omits it. */
@@ -262,6 +280,75 @@ export function streamGenerationForStackMember(
   instruction?: string,
 ): AsyncGenerator<CardBlockEvent> {
   return streamForTarget({ type: "stackMember", memberId }, instruction);
+}
+
+/** The "prompt" CardType's own four context modes (cardMetadata.ts's
+ *  `prompt.context`) — deliberately *not* the directional Generation Rule every other
+ *  generation in the app follows (assembleContextForTarget above): "page"/"tab" here
+ *  mean *every* Card on the current Page/Tab, regardless of position, since a Prompt
+ *  Card is asking a question about its surroundings, not continuing from a fixed point
+ *  in them. "cards" is an explicit, order-independent list picked by the user
+ *  (PromptCardBody.tsx's context-settings popover); "none" (the default) matches this
+ *  CardType's original standalone-only behavior. Returns the minimal {title, content}
+ *  shape compilePrompt actually consumes, not the heavier GenerationContextEntry (which
+ *  exists only to power the context-preview endpoint/GenerateResponse — neither of
+ *  which a Prompt Card's generation surfaces). */
+async function assemblePromptCardContext(
+  pageCardId: string,
+  mode: PromptCardContextMode,
+  cardIds: string[],
+): Promise<{ title: string; content: string }[]> {
+  if (mode === "none") return [];
+
+  if (mode === "cards") {
+    if (cardIds.length === 0) return [];
+    const cards = await prisma.card.findMany({ where: { id: { in: cardIds } } });
+    return cards.map((c) => ({ title: c.title, content: c.content }));
+  }
+
+  const trigger = await prisma.pageCard.findUniqueOrThrow({
+    where: { id: pageCardId },
+    include: { page: true },
+  });
+  const pageCards = await prisma.pageCard.findMany({
+    where: mode === "page" ? { pageId: trigger.pageId } : { page: { tabId: trigger.page.tabId } },
+    orderBy: [{ page: { order: "asc" } }, { order: "asc" }],
+    include: { card: true, page: true },
+  });
+  // Excludes the Prompt Card's own PageCard — it has nothing useful to say about
+  // itself as "context" (its own content is just the prompt input/history).
+  const others = pageCards.filter((pc) => pc.id !== pageCardId);
+  return Promise.all(others.map((pc) => resolveContextContent(pc)));
+}
+
+/** The "prompt" CardType's own generation — GET
+ *  /api/generate/stream/prompt-card/:pageCardId. Reuses the "interactive" prompt mode
+ *  (the typed prompt is an override instruction, same shape the Feed Input Button's
+ *  guided text and the "promptCard" action job already use) against whichever context
+ *  mode the Card is configured for, instead of streamForTarget's directional Generation
+ *  Rule / fixed standalone-or-not choice. */
+export function streamPromptCardGeneration(
+  pageCardId: string,
+  input: string,
+  contextMode: PromptCardContextMode,
+  contextCardIds: string[],
+): AsyncGenerator<CardBlockEvent> {
+  return (async function* () {
+    const context = await assemblePromptCardContext(pageCardId, contextMode, contextCardIds);
+    const { systemPrompt, userMessage } = compilePrompt({ mode: "interactive", context, overridePrompt: input });
+    yield* streamCompiledPrompt(systemPrompt, userMessage);
+  })();
+}
+
+/** The text-selection quick-lookup popup's generation — GET
+ *  /api/generate/stream/lookup. Not tied to any Card/PageCard at all: no context is
+ *  assembled (confirmed default — a lookup should be fast and self-contained), and
+ *  nothing is ever persisted server-side for it — the popup holds the result as local
+ *  state until the user explicitly adds it to the Page or Dock (ordinary Card-creation
+ *  calls at that point, not a generation-acceptance one). */
+export function streamSelectionLookup(selectedText: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  const { systemPrompt, userMessage } = compilePrompt({ mode: "selection", context: [], selectedText, instruction });
+  return streamCompiledPrompt(systemPrompt, userMessage);
 }
 
 function isRegisteredCardType(id: string): boolean {

@@ -8,6 +8,16 @@
   outline: none;
 }
 
+/* Same color/opacity as AnnotatedText.css's .selection-highlight mark (the
+   *persistent* decoration a drag-selection turns into, via
+   SelectionHighlightDecoration.ts) — while actively dragging, before that
+   decoration has painted, the browser's own native selection uses this instead of
+   its default blue, so the two never visually clash or double-tint once both are
+   showing at once. */
+.card-rich-text ::selection {
+  background: color-mix(in srgb, var(--color-highlight) 45%, transparent);
+}
+
 .card-rich-text .ProseMirror p {
   margin: 0 0 var(--space-2);
   white-space: pre-wrap;

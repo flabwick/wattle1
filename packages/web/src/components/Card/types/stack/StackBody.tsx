@@ -33,8 +33,10 @@ import "../../Card.css";
  *
  * Save for the active alternate lives in the Dock, not as an inline button here
  * (Dock.tsx's isStackSelected row) — this only publishes the callback it needs
- * (activeStackRegistry.ts) while `selected` is true. Closing the Stack as a whole
- * (removing it from the Page) is the header's own "X" button below, not the Dock.
+ * (activeStackRegistry.ts) while `selected` is true. A tap toggles the container's
+ * own selection in/out (StackView.tsx's onClick); removing the whole Stack from the
+ * Page is the Dock's bulk "Remove" action
+ * (App.tsx's handleRemoveSelected).
  *
  * A blank alternate (added via the rail's "+", never touched since) shows its own
  * Feed Input Button — Generate + a typed guide, same as a blank Page — instead of
@@ -53,7 +55,6 @@ export function StackBody({
   stackCardId,
   selected,
   onOpenFullscreen,
-  onRequestRemove,
 }: {
   stackCardId: string;
   selected: boolean;
@@ -61,12 +62,6 @@ export function StackBody({
    *  name; StackView/StackEditor forward this down from the generic CardTypeUi
    *  props (registries/cardTypeUi.ts). */
   onOpenFullscreen?: () => void;
-  /** The header's "X" corner button — see Card.tsx's own prop of the same name;
-   *  same forwarding as onOpenFullscreen above. Closes the whole Stack (every
-   *  alternate) off the Page in one step — there's no separate "remove just this
-   *  alternate" affordance any more (see CardStackRail's own "+"/next toggle for
-   *  adding/browsing alternates instead). */
-  onRequestRemove?: () => void;
 }) {
   const stack = useCardStack(stackCardId);
   const data = stack.data;
@@ -168,21 +163,6 @@ export function StackBody({
               onTouchStart={(e) => e.stopPropagation()}
             >
               <Icon name="expand" />
-            </Button>
-          )}
-          {onRequestRemove && (
-            <Button
-              iconOnly
-              aria-label={t("card.remove")}
-              title={t("card.remove")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRequestRemove();
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="close" />
             </Button>
           )}
         </div>

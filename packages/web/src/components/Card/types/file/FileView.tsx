@@ -29,9 +29,11 @@ function extensionLabel(originalName: string): string | null {
  * client-side PDF library needed), a .md file is fetched as raw text and rendered as
  * GitHub-flavored markdown (tables, task lists, fenced code highlighting), and
  * anything else just shows the header (see fileCardType.ts — there's no editor for
- * any of these, so no onDoubleClick wired to onRequestEdit).
+ * any of these, so no onDoubleClick wired to onRequestEdit). A tap toggles selection
+ * (App.tsx's toggleSelectPageCard) — in if not already selected, out again if it
+ * was; everything else (Edit, Save, Move, Hide, remove) is reached from the Dock.
  */
-export function FileView({ pageCard, selected, onSelect, onOpenFullscreen, onRequestRemove }: CardTypeViewProps) {
+export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
   const file = pageCard.card.metadata.file;
   const markdown = !!file && isMarkdown(file.originalName, file.mimeType);
   const [markdownText, setMarkdownText] = useState<string | null>(null);
@@ -72,54 +74,29 @@ export function FileView({ pageCard, selected, onSelect, onOpenFullscreen, onReq
             <Icon name="expand" />
           </Button>
         )}
-        {onRequestRemove && (
-          <Button
-            iconOnly
-            aria-label={t("card.remove")}
-            title={t("card.remove")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRequestRemove(pageCard.id);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="close" />
-          </Button>
-        )}
       </div>
     </div>
   );
 
-  if (file && isPdf(file.originalName, file.mimeType)) {
-    return (
-      <CardShell selected={selected} onClick={onSelect}>
-        {header}
-        <iframe className="card__file-pdf" src={getCardFileUrl(pageCard.card.id)} title={file.originalName} />
-      </CardShell>
-    );
-  }
-
-  if (file && markdown) {
-    return (
-      <CardShell selected={selected} onClick={onSelect}>
-        {header}
-        <div className="card__file-markdown">
-          {markdownText !== null ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {markdownText}
-            </ReactMarkdown>
-          ) : (
-            file.originalName
-          )}
-        </div>
-      </CardShell>
-    );
-  }
+  const body =
+    file && isPdf(file.originalName, file.mimeType) ? (
+      <iframe className="card__file-pdf" src={getCardFileUrl(pageCard.card.id)} title={file.originalName} />
+    ) : file && markdown ? (
+      <div className="card__file-markdown">
+        {markdownText !== null ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            {markdownText}
+          </ReactMarkdown>
+        ) : (
+          file.originalName
+        )}
+      </div>
+    ) : null;
 
   return (
     <CardShell selected={selected} onClick={onSelect}>
       {header}
+      {body}
     </CardShell>
   );
 }

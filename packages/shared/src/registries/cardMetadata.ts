@@ -106,14 +106,43 @@ export const cardMetadataV1Schema = z.object({
       jobParams: z.record(z.unknown()),
     })
     .optional(),
-  /** Set only on typeId "prompt" Cards — a self-contained input/output box: typed
-   *  instructions in, a standalone (no Page context) AI completion streamed back
-   *  and saved in place below it — see PromptCardBody.tsx/usePromptGeneration.ts.
-   *  `output` is null until the first send completes. */
+  /** Set only on typeId "prompt" Cards — a flip-card input/output box: `input` is the
+   *  live draft prompt text on the front face; each Send appends a new entry to
+   *  `iterations` (never overwrites one) rather than replacing a single output, so
+   *  past generations stay reachable via `activeIndex` — see PromptCardBody.tsx's
+   *  flip/rail UI and usePromptGeneration.ts. `context` controls what the generation
+   *  sees: "none" (default, matches the old standalone-only behavior), "page"/"tab"
+   *  (every Card on the current Page/Tab, not just the directional Generation Rule
+   *  every other generation in the app follows), or "cards" (an explicit list,
+   *  `cardIds`). All three new fields default so a pre-existing `{input, output}`
+   *  Card (this field's previous shape) still parses — `output` itself is dropped,
+   *  superseded by `iterations`. */
   prompt: z
     .object({
       input: z.string(),
-      output: z.string().nullable(),
+      iterations: z
+        .array(
+          z.object({
+            input: z.string(),
+            /** HTML — the same restricted rich-text tag set every other generation
+             *  in the app produces (see prompts/generate/system.md rule 6), rendered
+             *  read-only via CardRichText rather than as escaped plain text. */
+            output: z.string(),
+            createdAt: z.string(),
+          }),
+        )
+        .default([]),
+      /** Which `iterations` entry the back face currently shows — clamped to bounds
+       *  wherever it's read/written (PromptCardBody.tsx), same convention as
+       *  `stack.activeIndex` above. */
+      activeIndex: z.number().int().default(0),
+      context: z
+        .object({
+          mode: z.enum(["page", "tab", "cards", "none"]),
+          /** Only meaningful when `mode === "cards"`. */
+          cardIds: z.array(z.string()).default([]),
+        })
+        .default({ mode: "none", cardIds: [] }),
     })
     .optional(),
 });

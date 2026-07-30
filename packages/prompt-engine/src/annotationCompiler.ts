@@ -26,6 +26,14 @@ export interface AnnotationTargetCard {
 export interface CompileAnnotationInput {
   process: AnnotationProcess;
   cards: AnnotationTargetCard[];
+  /** Free-text instruction guiding a "diff" run beyond its default narrow
+   *  spelling/grammar-only scope (the Dock's magic-button rewrite-in-place flow,
+   *  App.tsx's handleRewriteSelected) — only meaningful for process "diff"; ignored
+   *  for footnote/highlight. Blank or omitted keeps "diff"'s original proofread-only
+   *  prompt (system.md); a non-blank instruction switches to the broader
+   *  rewrite-capable prompt (system-instructed.md), which still only ever proposes
+   *  anchor/replacement diffs, never freestanding new content. */
+  instruction?: string;
 }
 
 export interface CompiledAnnotationPrompt {
@@ -39,11 +47,14 @@ const SYSTEM_PROMPT_FILE: Record<AnnotationProcess, string> = {
   highlight: "highlight/system.md",
 };
 
+const INSTRUCTED_DIFF_SYSTEM_PROMPT_FILE = "diff/system-instructed.md";
+
 /** Reads a prompt file fresh off disk on every call, same convention as
  *  promptCompiler.ts's loadSystemPrompt — editing a .md file changes model behavior
  *  on the next run with no rebuild or restart. */
-function loadSystemPrompt(process: AnnotationProcess): string {
-  return readFileSync(join(PROMPTS_DIR, SYSTEM_PROMPT_FILE[process]), "utf-8").trim();
+function loadSystemPrompt(process: AnnotationProcess, instructed: boolean): string {
+  const file = instructed && process === "diff" ? INSTRUCTED_DIFF_SYSTEM_PROMPT_FILE : SYSTEM_PROMPT_FILE[process];
+  return readFileSync(join(PROMPTS_DIR, file), "utf-8").trim();
 }
 
 /** Renders the scope as one labeled block per Card, matching the `[cardId: <id>]
@@ -61,8 +72,12 @@ function renderCards(cards: AnnotationTargetCard[]): string {
  * so the model's response entries can be attributed back to the right Card.
  */
 export function compileAnnotationPrompt(input: CompileAnnotationInput): CompiledAnnotationPrompt {
+  const instruction = input.instruction?.trim();
+  const instructed = !!instruction && input.process === "diff";
   return {
-    systemPrompt: loadSystemPrompt(input.process),
-    userMessage: renderCards(input.cards),
+    systemPrompt: loadSystemPrompt(input.process, instructed),
+    userMessage: instructed
+      ? `User instruction: ${instruction}\n\n${renderCards(input.cards)}`
+      : renderCards(input.cards),
   };
 }

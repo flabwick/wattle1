@@ -11,10 +11,6 @@ export interface CardTypeViewProps {
    *  optional since not every registered type necessarily surfaces it; currently
    *  "stack" (StackView.tsx) and "file" (FileView.tsx) do. */
   onOpenFullscreen?: (pageCardId: string) => void;
-  /** Every Card's top-right "X" corner button (App.tsx's
-   *  handleRequestRemovePageCard) — closes/removes this Card from the Page. Same
-   *  optionality/forwarding convention as onOpenFullscreen above. */
-  onRequestRemove?: (pageCardId: string) => void;
   /** Fires one of the fixed action jobs (lib/actionJobs.ts) — the "note" branch
    *  (Card.tsx, via CardEditingContext) has had this since the inline actionButton
    *  node; the "action" CardType (ActionCardView.tsx) is the only *other* consumer
@@ -37,8 +33,6 @@ export interface CardTypeEditorProps {
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   /** Same as CardTypeViewProps.onOpenFullscreen above. */
   onOpenFullscreen?: (pageCardId: string) => void;
-  /** Same as CardTypeViewProps.onRequestRemove above. */
-  onRequestRemove?: (pageCardId: string) => void;
   /** Same as CardTypeViewProps.onRunActionJob above. */
   onRunActionJob?: (
     pageCard: PageCardWithCard,

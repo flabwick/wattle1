@@ -2,6 +2,45 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  perspective: 1600px;
+}
+
+/* The flip mechanic — both faces are always mounted (grid-stacked into the same
+   cell, see .prompt-card__face below) so the 3D transform has something to rotate
+   away from/into at every moment; `flipped` just toggles which one is rotated
+   toward the viewer. Stacking via CSS Grid rather than position:absolute sizes the
+   container to the *taller* of the two faces (a long generated response can be much
+   taller than the compact input box) — known tradeoff: the front face's box can
+   show extra blank space below it while a taller response is active on the back. */
+.prompt-card__flip {
+  position: relative;
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.prompt-card__flip--flipped {
+  transform: rotateY(180deg);
+}
+
+.prompt-card__face {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  backface-visibility: hidden;
+}
+
+.prompt-card__face--back {
+  transform: rotateY(180deg);
+}
+
+/* Whichever face is rotated away is still in the DOM (see above) but shouldn't be
+   clickable/tabbable while hidden — a plain visibility toggle would also hide it
+   during the mid-flip transition, so this only strips interaction, not visibility. */
+.prompt-card__face--hidden {
+  pointer-events: none;
 }
 
 .prompt-card__input {
@@ -11,7 +50,9 @@
 
 .prompt-card__actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .prompt-card__actions .button {
@@ -20,21 +61,105 @@
   gap: var(--space-2);
 }
 
+.prompt-card__context-wrap {
+  position: relative;
+  margin-right: auto;
+}
+
+.prompt-card__context-popover {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  background: var(--color-surface-raised);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-2);
+}
+
+.prompt-card__context-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.prompt-card__context-mode {
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.prompt-card__context-mode--active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border-color: var(--color-accent);
+}
+
 .prompt-card__error {
   margin: 0;
   color: var(--color-danger);
   font-size: var(--font-size-sm);
 }
 
-/* The streamed/persisted response — same "retro terminal" quiet-box treatment
-   FileView.tsx's markdown preview and rich-text code blocks use for anything
-   that's read-only, monospace-adjacent output rather than editable prose. */
-.prompt-card__output {
-  padding: var(--space-2);
-  background: var(--color-surface-raised);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
+/* The back face's own small control cluster — same quiet, borderless treatment as
+   CardStackRail.css's rail, reusing its "up" chevron rotated sideways convention for
+   prev/next rather than adding dedicated left/right icons just for this. */
+.prompt-card__rail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.prompt-card__rail .button {
+  flex-shrink: 0;
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text-muted);
+}
+
+.prompt-card__rail .button:hover:not(:disabled) {
   color: var(--color-text);
+}
+
+.prompt-card__rail-arrow--left {
+  transform: rotate(-90deg);
+}
+
+.prompt-card__rail-arrow--right {
+  transform: rotate(90deg);
+}
+
+.prompt-card__rail-position {
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  white-space: pre-wrap;
+  font-family: var(--font-family-mono);
+}
+
+.prompt-card__generating {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.prompt-card__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
 }

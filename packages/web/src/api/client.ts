@@ -250,10 +250,11 @@ export const runAnnotationProcess = (
   cardId: string,
   selection?: { cardId: string; text: string },
   pageCardId?: string,
+  instruction?: string,
 ) =>
   request<{ cards: Card[] }>("/annotations/run", {
     method: "POST",
-    body: JSON.stringify({ process, cardId, selection, pageCardId }),
+    body: JSON.stringify({ process, cardId, selection, pageCardId, instruction }),
   });
 export const createManualHighlight = (
   cardId: string,

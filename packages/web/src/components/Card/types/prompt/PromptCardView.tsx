@@ -4,17 +4,12 @@ import { PromptCardBody } from "./PromptCardBody.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
 
-/** A tap selects the Prompt Card itself, same as any other top-level Card; the
- *  input/Send/output inside (PromptCardBody) is independently always-interactive
- *  regardless of selection — same "content isn't gated behind edit mode" precedent
- *  StackBody.tsx uses. */
-export function PromptCardView({
-  pageCard,
-  selected,
-  onSelect,
-  onOpenFullscreen,
-  onRequestRemove,
-}: CardTypeViewProps) {
+/** A tap toggles selection (App.tsx's toggleSelectPageCard) — in if not already
+ *  selected, out again if it was; everything else (Edit, Save, Move, Hide, remove)
+ *  is reached from the Dock. The input/Send/output inside (PromptCardBody) is
+ *  independently always-interactive regardless of selection — same "content isn't
+ *  gated behind edit mode" precedent StackBody.tsx uses. */
+export function PromptCardView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
   return (
     <CardShell selected={selected} onClick={onSelect}>
       <div className="card__header">
@@ -35,21 +30,6 @@ export function PromptCardView({
               onTouchStart={(e) => e.stopPropagation()}
             >
               <Icon name="expand" />
-            </Button>
-          )}
-          {onRequestRemove && (
-            <Button
-              iconOnly
-              aria-label={t("card.remove")}
-              title={t("card.remove")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onRequestRemove(pageCard.id);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="close" />
             </Button>
           )}
         </div>

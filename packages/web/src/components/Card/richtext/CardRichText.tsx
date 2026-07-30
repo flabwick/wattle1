@@ -12,7 +12,11 @@ import { CardEditingContext } from "./CardEditingContext.js";
 import type { CardEditingContextValue } from "./CardEditingContext.js";
 import { richTextExtensions } from "./extensions.js";
 import { annotationDecorationsKey } from "./AnnotationDecorations.js";
+import { selectionHighlightKey } from "./SelectionHighlightDecoration.js";
+import type { SelectionHighlightEntry } from "./SelectionHighlightDecoration.js";
 import { getActiveEditor, setActiveEditor, setActiveEditorFocused } from "../../../lib/activeEditorRegistry.js";
+import { useQuotes } from "../../../lib/quotesRegistry.js";
+import { setTargetedQuote, useTargetedQuote } from "../../../lib/targetedQuoteRegistry.js";
 import "../AnnotatedText.css";
 import "./CardRichText.css";
 
@@ -224,6 +228,23 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
     editor.view.dispatch(editor.state.tr.setMeta(annotationDecorationsKey, editable ? [] : annotations));
   }, [editor, annotations, editable]);
 
+  // Same tr.setMeta pattern, for the Dock's Quote highlights
+  // (SelectionHighlightDecoration.ts) — unlike annotations above, this renders in
+  // *both* modes (a Card can be part of the Dock's selection while being edited
+  // too), so there's no editable-gating here. Only this Card's own Quotes (several
+  // can coexist within it).
+  const quotes = useQuotes();
+  const targetedQuoteId = useTargetedQuote();
+  const ownQuoteEntries: SelectionHighlightEntry[] = quotes
+    .filter((q) => q.cardId === cardId)
+    .map((q) => ({ id: q.id, anchor: q.text, targeted: q.id === targetedQuoteId }));
+  const ownQuoteEntriesKey = ownQuoteEntries.map((e) => `${e.id}:${e.anchor}:${e.targeted}`).join(" ");
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(editor.state.tr.setMeta(selectionHighlightKey, ownQuoteEntries));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, ownQuoteEntriesKey]);
+
   // Event delegation for every annotation decoration's click target
   // (AnnotationDecorations.ts stamps a `data-annotation-id` on each) — decorations
   // are plain DOM, not JSX, so there's no per-span onClick to attach directly the
@@ -238,6 +259,23 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
       if (!target) return;
       e.stopPropagation();
       setOpen({ id: target.dataset.annotationId!, rect: target.getBoundingClientRect() });
+    }
+    container.addEventListener("click", handleClick);
+    return () => container.removeEventListener("click", handleClick);
+  }, []);
+
+  // Same event-delegation pattern as above, for a Quote's own highlight
+  // (SelectionHighlightDecoration.ts stamps a `data-quote-id` on each) — no popup
+  // any more, this just targets it (targetedQuoteRegistry.ts); the Dock's own
+  // action row shows the "Deselect quote" button once something's targeted.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    function handleClick(e: MouseEvent) {
+      const target = (e.target as Element).closest<HTMLElement>(".selection-highlight");
+      if (!target) return;
+      e.stopPropagation();
+      setTargetedQuote(target.dataset.quoteId!);
     }
     container.addEventListener("click", handleClick);
     return () => container.removeEventListener("click", handleClick);
@@ -335,7 +373,19 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
 
   return (
     <CardEditingContext.Provider value={contextValue}>
-      <div ref={containerRef} className="card-rich-text">
+      <div
+        ref={containerRef}
+        className="card-rich-text"
+        data-card-id={cardId}
+        // Clicking (or dragging to select) the actual text content must never
+        // bubble up to the Card's own onClick (Card.tsx/etc. — toggles the whole
+        // Card's selection in/out). Selecting a Card is reserved for its "blank
+        // space" — the header, margins, anything outside this content area — text
+        // stays a plain, always-available highlight target instead (the Dock's own
+        // "Quote" action is what turns a
+        // selection into something persistent now, not a click on the text itself).
+        onClick={(e) => e.stopPropagation()}
+      >
         <EditorContent editor={editor} />
         {editor?.isEmpty && !editable && placeholder && (
           <p className="card__preview card-rich-text__empty">{placeholder}</p>

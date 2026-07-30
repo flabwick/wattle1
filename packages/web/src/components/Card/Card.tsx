@@ -17,15 +17,16 @@ interface CardProps {
   selected: boolean;
   /** Whether this Card's inline editor is open — controlled from above (App.tsx). */
   editing: boolean;
-  /** A tap — selects this Card if it wasn't already, or (if it already was) jumps
-   *  straight into editing it instead (App.tsx's toggleSelectPageCard). Deselecting
-   *  no longer happens by tapping again; see onCloseEditor below and the Dock's own
-   *  back-caret action for that. */
+  /** A tap toggles this Card's own membership in the current (possibly multi-Card)
+   *  selection — tapping it in adds it, tapping it again removes it (App.tsx's
+   *  toggleSelectPageCard). Everything else (Edit, Save, Move, Hide, remove) is
+   *  reached from the Dock instead of a per-Card popup. */
   onSelect: () => void;
   /** The click-outside-to-close effect below calls this instead of onSelect —
    *  fully exits editing *and* deselects this one Card (App.tsx's
-   *  exitEditPageCard), same net effect onSelect's old toggle-off used to have,
-   *  without onSelect itself doing double duty as both "tap" and "click away". */
+   *  exitEditPageCard), same net effect a second tap has once this Card is no
+   *  longer editing, without onSelect itself doing double duty as both "tap" and
+   *  "click away". */
   onCloseEditor: () => void;
   /** Jump straight into editing this Card — double-click on desktop, long-press on
    *  touch (see the touch handlers below), or the Dock's Edit action. */
@@ -77,9 +78,6 @@ interface CardProps {
    *  adds a second (blank) alternate to it, in one step (App.tsx's
    *  handleTurnIntoStackWithNewCard). */
   onTurnIntoStack?: () => void;
-  /** The header's "X" corner button — closes/removes this Card from the Page
-   *  (App.tsx's handleRequestRemovePageCard). */
-  onRequestRemove?: () => void;
 }
 
 /**
@@ -125,7 +123,6 @@ export function CardView({
   pageSiblings,
   onOpenFullscreen,
   onTurnIntoStack,
-  onRequestRemove,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
@@ -230,7 +227,7 @@ export function CardView({
     }
   }
 
-  const headerActions = (onOpenFullscreen || onTurnIntoStack || onRequestRemove) && (
+  const headerActions = (onOpenFullscreen || onTurnIntoStack) && (
     <div className="card__header-actions">
       {onTurnIntoStack && (
         <Button
@@ -260,21 +257,6 @@ export function CardView({
           onTouchStart={(e) => e.stopPropagation()}
         >
           <Icon name="expand" />
-        </Button>
-      )}
-      {onRequestRemove && (
-        <Button
-          iconOnly
-          aria-label={t("card.remove")}
-          title={t("card.remove")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRequestRemove();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="close" />
         </Button>
       )}
     </div>

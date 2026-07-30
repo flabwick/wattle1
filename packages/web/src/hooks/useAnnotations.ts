@@ -18,12 +18,15 @@ export interface UseAnnotationsResult {
    *  `pageCardId`, when the target is a top-level (not-yet-saved) Card currently open
    *  on a Page, lets the API resolve its draft content instead of the vault Card's
    *  own (possibly empty/stale) row — see annotationService.ts's resolveDraftTarget
-   *  doc comment. Only Card.tsx ever supplies it (App.tsx's handle* wrappers). */
+   *  doc comment. Only Card.tsx ever supplies it (App.tsx's handle* wrappers).
+   *  `instruction`, only meaningful for process "diff", drives the Dock's
+   *  magic-button rewrite-in-place flow (App.tsx's handleRewriteSelected). */
   runProcess: (
     cardId: string,
     process: AnnotationProcess,
     selectionText?: string,
     pageCardId?: string,
+    instruction?: string,
   ) => Promise<void>;
   createManualHighlight: (cardId: string, anchor: string, color: string, pageCardId?: string) => Promise<void>;
   acceptDiff: (cardId: string, annotationId: string, pageCardId?: string) => Promise<void>;
@@ -59,12 +62,18 @@ export function useAnnotations(): UseAnnotationsResult {
   }, []);
 
   const runProcess = useCallback(
-    async (cardId: string, process: AnnotationProcess, selectionText?: string, pageCardId?: string) => {
-      console.debug("[annot] runProcess called", { cardId, process, selectionText, pageCardId });
+    async (
+      cardId: string,
+      process: AnnotationProcess,
+      selectionText?: string,
+      pageCardId?: string,
+      instruction?: string,
+    ) => {
+      console.debug("[annot] runProcess called", { cardId, process, selectionText, pageCardId, instruction });
       setRunning(true);
       await guarded(`runProcess(${process})`, async () => {
         const selection = selectionText !== undefined ? { cardId, text: selectionText } : undefined;
-        const { cards } = await api.runAnnotationProcess(process, cardId, selection, pageCardId);
+        const { cards } = await api.runAnnotationProcess(process, cardId, selection, pageCardId, instruction);
         console.debug(`[annot] runProcess(${process}) got ${cards.length} updated card(s)`, cards);
         cards.forEach(publishCard);
       });

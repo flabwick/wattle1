@@ -10,7 +10,7 @@ import type {
   PageWithCards,
   Tab,
 } from "@wattle/shared";
-import { cardTypeRegistry, operationRegistry } from "@wattle/shared";
+import { cardTypeRegistry, flattenToPlainText, htmlToDoc, operationRegistry } from "@wattle/shared";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import type { AnnotationProcess } from "../../api/client.js";
@@ -25,13 +25,21 @@ import { CardLinkPicker } from "../Card/CardLinkPicker.js";
 import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js";
 import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
 import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
+import { CardRichText } from "../Card/richtext/CardRichText.js";
 import { uploadRichTextImage } from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
+import { addQuote, clearQuotes, removeQuote, useQuotes } from "../../lib/quotesRegistry.js";
+import { useLiveSelection } from "../../lib/liveSelectionRegistry.js";
+import { setTargetedQuote, useTargetedQuote } from "../../lib/targetedQuoteRegistry.js";
 import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
+import { useSelectionLookup } from "../../hooks/useSelectionLookup.js";
+import { quickAddToDock, quickAddToPage } from "../../lib/quickAddRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
+
+const EMPTY_ANCESTOR_IDS: ReadonlySet<string> = new Set();
 
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
@@ -39,11 +47,12 @@ import "./Dock.css";
 export type DockPanel = "vault" | "dockCards" | "pages" | "tabs";
 
 interface DockProps {
-  /** The single currently-selected Card, if any — only ever one Page Card selected
-   *  at a time (App.tsx's toggleSelectPageCard replaces rather than adds to the
-   *  selection). Still an array since most of this file's logic was written
-   *  batch-shaped and works fine unchanged over 0-1 items. Empty when nothing's
-   *  selected. */
+  /** Every currently-selected Card — multiple Cards can be selected at once now
+   *  (App.tsx's toggleSelectPageCard adds rather than replaces). Save/Hide/Move/
+   *  removeSelected/the prompt panel's context all batch over the whole array;
+   *  actions that fundamentally need exactly one target (rewrite-in-place, a
+   *  selected Stack's own generation, annotate/diff processes) gate on
+   *  `.length === 1` and disappear otherwise. Empty when nothing's selected. */
   selectedCards: PageCardWithCard[];
   /** An independently-selected embedded Card's id (mutually exclusive with, and takes
    *  priority over, `selectedCards` — see App.tsx/CardContent.tsx). Gets the same
@@ -104,21 +113,28 @@ interface DockProps {
   /** Saves every selected Card that has something pending — a no-op for any that
    *  don't (App.tsx batches the existing per-Card save-to-vault call). */
   onSaveSelected: () => void;
+  /** Removes every selected Card from the Page in one go, then clears the
+   *  selection (App.tsx's handleRemoveSelected) — the only way to remove a Card
+   *  from the Page now; a tap on a Card itself just toggles its own selection
+   *  in/out (Card.tsx's onSelect). */
+  onRemoveSelected: () => void;
   /** Flips `metadata.hidden` on every selected Card at once (App.tsx's
    *  handleToggleHiddenSelected) — hidden Cards are skipped during normal Page
    *  rendering unless the Dock's own "reveal hidden cards" toggle (revealHidden
    *  below) is on. Works uniformly across every CardType, so — unlike Save/Move —
    *  it's never gated by operationId/supportsOperations. */
   onToggleHiddenSelected: () => void;
-  /** True from the moment a generation starts until it's fully saved — the Circle
-   *  becomes a Stop action while this is true, same convention as the Feed Input
-   *  Button's own Circle (FeedInputButton.tsx). */
-  generating: boolean;
-  onStopGeneration: () => void;
-  /** Generate anchored to the selection (Step 6 spec §4.2) rather than the bottom of
-   *  the Page — inserts directly below whichever selected Card sorts last (App.tsx
-   *  picks the bottommost one as the anchor when more than one is selected). */
-  onGenerateSelected: () => void;
+  /** The magic button's rewrite-in-place flow for a single selected plain (non-Stack)
+   *  Card (rewriteBoxOpen/rewriteText below): tapping it once opens an inline text
+   *  box in this same row (replacing every other selectedCards action for as long as
+   *  it's open); tapping it again sends whatever's typed (or nothing) as
+   *  `instruction` and collapses back to the normal row. Redoes the Card's own
+   *  content via an instructed "diff" annotation run (App.tsx's
+   *  handleRewriteSelected) instead of inserting a new sibling Card — its proposed
+   *  edits surface as ordinary pending diffs afterward, reviewed via the same
+   *  process/acceptAllDiffs actions below. A selected Stack keeps its own separate
+   *  "append a new alternate" generation (isStackSelected below), untouched by this. */
+  onRewriteSelected: (instruction: string) => void;
   /** The diff/footnote/highlight processes (a separate, parallel system from
    *  Generate — see annotationService.ts) — null whenever there's no Card/embed
    *  context to run one against, including when more than one Card is selected at
@@ -345,10 +361,9 @@ export function Dock({
   annotationError,
   onDismissAnnotationError,
   onSaveSelected,
+  onRemoveSelected,
   onToggleHiddenSelected,
-  generating,
-  onStopGeneration,
-  onGenerateSelected,
+  onRewriteSelected,
   onRunProcess,
   processRunning,
   pendingDiffCount,
@@ -435,6 +450,15 @@ export function Dock({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [openPanel, onClosePanel]);
+  // Closes the rewrite box the moment it's no longer meaningful to have open — the
+  // selection changed (a different/no Card selected any more) or editing started —
+  // rather than leaving it open pointed at a Card the row can no longer act on.
+  useEffect(() => {
+    if (selectedCards.length === 0 || isEditingActive) {
+      setRewriteBoxOpen(false);
+      setRewriteText("");
+    }
+  }, [selectedCards, isEditingActive]);
   /** Which vault Card or Folder is selected — clicking one selects it instead of
    *  acting on it immediately, so the Dock can show what to do with it (see
    *  vaultModeActions below). Selecting a Folder is deliberately independent of
@@ -451,6 +475,40 @@ export function Dock({
   /** Non-null while a vault Card/Folder is "in transit" waiting for a destination
    *  Folder to be picked — the vault-panel equivalent of movingPageCardIds/Move Mode. */
   const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
+  /** The magic button's rewrite-in-place text box (onRewriteSelected above) — open
+   *  while the selectedCards row shows the instruction input instead of its normal
+   *  actions. Reset below whenever the selection changes or editing starts, so it
+   *  never lingers open pointed at a Card that's no longer selected. */
+  const [rewriteBoxOpen, setRewriteBoxOpen] = useState(false);
+  const [rewriteText, setRewriteText] = useState("");
+  /** The quick-lookup/prompt panel — appears automatically the moment anything is
+   *  selected: one or more Cards (selectedCards — same multi-selection Save/Hide/
+   *  Move/removeSelected already batch over), one or more Quotes (quotesRegistry.ts
+   *  — confirmed via the panel's own "Quote" action below, not automatically just
+   *  from dragging across text; see liveSelectionRegistry.ts's doc comment on why),
+   *  or a live (not yet turned into a Quote) text selection just to surface that
+   *  action, or any combination. No separate reveal step. *Adds* a panel above the
+   *  row rather than replacing it — the row keeps showing whatever it normally
+   *  would (the WYSIWYG formatting toolbar while editing, or the ordinary action
+   *  row otherwise), so a live text selection can still be formatted normally, or
+   *  turned into a Quote here, independently. Asking sends the combined content of
+   *  every selected Card plus every Quote as context — see buildLookupContextText
+   *  below. Never shown during Move Mode (showLookupRow below), so there's always a
+   *  way to cancel an in-flight move. Stays open (via lookup's own streaming/text/
+   *  error state) even after every Card/Quote clears — until explicitly dismissed
+   *  via its own close button. */
+  const [lookupInstruction, setLookupInstruction] = useState("");
+  const quotes = useQuotes();
+  const liveSelection = useLiveSelection();
+  const targetedQuoteId = useTargetedQuote();
+  const lookup = useSelectionLookup();
+  const lookupActive =
+    selectedCards.length > 0 ||
+    quotes.length > 0 ||
+    !!liveSelection ||
+    lookup.streaming ||
+    !!lookup.text ||
+    !!lookup.error;
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
   /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
@@ -532,6 +590,70 @@ export function Dock({
   }
 
   const currentVaultFolder = vaultFolderContents?.folder ?? null;
+
+  /** Never shown during Move Mode (of any kind) — otherwise a stray leftover text
+   *  selection from before the move started would strand the user with no visible
+   *  way to cancel it (the row would show the lookup UI instead of Cancel). */
+  const showLookupRow = lookupActive && !moving && !dockCardMoving && !embedMoving && !vaultMoving;
+
+  /** Resets the current question/result and clears every Quote (quotesRegistry.ts's
+   *  clearQuotes). If one or more Cards are still selected, though, `lookupActive`
+   *  stays true regardless — the panel doesn't fully disappear, just returns to its
+   *  empty "ready to ask" state, since it's tied to the selection as a whole now,
+   *  not only to whether a question's been asked. Fully hiding it in that case
+   *  means deselecting the Cards themselves (a tap toggles each one back out), or
+   *  the row's own back-caret/Cancel underneath — unaffected, since this panel no
+   *  longer replaces the row). */
+  function dismissLookup() {
+    setLookupInstruction("");
+    lookup.reset();
+    clearQuotes();
+  }
+
+  /** Turns the current live text selection into a persistent Quote
+   *  (quotesRegistry.ts's addQuote) — the panel's own quotation-mark action, the
+   *  only way a selection ever becomes part of the context (dragging alone never
+   *  does — see liveSelectionRegistry.ts's doc comment). Clears the native browser
+   *  selection afterward so the freshly-created highlight decoration reads cleanly,
+   *  without a lingering native selection overlapping it. */
+  function handleAddQuote() {
+    if (!liveSelection) return;
+    addQuote({ id: crypto.randomUUID(), cardId: liveSelection.cardId, text: liveSelection.text });
+    document.getSelection()?.removeAllRanges();
+  }
+
+  /** Combines every selected Card's own (draft-aware) plain-text content with every
+   *  confirmed Quote into one context blob for the lookup/prompt endpoint — same
+   *  draft-over-committed precedence every other read of a PageCard's content in
+   *  this app uses. */
+  function buildLookupContextText(): string {
+    const cardBlocks = selectedCards.map((pc) => {
+      const title = pc.draftTitle ?? pc.card.title;
+      const content = pc.draftContent ?? pc.card.content;
+      const text = flattenToPlainText(htmlToDoc(content)).text;
+      return `[Card: ${title || t("common.untitled")}]\n${text}`;
+    });
+    const quoteBlocks = quotes.map((q) => `[Quote]\n${q.text}`);
+    return [...cardBlocks, ...quoteBlocks].join("\n\n");
+  }
+
+  /** "12 words, 2 cards, 1 quote" — a plain word count across every selected Card's
+   *  own content plus every Quote's text, alongside how many of each are selected. */
+  function countWords(text: string): number {
+    const trimmed = text.trim();
+    return trimmed ? trimmed.split(/\s+/).length : 0;
+  }
+  const lookupWordCount =
+    selectedCards.reduce((sum, pc) => {
+      const content = pc.draftContent ?? pc.card.content;
+      return sum + countWords(flattenToPlainText(htmlToDoc(content)).text);
+    }, 0) + quotes.reduce((sum, q) => sum + countWords(q.text), 0);
+
+  function handleAskLookup() {
+    const text = buildLookupContextText();
+    if (!text || lookup.streaming) return;
+    lookup.start(text, lookupInstruction);
+  }
 
   /** Shared by both the `selected` and `selectedEmbedId` branches below — a Card and
    *  an embedded Card get the same process/accept-all-diffs actions, same precedent
@@ -897,18 +1019,16 @@ export function Dock({
     // some not) defaults back to "Hide", which then hides the rest too.
     const allSelectedHidden = selectedCards.every((pc) => pc.card.metadata.hidden);
     // "Generate", for a selected Stack, targets the Stack's own generation instance
-    // (activeStackRegistry.ts) instead of App.tsx's page-level one: it appends a new
-    // alternate and streams into *that*, rather than inserting a sibling PageCard the
-    // way generating with any other Card type selected does.
+    // (activeStackRegistry.ts) instead of the rewrite-in-place flow below: it appends
+    // a new alternate and streams into *that*. For any other selected Card, the same
+    // button instead opens the rewrite text box (rewriteBoxOpen) rather than firing
+    // anything immediately — see onRewriteSelected's doc comment above.
     const stackGenerating = isStackSelected && !!activeStack?.isGenerating;
-    const effectiveGenerating = isStackSelected ? stackGenerating : generating;
     const generateOnClick = isStackSelected
       ? stackGenerating
         ? activeStack?.stopGenerating
         : activeStack?.generateNewAlternate
-      : generating
-        ? onStopGeneration
-        : onGenerateSelected;
+      : () => setRewriteBoxOpen(true);
     modeActions = [
       {
         key: "back",
@@ -917,17 +1037,24 @@ export function Dock({
         label: t("dock.action.back"),
         onClick: onDeselectAll,
       },
-      {
-        key: "generateSelected",
-        operationId: null,
-        icon: effectiveGenerating ? ("stop" as const) : ("generate" as const),
-        spin: effectiveGenerating,
-        label: effectiveGenerating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
-        onClick: generateOnClick ?? onGenerateSelected,
-      },
-      // No Edit action: tapping an already-selected Card jumps straight into
-      // editing it now (App.tsx's toggleSelectPageCard) — this button would be
-      // redundant.
+      // Rewrite-in-place/"append a new alternate" only ever makes sense against a
+      // single definite target (a diff needs one Card's content to anchor against;
+      // a Stack's own generation needs one Stack to append to) — hidden entirely
+      // once a second Card joins the selection rather than trying to generalize it.
+      ...(selectedCards.length === 1
+        ? [
+            {
+              key: "generateSelected",
+              operationId: null,
+              icon: stackGenerating ? ("stop" as const) : ("generate" as const),
+              spin: stackGenerating,
+              label: stackGenerating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
+              onClick: generateOnClick ?? (() => setRewriteBoxOpen(true)),
+            },
+          ]
+        : []),
+      // No Edit action: each selected Card's own header now has its own dedicated
+      // edit icon (Card.tsx's headerActions) — this button would be redundant.
       ...(hasUnsavedDraft
         ? [
             {
@@ -977,9 +1104,17 @@ export function Dock({
       },
       // No separate Move to Dock: dropping onto the Dock is now one of Move's own
       // destinations — tap the Dock Cards toggle itself while moving (see
-      // dockCardsAction below). No "Remove"/"Make a Stack" actions here either —
-      // both now live directly on the Card itself (its header's "X"/"+" buttons,
-      // Card.tsx/StackBody.tsx/FileView.tsx) rather than the Dock.
+      // dockCardsAction below). No "Make a Stack" action here either — that lives
+      // directly on the Card itself (its header's "+" button, Card.tsx/
+      // StackBody.tsx/FileView.tsx) rather than the Dock.
+      {
+        key: "removeSelected",
+        operationId: null,
+        icon: "close" as const,
+        label: t("card.remove"),
+        onClick: onRemoveSelected,
+        danger: true,
+      },
       ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedDockCardIds.size > 0) {
@@ -1360,6 +1495,53 @@ export function Dock({
               ? (vaultModeActions ?? modeActions)
               : [vaultAction, dockCardsAction, ...(vaultModeActions ?? modeActions)];
 
+  // Quote/Deselect-quote are cross-cutting — reachable no matter what the row above
+  // is otherwise showing (formatting toolbar, selected-Cards row, default row),
+  // since a text selection can happen alongside any of them. Appended after the
+  // fact rather than folded into every branch above; never shown during any Move
+  // Mode, same as showLookupRow, so there's always a way to cancel an in-flight
+  // move without a stray Quote button competing for room in that row.
+  const rowActions: DockAction[] = [
+    ...actions,
+    ...(!moving && !dockCardMoving && !embedMoving && !vaultMoving
+      ? [
+          // Turns the current live text selection into a Quote — the quotation-mark
+          // icon reads as "this is now a Quote", same as clicking a Card marks it
+          // selected. Disabled with nothing live-selected; selecting text and using
+          // the regular Dock/WYSIWYG actions on it is completely unaffected either
+          // way — this is purely additive.
+          ...(liveSelection
+            ? [
+                {
+                  key: "addQuote",
+                  operationId: null,
+                  icon: "blockquote" as const,
+                  label: t("quickLookup.addQuote"),
+                  onClick: handleAddQuote,
+                },
+              ]
+            : []),
+          // Only once a Quote's own highlight has been clicked (targetedQuoteRegistry.ts)
+          // — removes just that one Quote, then clears the target.
+          ...(targetedQuoteId
+            ? [
+                {
+                  key: "deselectQuote",
+                  operationId: null,
+                  icon: "close" as const,
+                  label: t("card.deselect"),
+                  onClick: () => {
+                    removeQuote(targetedQuoteId);
+                    setTargetedQuote(null);
+                  },
+                  danger: true,
+                },
+              ]
+            : []),
+        ]
+      : []),
+  ];
+
   const dockCardsViewContent = renderedPanel === "dockCards" && (
     <div className="dock__extended-panel-view">
       <DockCardsPanel
@@ -1499,9 +1681,158 @@ export function Dock({
           {editingAppName}
         </button>
       )}
+      {/* The quick-lookup panel — an *addition* above the row, not a replacement of
+          it (feedback: it was swapping out the formatting toolbar/normal actions
+          entirely, leaving no way to reach them while asking a question). Whatever
+          the row below shows — the WYSIWYG formatting toolbar while editing, or the
+          ordinary action row otherwise — stays exactly as it is; this floats above
+          it as its own independent input, same "extra content needs real room"
+          reasoning the error/notice banners already use. Its own close button is the
+          only way to dismiss it now that the row's back-caret means something else
+          entirely (deselect/exit-editing) and can't double as this. */}
+      {showLookupRow && (
+        <div className="dock__lookup-panel">
+          <div className="dock__lookup-ask">
+            <input
+              className="dock__lookup-input"
+              value={lookupInstruction}
+              onChange={(e) => setLookupInstruction(e.target.value)}
+              placeholder={t("quickLookup.placeholder")}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") dismissLookup();
+                else if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAskLookup();
+                }
+              }}
+            />
+            <Button
+              iconOnly
+              onClick={handleAskLookup}
+              disabled={lookup.streaming || (selectedCards.length === 0 && quotes.length === 0)}
+              aria-label={t("quickLookup.ask")}
+              title={t("quickLookup.ask")}
+            >
+              <Icon name="generate" spin={lookup.streaming} />
+            </Button>
+            <Button
+              iconOnly
+              onClick={dismissLookup}
+              aria-label={t("quickLookup.dismiss")}
+              title={t("quickLookup.dismiss")}
+            >
+              <Icon name="close" />
+            </Button>
+          </div>
+          {(selectedCards.length > 0 || quotes.length > 0) && (
+            <div className="dock__lookup-summary">
+              {lookupWordCount} word{lookupWordCount === 1 ? "" : "s"}, {selectedCards.length} card
+              {selectedCards.length === 1 ? "" : "s"}, {quotes.length} quote{quotes.length === 1 ? "" : "s"}
+            </div>
+          )}
+          {lookup.streaming ? (
+            <div className="dock__lookup-generating">
+              <Icon name="generate" spin />
+              <span>{t("promptCard.sending")}</span>
+            </div>
+          ) : lookup.text ? (
+            <>
+              <div className="dock__lookup-result">
+                <CardRichText
+                  content={lookup.text}
+                  onChangeContent={() => {}}
+                  editable={false}
+                  cardId="quick-lookup-result"
+                  ancestorIds={EMPTY_ANCESTOR_IDS}
+                  depth={0}
+                />
+              </div>
+              <div className="dock__lookup-actions">
+                <Button
+                  iconOnly
+                  onClick={() => lookup.reset()}
+                  aria-label={t("quickLookup.askAgain")}
+                  title={t("quickLookup.askAgain")}
+                >
+                  <Icon name="edit" />
+                </Button>
+                <Button
+                  onClick={() => {
+                    quickAddToPage(lookup.text);
+                    dismissLookup();
+                  }}
+                >
+                  <Icon name="plus" />
+                  {t("quickLookup.addToPage")}
+                </Button>
+                <Button
+                  onClick={() => {
+                    quickAddToDock(lookup.text);
+                    dismissLookup();
+                  }}
+                >
+                  <Icon name="tray" />
+                  {t("quickLookup.addToDock")}
+                </Button>
+              </div>
+            </>
+          ) : null}
+          {lookup.error && <p className="dock__lookup-error">{lookup.error}</p>}
+        </div>
+      )}
       <div className="dock__bottom-row">
         <div className="dock__row">
-          {actions.map((action) =>
+          {rewriteBoxOpen ? (
+            // The magic button's rewrite-in-place text box (onRewriteSelected) —
+            // replaces every other selectedCards action while open, same "collapse
+            // to just what's relevant" convention formattingActions already uses for
+            // isEditingActive. The send button re-lists as the same "generate" icon
+            // the row's own magic button already showed — tapping it a second time
+            // is what "sends" the typed (or blank) instruction.
+            <>
+              <Button
+                iconOnly
+                onClick={() => {
+                  setRewriteBoxOpen(false);
+                  setRewriteText("");
+                }}
+                aria-label={t("dock.action.back")}
+                title={t("dock.action.back")}
+              >
+                <Icon name="back" />
+              </Button>
+              <input
+                className="dock__rewrite-input"
+                value={rewriteText}
+                onChange={(e) => setRewriteText(e.target.value)}
+                placeholder={t("dock.action.rewritePlaceholder")}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setRewriteBoxOpen(false);
+                    setRewriteText("");
+                  } else if (e.key === "Enter") {
+                    onRewriteSelected(rewriteText);
+                    setRewriteBoxOpen(false);
+                    setRewriteText("");
+                  }
+                }}
+              />
+              <Button
+                iconOnly
+                onClick={() => {
+                  onRewriteSelected(rewriteText);
+                  setRewriteBoxOpen(false);
+                  setRewriteText("");
+                }}
+                aria-label={t("feedInput.generate")}
+                title={t("feedInput.generate")}
+              >
+                <Icon name="generate" />
+              </Button>
+            </>
+          ) : (
+            rowActions.map((action) =>
             // "process" opens ProcessPicker anchored to its own button, rather
             // than firing an action directly — needs its own positioned wrapper,
             // unlike every other plain-click DockAction below.
@@ -1595,6 +1926,7 @@ export function Dock({
                 <Icon name={action.icon} spin={action.spin} />
               </Button>
             ),
+            )
           )}
         </div>
         {/* The Page nav cluster (formerly the standalone PageNav component,

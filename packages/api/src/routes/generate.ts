@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { Router } from "express";
 import type { CardBlockEvent } from "@wattle/prompt-engine";
-import type { GenerateResponse } from "@wattle/shared";
+import type { GenerateResponse, PromptCardContextMode } from "@wattle/shared";
 import * as generationService from "../services/generationService.js";
 import { runOperation } from "../operations/run.js";
 
@@ -45,12 +45,43 @@ function instructionParam(req: { query: Record<string, unknown> }): string | und
   return typeof raw === "string" && raw.trim() ? raw : undefined;
 }
 
-/** A Prompt Card's "on its own" context mode (lib/actionJobs.ts) — same query-param
- *  convention as instructionParam above, for the same EventSource-can't-carry-a-body
- *  reason. */
+/** The "promptCard" action job's "on its own" context mode (lib/actionJobs.ts) — same
+ *  query-param convention as instructionParam above, for the same
+ *  EventSource-can't-carry-a-body reason. */
 function standaloneParam(req: { query: Record<string, unknown> }): boolean {
   return req.query.standalone === "1";
 }
+
+/** The "prompt" CardType's context-mode selector (cardMetadata.ts's `prompt.context`)
+ *  — same query-param convention as the above, defaulting to "none" if missing/invalid
+ *  rather than throwing, since a stale/malformed value shouldn't break generation. */
+function promptContextModeParam(req: { query: Record<string, unknown> }): PromptCardContextMode {
+  const raw = req.query.contextMode;
+  return raw === "page" || raw === "tab" || raw === "cards" ? raw : "none";
+}
+
+/** Comma-separated Card ids (`prompt.context.cardIds`) — only meaningful alongside
+ *  contextMode=cards. */
+function contextCardIdsParam(req: { query: Record<string, unknown> }): string[] {
+  const raw = req.query.contextCardIds;
+  return typeof raw === "string" && raw.trim() ? raw.split(",").filter(Boolean) : [];
+}
+
+// GET /api/generate/stream/lookup?text=&instruction= — the text-selection quick-lookup
+// popup (QuickLookupMenu.tsx). Not tied to any Card/PageCard: no context is assembled,
+// and nothing is persisted here either — the popup holds the result as local state
+// until the user explicitly adds it to the Page or Dock. Registered *before*
+// /stream/:pageCardId below — both are single-path-segment routes, and Express
+// matches registration order, so a literal "/stream/lookup" would otherwise be
+// swallowed by that wildcard param route (pageCardId="lookup") and never reach this
+// one.
+generateRouter.get("/stream/lookup", async (req, res) => {
+  const text = typeof req.query.text === "string" ? req.query.text : "";
+  const instruction = typeof req.query.instruction === "string" && req.query.instruction.trim()
+    ? req.query.instruction
+    : undefined;
+  await pipeGenerationEvents(res, generationService.streamSelectionLookup(text, instruction));
+});
 
 // GET /api/generate/stream/:pageCardId — the sole model invocation for a generation
 // triggered from a selected Card (there is no separate preview call and persist call
@@ -81,6 +112,26 @@ generateRouter.get("/stream/stack-member/:memberId", async (req, res) => {
   await pipeGenerationEvents(
     res,
     generationService.streamGenerationForStackMember(req.params.memberId, instructionParam(req)),
+  );
+});
+
+// GET /api/generate/stream/prompt-card/:pageCardId?input=&contextMode=&contextCardIds=
+// — the "prompt" CardType's own generation (PromptCardBody.tsx/usePromptGeneration.ts).
+// `input` (not `instruction` — always present, never an optional guide alongside other
+// context) rides the same query-param convention as every other field here for the same
+// EventSource-can't-carry-a-body reason. Read-only, same as the other streaming routes:
+// nothing is persisted here — the frontend appends the finished result to
+// metadata.prompt.iterations itself once the stream's `done` event lands.
+generateRouter.get("/stream/prompt-card/:pageCardId", async (req, res) => {
+  const input = typeof req.query.input === "string" ? req.query.input : "";
+  await pipeGenerationEvents(
+    res,
+    generationService.streamPromptCardGeneration(
+      req.params.pageCardId,
+      input,
+      promptContextModeParam(req),
+      contextCardIdsParam(req),
+    ),
   );
 });
 
