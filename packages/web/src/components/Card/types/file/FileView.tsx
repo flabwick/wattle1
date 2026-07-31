@@ -93,8 +93,13 @@ export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: Car
       </div>
     ) : null;
 
+  // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
+  // only while PageStack.tsx's revealHidden is on (see PageCardSlot), so this class
+  // is always the "still hidden" indicator, never a false positive.
+  const isHidden = Boolean(pageCard.card.metadata.hidden);
+
   return (
-    <CardShell selected={selected} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
       {header}
       {body}
     </CardShell>

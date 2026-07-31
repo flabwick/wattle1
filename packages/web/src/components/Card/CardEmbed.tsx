@@ -21,10 +21,12 @@ interface CardEmbedProps {
   cardId: string;
   ancestorIds: ReadonlySet<string>;
   depth: number;
-  /** Which embedded Card, if any, is independently selected (App.tsx state) — see
-   *  CardContent.tsx's doc comment. Threaded through unchanged so a selection nested
-   *  several embeds deep still resolves correctly. */
-  selectedEmbedId?: string | null;
+  /** Which embedded Cards are independently selected (App.tsx state) — see
+   *  CardContent.tsx's doc comment. Several can be selected at once now, alongside
+   *  top-level Cards and Quotes, all feeding the Dock's combined selection. Threaded
+   *  through unchanged so a selection nested several embeds deep still resolves
+   *  correctly. */
+  selectedEmbedIds?: ReadonlySet<string>;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
   /** Double-click on desktop, long-press on touch (same convention as Card.tsx's
    *  top-level equivalent) — jumps straight into editing this embed: selects it and
@@ -75,7 +77,7 @@ export function CardEmbed({
   cardId,
   ancestorIds,
   depth,
-  selectedEmbedId,
+  selectedEmbedIds,
   onSelectEmbed,
   onRequestEditEmbed,
   editingEmbedIds,
@@ -178,7 +180,7 @@ export function CardEmbed({
   // editing, since Edit there is a toggle, not a one-way switch (see App.tsx's
   // toggleEditEmbed).
   const selectable = !!onSelectEmbed && !!onRemoveSelf;
-  const isSelected = selectable && selectedEmbedId === cardId;
+  const isSelected = selectable && !!selectedEmbedIds?.has(cardId);
   const editableViaGesture = !!onRequestEditEmbed && !!onRemoveSelf;
 
   return (
@@ -255,7 +257,7 @@ export function CardEmbed({
           annotations={card.metadata.annotations}
           ancestorIds={childAncestorIds}
           depth={depth + 1}
-          selectedEmbedId={selectedEmbedId}
+          selectedEmbedIds={selectedEmbedIds}
           onSelectEmbed={onSelectEmbed}
           onRequestEditEmbed={onRequestEditEmbed}
           editingEmbedIds={editingEmbedIds}

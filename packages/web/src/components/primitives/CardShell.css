@@ -55,9 +55,14 @@
 }
 
 /* A hidden Card (Card.metadata.hidden), shown only while the Dock's "reveal hidden
-   cards" toggle is on — see PageStack.tsx. Dashed in a distinct color from --ghost so
-   the two "not a normal card" states read differently at a glance. */
+   cards" toggle is on — see PageStack.tsx. Dashed border in a distinct color from
+   --ghost so the two "not a normal card" states read differently at a glance, plus a
+   faint background wash of that same color so it's still obviously "still hidden"
+   even at a glance/on a small screen where the dashed border alone is easy to miss —
+   same "tint the whole card" convention as --selected above, just a much subtler mix
+   since this is a passive, ambient state rather than something just acted on. */
 .card-shell--hidden {
   border-style: dashed;
   border-color: var(--color-hidden-border);
+  background: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface));
 }

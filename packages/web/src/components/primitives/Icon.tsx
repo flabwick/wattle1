@@ -58,7 +58,8 @@ export type IconName =
   | "image"
   | "callout"
   | "math"
-  | "eyeOff";
+  | "eyeOff"
+  | "copy";
 
 interface IconProps {
   name: IconName;
@@ -464,6 +465,15 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M4 14l3 3 4-9" />
       <path d="M11 8h9" />
+    </>
+  ),
+  // Two overlapping rectangles — the classic "copy" glyph, used by SelectionMenu.tsx/
+  // CardRichText.tsx's own "copy to clipboard" action for a highlighted selection or
+  // an existing Quote.
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="1.5" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
     </>
   ),
 };

@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import { flattenToPlainText } from "@wattle/shared";
 import { Icon } from "../primitives/index.js";
-import { HIGHLIGHT_COLORS, highlightColorValue } from "../../lib/highlightColors.js";
+import { addQuote } from "../../lib/quotesRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./SelectionMenu.css";
 
@@ -36,13 +36,8 @@ interface SelectionMenuProps {
    *  the DOM/native-selection text, while flattenToPlainText inserts "\n\n" between
    *  blocks — without this, that anchor would never match server-side. */
   editor: Editor | null;
-  /** Diff/footnote scoped to the selected text — calls the AI process, same as the
-   *  Dock's whole-card run but anchored to just this span (see annotationService.ts's
-   *  `selection` parameter). */
-  onRunProcess: (process: "diff" | "footnote", text: string) => void;
-  /** Highlight is manual here (no model call) — confirmed with the user: the span is
-   *  already exactly delimited, so a color is all that's needed. */
-  onCreateManualHighlight: (text: string, color: string) => void;
+  /** Which Card this selection is inside — addQuote below needs it. */
+  cardId: string;
 }
 
 interface MenuState {
@@ -53,13 +48,21 @@ interface MenuState {
 
 /**
  * The floating context menu shown when the user selects a span of text inside a Card
- * (spec: "show a small context menu at the selection with the same process icon used
- * in the Dock action"). Positioned at the selection's own bounding rect, dismissed on
- * any further selection change, click-away, or Escape.
+ * — three actions: copy the selection to the clipboard, turn it into a Quote
+ * (quotation-mark icon, same quotesRegistry.ts the Dock's own "Quote" row action
+ * commits to — see step17-multi-select-and-quotes.md), or dismiss. Positioned at the
+ * selection's own bounding rect, dismissed on any further selection change,
+ * click-away, or Escape. The diff/footnote/highlight annotation actions this menu
+ * used to offer are gone — the Dock's own "process" action (ProcessPicker) still
+ * runs those against a whole selected Card; this menu was their only
+ * selection-scoped trigger.
  */
-export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManualHighlight }: SelectionMenuProps) {
+export function SelectionMenu({ containerRef, editor, cardId }: SelectionMenuProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  // Briefly swaps the copy button's icon to a checkmark as feedback — cleared
+  // whenever the selection itself changes, not just on a timer, so it never reads
+  // "copied" against a since-changed selection.
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     function handleSelectionChange() {
@@ -67,20 +70,19 @@ export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManu
       const container = containerRef.current;
       if (!selection || selection.isCollapsed || !container || !editor) {
         setMenu(null);
-        setColorPickerOpen(false);
+        setCopied(false);
         return;
       }
       const range = selection.getRangeAt(0);
       if (!container.contains(range.commonAncestorContainer)) {
         setMenu(null);
-        setColorPickerOpen(false);
         return;
       }
       // Not selection.toString(): a selection spanning two paragraphs has no
       // separator there, while flattenToPlainText inserts "\n\n" between blocks —
       // this maps the DOM range to ProseMirror positions first, then slices the
       // *same* flattened plain text findAnchorRange resolves anchors against, so a
-      // multi-paragraph highlight/diff/footnote anchor still matches server-side.
+      // multi-paragraph Quote still matches server-side if it's ever needed there.
       const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
       const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
       const { text: flattened, charDocPos } = flattenToPlainText(editor.state.doc);
@@ -90,13 +92,12 @@ export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManu
       );
       if (!text.trim()) {
         setMenu(null);
+        setCopied(false);
         return;
       }
       const rect = range.getBoundingClientRect();
-      // TEMP DEBUG — remove once diagnosed.
-      console.debug("[annot] SelectionMenu showing for selection:", JSON.stringify(text));
       setMenu({ text, top: rect.top, left: rect.left + rect.width / 2 });
-      setColorPickerOpen(false);
+      setCopied(false);
     }
 
     document.addEventListener("selectionchange", handleSelectionChange);
@@ -108,7 +109,6 @@ export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManu
       const target = e.target as Element;
       if (!target.closest(".selection-menu")) {
         setMenu(null);
-        setColorPickerOpen(false);
       }
     }
     document.addEventListener("pointerdown", handlePointerDown);
@@ -119,9 +119,20 @@ export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManu
 
   function dismiss() {
     setMenu(null);
-    setColorPickerOpen(false);
+    setCopied(false);
     document.getSelection()?.removeAllRanges();
   }
+
+  // Arrow function, not a hoisted `function` declaration, so TypeScript's
+  // narrowing of `menu` from the `if (!menu) return null;` check above still holds
+  // inside it (a hoisted declaration's body is checked as if it could run before
+  // that narrowing takes effect).
+  const handleCopy = () => {
+    navigator.clipboard
+      .writeText(menu.text)
+      .then(() => setCopied(true))
+      .catch(() => {});
+  };
 
   // Portaled to document.body rather than rendered in place: this mounts inside a
   // <p> (AnnotatedText.tsx), and a <div> isn't valid HTML inside a <p> — the browser
@@ -134,66 +145,38 @@ export function SelectionMenu({ containerRef, editor, onRunProcess, onCreateManu
       style={{ top: menu.top, left: menu.left }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {colorPickerOpen ? (
-        <div className="selection-menu__colors">
-          {HIGHLIGHT_COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              className="selection-menu__swatch"
-              style={{ background: highlightColorValue(color) }}
-              aria-label={color}
-              title={color}
-              onClick={() => {
-                console.debug("[annot] SelectionMenu highlight color picked:", color, JSON.stringify(menu.text));
-                onCreateManualHighlight(menu.text, color);
-                dismiss();
-              }}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="selection-menu__actions">
-          <button
-            type="button"
-            className="selection-menu__action"
-            aria-label={t("selectionMenu.diff")}
-            title={t("selectionMenu.diff")}
-            onClick={() => {
-              console.debug("[annot] SelectionMenu diff clicked:", JSON.stringify(menu.text));
-              onRunProcess("diff", menu.text);
-              dismiss();
-            }}
-          >
-            <Icon name="diff" />
-          </button>
-          <button
-            type="button"
-            className="selection-menu__action"
-            aria-label={t("selectionMenu.footnote")}
-            title={t("selectionMenu.footnote")}
-            onClick={() => {
-              console.debug("[annot] SelectionMenu footnote clicked:", JSON.stringify(menu.text));
-              onRunProcess("footnote", menu.text);
-              dismiss();
-            }}
-          >
-            <Icon name="footnote" />
-          </button>
-          <button
-            type="button"
-            className="selection-menu__action"
-            aria-label={t("selectionMenu.highlight")}
-            title={t("selectionMenu.highlight")}
-            onClick={() => {
-              console.debug("[annot] SelectionMenu highlight clicked, opening color picker");
-              setColorPickerOpen(true);
-            }}
-          >
-            <Icon name="highlight" />
-          </button>
-        </div>
-      )}
+      <div className="selection-menu__actions">
+        <button
+          type="button"
+          className="selection-menu__action"
+          aria-label={copied ? t("quickLookup.copied") : t("quickLookup.copy")}
+          title={copied ? t("quickLookup.copied") : t("quickLookup.copy")}
+          onClick={handleCopy}
+        >
+          <Icon name={copied ? "done" : "copy"} />
+        </button>
+        <button
+          type="button"
+          className="selection-menu__action"
+          aria-label={t("quickLookup.addQuote")}
+          title={t("quickLookup.addQuote")}
+          onClick={() => {
+            addQuote({ id: crypto.randomUUID(), cardId, text: menu.text });
+            dismiss();
+          }}
+        >
+          <Icon name="blockquote" />
+        </button>
+        <button
+          type="button"
+          className="selection-menu__action"
+          aria-label={t("quickLookup.dismiss")}
+          title={t("quickLookup.dismiss")}
+          onClick={dismiss}
+        >
+          <Icon name="close" />
+        </button>
+      </div>
     </div>,
     document.body,
   );

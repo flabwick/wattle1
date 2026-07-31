@@ -16,6 +16,18 @@
   pointer-events: none;
 }
 
+/* Same desktop narrow column as .page-stack (PageStack.css) — these bars sit
+   against .page-viewport, which is now full-width (see global.css's own doc
+   comment), so they need their own centering to keep lining up with the content's
+   edges instead of spanning the whole screen. left/right: 0 + margin: 0 auto is the
+   standard way to center an absolutely positioned box. */
+@media (min-width: 900px) {
+  .page-stack-edges {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+}
+
 .page-stack-edges--top {
   top: 0;
 }

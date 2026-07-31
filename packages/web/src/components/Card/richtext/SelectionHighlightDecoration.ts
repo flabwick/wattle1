@@ -9,10 +9,9 @@ import { findAnchorRange } from "@wattle/shared";
  *  same "external data into a ProseMirror plugin" pattern AnnotationDecorations.ts
  *  uses for the persisted `annotations` prop. `id` is stamped as `data-quote-id` on
  *  the rendered `<mark>` so a click can resolve back to which Quote
- *  (quotesRegistry.ts) to target (targetedQuoteRegistry.ts) — the Dock's own action
- *  row is what actually removes it. `targeted` gets its own modifier class so the
- *  one the Dock's "Deselect quote" button would act on reads visibly different from
- *  any others. */
+ *  (quotesRegistry.ts) to remove — CardRichText.tsx's own small local popup is what
+ *  actually removes it. `targeted` gets its own modifier class so the one that popup
+ *  would act on reads visibly different from any others. */
 export interface SelectionHighlightEntry {
   id: string;
   anchor: string;

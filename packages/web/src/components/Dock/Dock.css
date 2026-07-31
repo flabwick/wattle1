@@ -143,26 +143,70 @@
 
 /* The text-selection quick-lookup panel (Dock.tsx's showLookupRow) — an *addition*
    above .dock__bottom-row, not a replacement of it (the row keeps showing the
-   formatting toolbar/normal actions underneath, unaffected), same "extra content
-   needs real room, not a single icon row" reasoning as the error/notice banners
-   above, but its own quieter surface rather than a colored banner since this isn't
-   an error state. */
+   formatting toolbar/normal actions underneath, unaffected). Shares the Dock's own
+   surface color already (no boxed border/background of its own — a thin divider is
+   enough), so it reads as one continuous strip attached to the Dock rather than a
+   separate floating card stacked on top of it. */
 .dock__lookup-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-raised);
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
   max-height: 40vh;
   overflow-y: auto;
+  perspective: 1600px;
+}
+
+/* The flip mechanic — same as the "prompt" CardType's own PromptCardBody.tsx
+   (PromptCard.css's .prompt-card__flip/__face): both faces are always mounted
+   (grid-stacked into the same cell) so the 3D transform has something to rotate
+   away from/into at every moment; `lookupFlipped` (Dock.tsx) just toggles which one
+   is rotated toward the viewer. */
+.dock__lookup-flip {
+  position: relative;
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.dock__lookup-flip--flipped {
+  transform: rotateY(180deg);
+}
+
+.dock__lookup-face {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  backface-visibility: hidden;
+}
+
+.dock__lookup-face--back {
+  transform: rotateY(180deg);
+}
+
+.dock__lookup-face--hidden {
+  pointer-events: none;
 }
 
 .dock__lookup-ask {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
+}
+
+/* Same shrink-to-sm convention as the rest of the Dock's own rows (.dock__row
+   .button above) — these buttons sit right inside an already-compact panel, so the
+   full 44px touch target read as oversized next to everything else here. */
+.dock__lookup-ask .button {
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+}
+
+.dock__lookup-ask .button.button--icon {
+  width: var(--touch-target-sm);
 }
 
 /* "12 words, 2 cards, 1 quote" (Dock.tsx's lookupWordCount) — a quiet status line,
@@ -177,11 +221,11 @@
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
   color: var(--color-text);
   background: none;
   border: none;
-  border-bottom: var(--border-width-bold) solid var(--color-border);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
   padding: 0 0 2px;
 }
 
@@ -203,7 +247,55 @@
   font-size: var(--font-size-sm);
 }
 
-.dock__lookup-result {
+/* The back face's own small control cluster — same quiet, borderless treatment as
+   the "prompt" CardType's own rail (PromptCard.css's .prompt-card__rail), reusing
+   its "up" chevron rotated sideways convention for prev/next rather than adding
+   dedicated left/right icons just for this. */
+.dock__lookup-rail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.dock__lookup-rail .button {
+  flex-shrink: 0;
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--color-text-muted);
+}
+
+.dock__lookup-rail .button:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.dock__lookup-rail-arrow--left {
+  transform: rotate(-90deg);
+}
+
+.dock__lookup-rail-arrow--right {
+  transform: rotate(90deg);
+}
+
+.dock__lookup-rail-position {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+}
+
+/* The generated result, rendered as an actual bordered card (same "thick stock"
+   treatment CardShell.css gives every real Card) rather than bare inline text — the
+   back face of .dock__lookup-flip above, matching the "prompt" CardType's own
+   PromptCardBody.tsx rendering its output the same way once flipped. */
+.dock__lookup-result-card {
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  background: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
   font-size: var(--font-size-sm);
 }
 
@@ -238,6 +330,23 @@
   flex: 1;
   min-width: 0;
   align-items: center;
+}
+
+/* The "reveal hidden Cards" toggle — a fixed sibling of .dock__row, same reasoning
+   as .dock__page-nav below: .dock__row scrolls horizontally once its own buttons
+   overflow, and this needs to stay reachable without ever being scrolled out of
+   view. Same shrink-to-sm sizing as everything inside .dock__row, for visual
+   consistency even though it sits outside it. */
+.dock__reveal-hidden-button {
+  flex-shrink: 0;
+  min-height: var(--touch-target-sm);
+  min-width: var(--touch-target-sm);
+  width: var(--touch-target-sm);
+}
+
+.dock__reveal-hidden-button .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 /* The magic button's rewrite-in-place text box (Dock.tsx's rewriteBoxOpen) — sits
@@ -310,12 +419,6 @@
 .dock__page-nav button.dock__page-nav-tabs {
   margin-left: var(--space-1);
   opacity: 0.55;
-}
-
-/* "Reveal hidden cards" while on — same cluster, same size, just the one toggle
-   that has a persistent on/off state rather than opening a panel. */
-.dock__page-nav button.dock__page-nav-toggle--active {
-  color: var(--color-accent);
 }
 
 /* editingAppId's badge (Apps feature spec §5) — sits just above the action row,

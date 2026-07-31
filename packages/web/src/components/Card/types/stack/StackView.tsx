@@ -9,8 +9,12 @@ import { StackBody } from "./StackBody.js";
  *  whether StackBody publishes its active alternate's Save into the Dock
  *  (activeStackRegistry.ts) — only the Stack actually in view there. */
 export function StackView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
+  // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
+  // only while PageStack.tsx's revealHidden is on (see PageCardSlot), so this class
+  // is always the "still hidden" indicator, never a false positive.
+  const isHidden = Boolean(pageCard.card.metadata.hidden);
   return (
-    <CardShell selected={selected} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
       <StackBody
         stackCardId={pageCard.card.id}
         selected={selected}

@@ -24,7 +24,7 @@ interface PageCardSlotProps {
   onCloseEditor: () => void;
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
-  selectedEmbedId: string | null;
+  selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
   onRequestEditEmbed: (cardId: string, onRemove: () => void) => void;
   editingEmbedIds: ReadonlySet<string>;
@@ -84,7 +84,7 @@ function PageCardSlot({
   onCloseEditor,
   onRequestEdit,
   onChangeDraft,
-  selectedEmbedId,
+  selectedEmbedIds,
   onSelectEmbed,
   onRequestEditEmbed,
   editingEmbedIds,
@@ -122,7 +122,7 @@ function PageCardSlot({
         onCloseEditor={onCloseEditor}
         onRequestEdit={onRequestEdit}
         onChangeDraft={onChangeDraft}
-        selectedEmbedId={selectedEmbedId}
+        selectedEmbedIds={selectedEmbedIds}
         onSelectEmbed={onSelectEmbed}
         onRequestEditEmbed={onRequestEditEmbed}
         editingEmbedIds={editingEmbedIds}
@@ -195,7 +195,7 @@ interface PageStackProps {
   onCloseEditor: (id: string) => void;
   onRequestEditPageCard: (id: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
-  selectedEmbedId: string | null;
+  selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
   /** Double-click / long-press an embedded Card to jump straight into editing it —
    *  see CardEmbed.tsx. */
@@ -314,7 +314,7 @@ export function PageStack({
   onCloseEditor,
   onRequestEditPageCard,
   onChangeDraft,
-  selectedEmbedId,
+  selectedEmbedIds,
   onSelectEmbed,
   onRequestEditEmbed,
   editingEmbedIds,
@@ -384,7 +384,7 @@ export function PageStack({
                   onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
-                  selectedEmbedId={selectedEmbedId}
+                  selectedEmbedIds={selectedEmbedIds}
                   onSelectEmbed={onSelectEmbed}
                   onRequestEditEmbed={onRequestEditEmbed}
                   editingEmbedIds={editingEmbedIds}

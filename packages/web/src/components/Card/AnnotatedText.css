@@ -39,9 +39,9 @@
   cursor: pointer;
 }
 
-/* The Quote a click just targeted (targetedQuoteRegistry.ts) — the Dock's own
-   "Deselect quote" action acts on this one specifically, so it reads visibly
-   different from any other Quotes coexisting in the same Card. */
+/* The Quote a click just opened the local "remove this Quote" popup for
+   (CardRichText.tsx) — reads visibly different from any other Quotes coexisting in
+   the same Card. */
 .selection-highlight--targeted {
   background: var(--color-highlight);
   outline: var(--border-width-thin) solid var(--color-border-strong);

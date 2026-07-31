@@ -4,9 +4,11 @@ import type { Editor } from "@tiptap/core";
 import type { Annotation, PageCardWithCard } from "@wattle/shared";
 import { flattenToPlainText } from "@wattle/shared";
 import type { AnnotationProcess } from "../../../api/client.js";
+import { createPortal } from "react-dom";
 import { SelectionMenu } from "../SelectionMenu.js";
 import { DiffPopover } from "../DiffPopover.js";
 import { AnnotationDetail } from "../AnnotationDetail.js";
+import { Icon } from "../../primitives/index.js";
 import { t } from "../../../i18n/index.js";
 import { CardEditingContext } from "./CardEditingContext.js";
 import type { CardEditingContextValue } from "./CardEditingContext.js";
@@ -15,8 +17,7 @@ import { annotationDecorationsKey } from "./AnnotationDecorations.js";
 import { selectionHighlightKey } from "./SelectionHighlightDecoration.js";
 import type { SelectionHighlightEntry } from "./SelectionHighlightDecoration.js";
 import { getActiveEditor, setActiveEditor, setActiveEditorFocused } from "../../../lib/activeEditorRegistry.js";
-import { useQuotes } from "../../../lib/quotesRegistry.js";
-import { setTargetedQuote, useTargetedQuote } from "../../../lib/targetedQuoteRegistry.js";
+import { removeQuote, useQuotes } from "../../../lib/quotesRegistry.js";
 import "../AnnotatedText.css";
 import "./CardRichText.css";
 
@@ -56,7 +57,7 @@ interface CardRichTextProps {
   annotations?: readonly Annotation[];
   ancestorIds: ReadonlySet<string>;
   depth: number;
-  selectedEmbedId?: string | null;
+  selectedEmbedIds?: ReadonlySet<string>;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
   onRequestEditEmbed?: (cardId: string, onRemove: () => void) => void;
   editingEmbedIds?: ReadonlySet<string>;
@@ -123,7 +124,7 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
     annotations = EMPTY_ANNOTATIONS,
     ancestorIds,
     depth,
-    selectedEmbedId,
+    selectedEmbedIds,
     onSelectEmbed,
     onRequestEditEmbed,
     editingEmbedIds = EMPTY_EDITING_EMBED_IDS,
@@ -234,10 +235,17 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
   // too), so there's no editable-gating here. Only this Card's own Quotes (several
   // can coexist within it).
   const quotes = useQuotes();
-  const targetedQuoteId = useTargetedQuote();
+  // Which Quote's own highlight was last clicked, if any — purely local to this
+  // CardRichText instance (not a shared registry): it only ever drives this one
+  // small "remove this Quote" popup, rendered right below.
+  const [quotePopup, setQuotePopup] = useState<{ id: string; top: number; left: number } | null>(null);
+  // Briefly swaps the popup's copy button icon to a checkmark as feedback — reset
+  // whenever a different Quote's highlight is clicked (see the click handler below),
+  // same convention as SelectionMenu.tsx's own `copied` state.
+  const [quotePopupCopied, setQuotePopupCopied] = useState(false);
   const ownQuoteEntries: SelectionHighlightEntry[] = quotes
     .filter((q) => q.cardId === cardId)
-    .map((q) => ({ id: q.id, anchor: q.text, targeted: q.id === targetedQuoteId }));
+    .map((q) => ({ id: q.id, anchor: q.text, targeted: q.id === quotePopup?.id }));
   const ownQuoteEntriesKey = ownQuoteEntries.map((e) => `${e.id}:${e.anchor}:${e.targeted}`).join(" ");
   useEffect(() => {
     if (!editor) return;
@@ -265,9 +273,9 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
   }, []);
 
   // Same event-delegation pattern as above, for a Quote's own highlight
-  // (SelectionHighlightDecoration.ts stamps a `data-quote-id` on each) — no popup
-  // any more, this just targets it (targetedQuoteRegistry.ts); the Dock's own
-  // action row shows the "Deselect quote" button once something's targeted.
+  // (SelectionHighlightDecoration.ts stamps a `data-quote-id` on each) — opens the
+  // small local "remove this Quote" popup rendered below, positioned at the clicked
+  // highlight's own rect.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -275,11 +283,27 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
       const target = (e.target as Element).closest<HTMLElement>(".selection-highlight");
       if (!target) return;
       e.stopPropagation();
-      setTargetedQuote(target.dataset.quoteId!);
+      const rect = target.getBoundingClientRect();
+      setQuotePopup({ id: target.dataset.quoteId!, top: rect.top, left: rect.left + rect.width / 2 });
+      setQuotePopupCopied(false);
     }
     container.addEventListener("click", handleClick);
     return () => container.removeEventListener("click", handleClick);
   }, []);
+
+  // Dismiss the "remove this Quote" popup on any click outside it — same
+  // click-away convention as SelectionMenu.tsx's own dismiss effect.
+  useEffect(() => {
+    if (!quotePopup) return;
+    function handlePointerDown(e: PointerEvent) {
+      const target = e.target as Element;
+      if (!target.closest(".card-quote-popup")) {
+        setQuotePopup(null);
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [quotePopup]);
 
   useImperativeHandle(ref, () => ({
     editor,
@@ -291,7 +315,7 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
   const contextValue: CardEditingContextValue = {
     ancestorIds,
     depth,
-    selectedEmbedId,
+    selectedEmbedIds,
     onSelectEmbed,
     onRequestEditEmbed,
     editingEmbedIds,
@@ -317,17 +341,55 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
       [...actionFieldValues.current.entries()].sort(([a], [b]) => a - b).map(([, value]) => value),
   };
 
-  // Same convention the old CardContent.tsx's AnnotatedText used: the selection-menu
-  // and the diff/highlight/footnote decorations/popovers only ever show in read
-  // mode — there's nothing to annotate mid-edit.
-  const selectionMenu = !editable && onRunProcess && onCreateManualHighlight && (
-    <SelectionMenu
-      containerRef={containerRef}
-      editor={editor}
-      onRunProcess={(process, selectionText) => onRunProcess(cardId, process, selectionText)}
-      onCreateManualHighlight={(selectionText, color) => onCreateManualHighlight(cardId, selectionText, color)}
-    />
-  );
+  // Same convention the old CardContent.tsx's AnnotatedText used: this and the
+  // pre-existing annotation decorations/popovers only ever show in read mode —
+  // there's nothing to annotate mid-edit. (A Quote's own highlight, unlike this
+  // menu, renders in *both* modes — see the selectionHighlightKey effect above — so
+  // editing a Card doesn't lose its existing Quote highlights, only this particular
+  // "select new text" shortcut.)
+  const selectionMenu = !editable && <SelectionMenu containerRef={containerRef} editor={editor} cardId={cardId} />;
+
+  // Portaled the same way as SelectionMenu above — mounts inside a <p>
+  // (AnnotatedText.tsx), and a <div> isn't valid HTML there.
+  const quoteRemovePopup = quotePopup &&
+    createPortal(
+      <div
+        className="selection-menu card-quote-popup"
+        style={{ top: quotePopup.top, left: quotePopup.left }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div className="selection-menu__actions">
+          <button
+            type="button"
+            className="selection-menu__action"
+            aria-label={quotePopupCopied ? t("quickLookup.copied") : t("quickLookup.copy")}
+            title={quotePopupCopied ? t("quickLookup.copied") : t("quickLookup.copy")}
+            onClick={() => {
+              const text = quotes.find((q) => q.id === quotePopup.id)?.text ?? "";
+              navigator.clipboard
+                .writeText(text)
+                .then(() => setQuotePopupCopied(true))
+                .catch(() => {});
+            }}
+          >
+            <Icon name={quotePopupCopied ? "done" : "copy"} />
+          </button>
+          <button
+            type="button"
+            className="selection-menu__action"
+            aria-label={t("quickLookup.dismiss")}
+            title={t("quickLookup.dismiss")}
+            onClick={() => {
+              removeQuote(quotePopup.id);
+              setQuotePopup(null);
+            }}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      </div>,
+      document.body,
+    );
 
   const openAnnotation = open ? annotations.find((a) => a.id === open.id) : undefined;
   const annotationPopover = !editable && open && openAnnotation && (
@@ -381,16 +443,27 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
         // bubble up to the Card's own onClick (Card.tsx/etc. — toggles the whole
         // Card's selection in/out). Selecting a Card is reserved for its "blank
         // space" — the header, margins, anything outside this content area — text
-        // stays a plain, always-available highlight target instead (the Dock's own
-        // "Quote" action is what turns a
-        // selection into something persistent now, not a click on the text itself).
+        // stays a plain, always-available highlight target instead (SelectionMenu's
+        // own quotation-mark action is what turns a selection into something
+        // persistent now, not a click on the text itself).
         onClick={(e) => e.stopPropagation()}
+        // Same reasoning, for double-click: a double-click on this content area is
+        // the browser's native "select the word under the cursor" gesture, not a
+        // request to jump into editing — that stays reserved for double-clicking the
+        // "blank space" (Card.tsx/CardEmbed.tsx's own onDoubleClick, on the header/
+        // margins outside this element). Without this, the dblclick event still
+        // bubbles up even though the click events it's paired with are already
+        // stopped above (dblclick is its own event type, not just two clicks), so a
+        // double-click meant to select a word would instead select-and-edit the
+        // whole Card/embed out from under it.
+        onDoubleClick={(e) => e.stopPropagation()}
       >
         <EditorContent editor={editor} />
         {editor?.isEmpty && !editable && placeholder && (
           <p className="card__preview card-rich-text__empty">{placeholder}</p>
         )}
         {selectionMenu}
+        {quoteRemovePopup}
         {annotationPopover}
       </div>
     </CardEditingContext.Provider>

@@ -16,7 +16,6 @@ import { useDockCards } from "./hooks/useDockCards.js";
 import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
-import { useGlobalSelectionTracking } from "./hooks/useGlobalSelectionTracking.js";
 import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
@@ -52,20 +51,49 @@ export function App() {
    *  automatically below if the Card it points at stops being on the current Page
    *  (removed, or the Page itself changed out from under it). */
   const [focusedPageCardId, setFocusedPageCardId] = useState<string | null>(null);
-  /** An independently-selected embedded Card (CardRichText.tsx/CardEmbed.tsx's
-   *  click-to-select), separate from `selectedPageCardIds` — see Dock.tsx's
-   *  embed-selected action row. `onRemove` is the exact splice closure captured at
-   *  selection time for stripping this embed's token back out of its parent. */
-  const [selectedEmbed, setSelectedEmbed] = useState<{ cardId: string; onRemove: () => void } | null>(
-    null,
-  );
+  /** Every independently-selected embedded Card (CardRichText.tsx/CardEmbed.tsx's
+   *  click-to-select), keyed by cardId — several can be selected at once now,
+   *  alongside `selectedPageCardIds` and Quotes, all feeding the Dock's combined
+   *  "many selections" context (see Dock.tsx's lookup panel). Each value is the
+   *  exact splice closure captured at selection time for stripping that embed's
+   *  token back out of its parent. */
+  const [selectedEmbedIds, setSelectedEmbedIds] = useState<Map<string, () => void>>(new Map());
+  /** The one selected embed, when exactly one is — the single-target actions
+   *  (Dock's Edit/Save/Remove/Delete/Move row, annotate/diff processes) only ever
+   *  make sense for exactly one embed at a time, same `.length === 1`-style gating
+   *  selectedPageCards uses for singleSelectedCard below. */
+  const singleSelectedEmbedEntry = selectedEmbedIds.size === 1 ? [...selectedEmbedIds][0] : undefined;
+  const singleSelectedEmbed = singleSelectedEmbedEntry
+    ? { cardId: singleSelectedEmbedEntry[0], onRemove: singleSelectedEmbedEntry[1] }
+    : null;
+  /** Plain Set view of `selectedEmbedIds` for props that only need membership, not
+   *  each entry's own onRemove closure (CardEditingContext's visual highlighting,
+   *  Dock's word/card/quote context) — recomputed each render, same cost as passing
+   *  selectedPageCardIds straight through below. */
+  const selectedEmbedIdSet = useMemo(() => new Set(selectedEmbedIds.keys()), [selectedEmbedIds]);
+  /** Removes one embed from the selection (and, if it was mid-edit, out of
+   *  editingEmbedIds too) — leaving every other selected Card/embed untouched. */
+  function deselectOneEmbed(cardId: string) {
+    setSelectedEmbedIds((prev) => {
+      if (!prev.has(cardId)) return prev;
+      const next = new Map(prev);
+      next.delete(cardId);
+      return next;
+    });
+    setEditingEmbedIds((prev) => {
+      if (!prev.has(cardId)) return prev;
+      const next = new Set(prev);
+      next.delete(cardId);
+      return next;
+    });
+  }
   /** An embed "in transit" to a Page position (the embed action row's own Move) —
-   *  same shape as `selectedEmbed` (it *is* what was selected, carried forward the
-   *  same way movingPageCardIds carries selectedPageCardIds forward), but kept as a
-   *  separate piece of state since entering this mode clears `selectedEmbed` itself
-   *  (there's no existing PageCard/DockCard row for an embed the way there is for a
-   *  Page/Dock Card, so nothing else needs the selection to persist — see
-   *  handleEnterEmbedMoveMode). */
+   *  same shape as one `selectedEmbedIds` entry (it *is* what was selected, carried
+   *  forward the same way movingPageCardIds carries selectedPageCardIds forward),
+   *  but kept as a separate piece of state since entering this mode drops that one
+   *  embed back out of the selection (there's no existing PageCard/DockCard row for
+   *  an embed the way there is for a Page/Dock Card, so nothing else needs the
+   *  selection to persist — see handleEnterEmbedMoveMode). */
   const [movingEmbedCard, setMovingEmbedCard] = useState<{ cardId: string; onRemove: () => void } | null>(
     null,
   );
@@ -84,7 +112,7 @@ export function App() {
   /** Every currently-selected Dock Card (by its own id, not cardId) — the same
    *  select-then-add-toggle model as selectedPageCardIds, but for the Dock's own
    *  scratchpad layer (DockCardsPanel.tsx). Mutually exclusive with
-   *  selectedPageCardIds/selectedEmbed: selecting one clears the others, so the
+   *  selectedPageCardIds/selectedEmbedIds: selecting a Dock Card clears both, so the
    *  Dock's action row is never asked to show two different selections' actions at
    *  once (see toggleSelectDockCard/toggleSelectPageCard/selectEmbed). */
   const [selectedDockCardIds, setSelectedDockCardIds] = useState<Set<string>>(new Set());
@@ -209,19 +237,18 @@ export function App() {
   // no flash of "nothing there" in between.
   const generation = useGeneration(refresh);
   const annotations = useAnnotations();
-  // Publishes the live text selection (any Card's rich text, root or embedded,
-  // read-only or mid-edit) to liveSelectionRegistry.ts — Dock.tsx reads it to know
-  // when to show its own "Quote" action, no separate mount needed here.
-  useGlobalSelectionTracking();
 
   // The currently-selected Card/embed's own live annotations, for the Dock's process/
   // accept-all-diffs actions (pendingDiffCount) — an embed's Card only lives in
   // cardStore (not `pages`), so it needs its own subscription; a top-level
   // singleSelectedCard's Card comes back through `pages` on every refresh() below,
-  // which every annotation mutation triggers (see the handle* wrappers).
+  // which every annotation mutation triggers (see the handle* wrappers). Keyed off
+  // singleSelectedEmbed (only ever non-null when exactly one embed is selected) —
+  // several embeds can be selected at once now (selectedEmbedIds below), but this
+  // single-target subscription only ever needs to follow one of them.
   const selectedEmbedCard = useSyncExternalStore(
-    (onChange) => (selectedEmbed ? subscribeToCard(selectedEmbed.cardId, onChange) : () => {}),
-    () => (selectedEmbed ? getCachedCard(selectedEmbed.cardId) : undefined),
+    (onChange) => (singleSelectedEmbed ? subscribeToCard(singleSelectedEmbed.cardId, onChange) : () => {}),
+    () => (singleSelectedEmbed ? getCachedCard(singleSelectedEmbed.cardId) : undefined),
   );
 
   const sortedPages = useMemo(() => [...pages].sort((a, b) => b.order - a.order), [pages]);
@@ -241,16 +268,14 @@ export function App() {
    *  of editingPageCardIds too if it was mid-edit) — same click-to-select/
    *  click-to-deselect model Dock.tsx's own Quote highlights use, everything else
    *  (Edit, Save, Move, Hide, remove) reached from the Dock instead of a per-Card
-   *  popup. Always hands focus away from whatever embed/Dock Card was independently
-   *  selected — those keep their own separate single-select mechanisms, untouched
-   *  by this. */
+   *  popup. Cards and embeds can coexist in the selection now — only Dock Card
+   *  selection stays its own separate single-select mechanism, untouched by this. */
   function toggleSelectPageCard(id: string) {
     if (selectedPageCardIds.has(id)) {
       exitEditPageCard(id);
       return;
     }
     setSelectedPageCardIds((prev) => new Set(prev).add(id));
-    setSelectedEmbed(null);
     // Mutually exclusive with Dock Card selection (see toggleSelectDockCard) — the
     // Dock's action row only ever shows one *kind* of selection's actions at a time.
     setSelectedDockCardIds(new Set());
@@ -295,13 +320,15 @@ export function App() {
 
   /** The formatting toolbar's own back-caret (Dock.tsx) — ends editing the same way
    *  each surface's own click-outside-to-close gesture already does: a Page Card
-   *  fully deselects (exitEditPageCard), same as an independently-selected embed
-   *  (handleDeselectEmbed); a Dock Card just drops out of edit mode and stays
-   *  selected (toggleEditEmbed), same as CardEmbed.tsx's own click-outside effect
-   *  does for it. Checked in the same priority order isEditingActive uses. */
+   *  fully deselects (exitEditPageCard), same as an editing selected embed
+   *  (deselectOneEmbed — only that one, leaving any other selected Cards/embeds
+   *  alone); a Dock Card just drops out of edit mode and stays selected
+   *  (toggleEditEmbed), same as CardEmbed.tsx's own click-outside effect does for it.
+   *  Checked in the same priority order isEditingActive uses. */
   function exitEditing() {
-    if (selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) {
-      handleDeselectEmbed();
+    const editingSelectedEmbedId = [...selectedEmbedIds.keys()].find((id) => editingEmbedIds.has(id));
+    if (editingSelectedEmbedId) {
+      deselectOneEmbed(editingSelectedEmbedId);
       return;
     }
     const editingPageCardId = [...selectedPageCardIds].find((id) => editingPageCardIds.has(id));
@@ -329,7 +356,7 @@ export function App() {
     setSelectedDockCardIds(new Set([id]));
     setSelectedPageCardIds(new Set());
     setEditingPageCardIds(new Set());
-    setSelectedEmbed(null);
+    setSelectedEmbedIds(new Map());
   }
 
   /** Deselects every selected Dock Card — the multi-select "Close" action for the
@@ -430,40 +457,43 @@ export function App() {
   function requestEditPageCard(id: string) {
     setSelectedPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-    setSelectedEmbed(null);
     setSelectedDockCardIds(new Set());
   }
 
   /** Selects an embedded Card independently of whatever top-level Card contains it —
-   *  clicking the same one again jumps into editing it instead, same
-   *  add-to-selection-or-jump-to-edit convention as toggleSelectPageCard (deselecting
-   *  is the Dock's own back-caret action now, not a tap gesture). Deliberately
-   *  doesn't touch selectedPageCardIds/editingPageCardIds: the containing Card stays
-   *  exactly as selected/editing as it was. */
+   *  clicking the same one again deselects it, same click-to-select/
+   *  click-to-deselect toggle convention toggleSelectPageCard uses for top-level
+   *  Cards, and likewise cumulative: several embeds (and any combination of
+   *  top-level Cards) can be selected at once now, all feeding the Dock's combined
+   *  "many selections" context (editing is reached only via double-click/long-press
+   *  — requestEditEmbed below — not a second tap). Deliberately doesn't touch
+   *  selectedPageCardIds/editingPageCardIds: the containing Card stays exactly as
+   *  selected/editing as it was. */
   function selectEmbed(cardId: string, onRemove: () => void) {
-    if (selectedEmbed?.cardId === cardId) {
-      setEditingEmbedIds((prev) => (prev.has(cardId) ? prev : new Set(prev).add(cardId)));
+    if (selectedEmbedIds.has(cardId)) {
+      deselectOneEmbed(cardId);
       return;
     }
-    setSelectedEmbed({ cardId, onRemove });
+    setSelectedEmbedIds((prev) => new Map(prev).set(cardId, onRemove));
     setSelectedDockCardIds(new Set());
   }
 
   /** Double-click / long-press an embedded Card (CardEmbed.tsx) to jump straight into
-   *  editing it — selects it and turns its edit mode on in one action, same
-   *  convention as requestEditPageCard above for top-level Cards. Deliberately not a
-   *  toggle (repeat double-clicks/long-presses on an already-editing embed just leave
-   *  it as is), and deliberately doesn't touch any other Card/embed's state. */
+   *  editing it — adds it to the selection (and to editing) *alongside* whatever
+   *  else is currently selected, same cumulative spirit as requestEditPageCard above
+   *  for top-level Cards. Deliberately not a toggle (repeat double-clicks/long-presses
+   *  on an already-editing embed just leave it as is), and deliberately doesn't touch
+   *  any other Card/embed's state. */
   function requestEditEmbed(cardId: string, onRemove: () => void) {
-    setSelectedEmbed({ cardId, onRemove });
+    setSelectedEmbedIds((prev) => (prev.has(cardId) ? prev : new Map(prev).set(cardId, onRemove)));
     setEditingEmbedIds((prev) => (prev.has(cardId) ? prev : new Set(prev).add(cardId)));
   }
 
   /** Toggles one embedded Card's own inline edit mode on/off — the Dock's Edit action
    *  for a selected embed, and also what CardEmbed.tsx's click-outside effect calls to
    *  close it (mirroring Card.tsx's "there's no separate Done action" convention).
-   *  Deliberately independent of `selectedEmbed`/`editingPageCardIds` — toggling one
-   *  embed's edit state never touches selection or any other Card's edit state. */
+   *  Deliberately independent of `selectedEmbedIds`/`editingPageCardIds` — toggling
+   *  one embed's edit state never touches selection or any other Card's edit state. */
   function toggleEditEmbed(cardId: string) {
     setEditingEmbedIds((prev) => {
       const next = new Set(prev);
@@ -476,52 +506,60 @@ export function App() {
     });
   }
 
+  /** Only ever meaningful when exactly one embed is selected (singleSelectedEmbed) —
+   *  Dock.tsx's own single-embed action row gates on that the same way. */
   function handleRemoveEmbed() {
-    if (!selectedEmbed) return;
-    selectedEmbed.onRemove();
-    setSelectedEmbed(null);
+    if (!singleSelectedEmbed) return;
+    singleSelectedEmbed.onRemove();
+    deselectOneEmbed(singleSelectedEmbed.cardId);
   }
 
   // Deletes the embedded Card from the vault entirely (same global delete the Vault
   // panel uses — vault.deleteCard), then strips the now-dangling token out of this
   // particular parent too, rather than leaving CardEmbed's "not found" fallback
-  // showing indefinitely where the user was just looking.
+  // showing indefinitely where the user was just looking. Only ever meaningful when
+  // exactly one embed is selected (singleSelectedEmbed) — same gating as above.
   async function handleDeleteEmbed() {
-    if (!selectedEmbed) return;
-    const { cardId, onRemove } = selectedEmbed;
-    setSelectedEmbed(null);
+    if (!singleSelectedEmbed) return;
+    const { cardId, onRemove } = singleSelectedEmbed;
+    deselectOneEmbed(cardId);
     onRemove();
     await vault.deleteCard(cardId);
     await refresh();
   }
 
   /** The Dock's own back-caret action (the one universal way to deselect now,
-   *  across Page Cards/Dock Cards/embeds alike) while an embed is selected — plain
-   *  deselect, same as deselectAll/deselectDockCards, leaving the embed exactly
-   *  where it is. Distinct from Remove (strips the token) and Delete (strips the
-   *  token and deletes the underlying Card) — those stay their own explicit actions,
-   *  this only clears selection/editing state. */
+   *  across Page Cards/Dock Cards/embeds alike) while an embed is selected — clears
+   *  every selected embed at once (distinct from deselectOneEmbed, which drops just
+   *  one out of a larger selection), same as deselectAll/deselectDockCards, leaving
+   *  every embed exactly where it is. Distinct from Remove (strips the token) and
+   *  Delete (strips the token and deletes the underlying Card) — those stay their
+   *  own explicit actions, this only clears selection/editing state. */
   function handleDeselectEmbed() {
-    if (selectedEmbed) {
-      setEditingEmbedIds((prev) => {
-        if (!prev.has(selectedEmbed.cardId)) return prev;
-        const next = new Set(prev);
-        next.delete(selectedEmbed.cardId);
-        return next;
-      });
-    }
-    setSelectedEmbed(null);
+    setEditingEmbedIds((prev) => {
+      if (![...selectedEmbedIds.keys()].some((id) => prev.has(id))) return prev;
+      const next = new Set(prev);
+      for (const id of selectedEmbedIds.keys()) next.delete(id);
+      return next;
+    });
+    setSelectedEmbedIds(new Map());
   }
 
   /** The embed action row's own Move — enters Move Mode the same way
-   *  handleEnterMoveMode does for Page Cards, carrying `selectedEmbed` forward as
-   *  `movingEmbedCard` rather than a PageCard id (there isn't one yet — see
-   *  movingEmbedCard's own doc comment). Closes whatever panel was open, same
+   *  handleEnterMoveMode does for Page Cards, carrying the one selected embed
+   *  forward as `movingEmbedCard` rather than a PageCard id (there isn't one yet —
+   *  see movingEmbedCard's own doc comment). Only ever meaningful when exactly one
+   *  embed is selected (singleSelectedEmbed) — same gating as
+   *  handleRemoveEmbed/handleDeleteEmbed. Closes whatever panel was open, same
    *  reasoning as handleEnterDockCardMoveMode. */
   function handleEnterEmbedMoveMode() {
-    if (!selectedEmbed) return;
-    setMovingEmbedCard(selectedEmbed);
-    setSelectedEmbed(null);
+    if (!singleSelectedEmbed) return;
+    setMovingEmbedCard(singleSelectedEmbed);
+    setSelectedEmbedIds((prev) => {
+      const next = new Map(prev);
+      next.delete(singleSelectedEmbed.cardId);
+      return next;
+    });
     setOpenPanel(null);
   }
 
@@ -529,7 +567,9 @@ export function App() {
   // back on the embed's own action row — same place Page Card Move Mode's Cancel
   // lands (selectedPageCardIds is never cleared to begin with there).
   function handleCancelEmbedMove() {
-    if (movingEmbedCard) setSelectedEmbed(movingEmbedCard);
+    if (movingEmbedCard) {
+      setSelectedEmbedIds((prev) => new Map(prev).set(movingEmbedCard.cardId, movingEmbedCard.onRemove));
+    }
     setMovingEmbedCard(null);
   }
 
@@ -552,8 +592,9 @@ export function App() {
   /** Move's own "drop onto the Dock" destination for an embed (Dock.tsx's
    *  dockCardsAction, tapped while embedMoving) — same add-then-strip-then-open
    *  sequencing as handleDropEmbedAt, but landing in the Dock instead of a Page.
-   *  Reads movingEmbedCard rather than selectedEmbed: entering embed Move Mode
-   *  already cleared the latter (see handleEnterEmbedMoveMode). */
+   *  Reads movingEmbedCard rather than selectedEmbedIds: entering embed Move Mode
+   *  already dropped that one embed back out of the selection (see
+   *  handleEnterEmbedMoveMode). */
   async function handleMoveEmbedToDock() {
     if (!movingEmbedCard) return;
     const { cardId, onRemove } = movingEmbedCard;
@@ -605,7 +646,7 @@ export function App() {
     (pc) => selectedPageCardIds.has(pc.id) && editingPageCardIds.has(pc.id),
   );
   const isEditingActive =
-    (!!selectedEmbed && editingEmbedIds.has(selectedEmbed.cardId)) ||
+    [...selectedEmbedIds.keys()].some((cardId) => editingEmbedIds.has(cardId)) ||
     (editingSelectedPageCard ? getCardTypeId(editingSelectedPageCard.card) === "note" : false) ||
     selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
 
@@ -666,14 +707,14 @@ export function App() {
   // same as when none are.
   const singleSelectedCard = selectedPageCards.length === 1 ? selectedPageCards[0] : null;
 
-  // Which Card a Dock process action would run against — an embed takes priority,
-  // same convention as selectedEmbedId elsewhere (Dock.tsx/richtext/CardRichText.tsx). Null
-  // when nothing's selected (or more than one Card is).
-  const dockAnnotationCardId = selectedEmbed?.cardId ?? singleSelectedCard?.card.id ?? null;
+  // Which Card a Dock process action would run against — a single selected embed
+  // takes priority, same convention as selectedEmbedId elsewhere (Dock.tsx/richtext/
+  // CardRichText.tsx). Null when nothing's selected (or more than one Card/embed is).
+  const dockAnnotationCardId = singleSelectedEmbed?.cardId ?? singleSelectedCard?.card.id ?? null;
   // An embed never has one (embeds always write straight through to the vault, no
   // draft step) — only a top-level singleSelectedCard's own PageCard id counts here.
-  const dockAnnotationPageCardId = selectedEmbed ? undefined : singleSelectedCard?.id;
-  const dockAnnotations = selectedEmbed
+  const dockAnnotationPageCardId = singleSelectedEmbed ? undefined : singleSelectedCard?.id;
+  const dockAnnotations = singleSelectedEmbed
     ? (selectedEmbedCard?.metadata.annotations ?? [])
     : (singleSelectedCard?.card.metadata.annotations ?? []);
   const pendingDiffCount = dockAnnotations.filter((a) => a.type === "diff").length;
@@ -1248,7 +1289,7 @@ export function App() {
           onCloseEditor={exitEditPageCard}
           onRequestEditPageCard={requestEditPageCard}
           onChangeDraft={handleChangeDraft}
-          selectedEmbedId={selectedEmbed?.cardId ?? null}
+          selectedEmbedIds={selectedEmbedIdSet}
           onSelectEmbed={selectEmbed}
           onRequestEditEmbed={requestEditEmbed}
           editingEmbedIds={editingEmbedIds}
@@ -1298,7 +1339,7 @@ export function App() {
             onCloseEditor={exitEditPageCard}
             onRequestEditPageCard={requestEditPageCard}
             onChangeDraft={handleChangeDraft}
-            selectedEmbedId={selectedEmbed?.cardId ?? null}
+            selectedEmbedIds={selectedEmbedIdSet}
             onSelectEmbed={selectEmbed}
             onRequestEditEmbed={requestEditEmbed}
             editingEmbedIds={editingEmbedIds}
@@ -1353,7 +1394,8 @@ export function App() {
 
       <Dock
         selectedCards={selectedPageCards}
-        selectedEmbedId={selectedEmbed?.cardId ?? null}
+        selectedEmbedIds={selectedEmbedIdSet}
+        selectedEmbedId={selectedPageCards.length === 0 ? singleSelectedEmbed?.cardId ?? null : null}
         isEditingActive={isEditingActive}
         onExitEditing={exitEditing}
         onRemoveEmbed={handleRemoveEmbed}

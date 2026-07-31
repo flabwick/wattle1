@@ -14,8 +14,7 @@
   overflow: hidden;
 }
 
-.selection-menu__actions,
-.selection-menu__colors {
+.selection-menu__actions {
   display: flex;
 }
 
@@ -43,17 +42,4 @@
 .selection-menu__action .icon {
   width: var(--icon-size-sm);
   height: var(--icon-size-sm);
-}
-
-.selection-menu__swatch {
-  width: var(--touch-target-sm);
-  height: var(--touch-target-sm);
-  border: none;
-  border-right: var(--border-width-thin) solid var(--color-border);
-  cursor: pointer;
-  padding: 0;
-}
-
-.selection-menu__swatch:last-child {
-  border-right: none;
 }

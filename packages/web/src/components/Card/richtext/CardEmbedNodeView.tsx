@@ -19,7 +19,7 @@ export function CardEmbedNodeView({ node, deleteNode }: NodeViewProps) {
         cardId={cardId}
         ancestorIds={ctx.ancestorIds}
         depth={ctx.depth}
-        selectedEmbedId={ctx.selectedEmbedId}
+        selectedEmbedIds={ctx.selectedEmbedIds}
         onSelectEmbed={ctx.onSelectEmbed}
         onRequestEditEmbed={ctx.onRequestEditEmbed}
         editingEmbedIds={ctx.editingEmbedIds}

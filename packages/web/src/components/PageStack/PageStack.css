@@ -2,6 +2,18 @@
   padding: var(--space-4);
 }
 
+/* Desktop's narrow reading column (see global.css's own doc comment on this same
+   breakpoint) — centered on the content itself, not on the scrollable ancestor
+   (.app__main, styles/global.css), so that ancestor can stay full-width and a
+   scroll gesture started anywhere on screen, including past this column's own
+   edges, still scrolls the Page. */
+@media (min-width: 900px) {
+  .page-stack {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+}
+
 .page-stack__page-empty,
 .page-stack__empty {
   color: var(--color-text-muted);

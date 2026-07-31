@@ -59,13 +59,15 @@ input {
 }
 
 /* Desktop is the adaptation, not the base (spec1.md Part 4 "Responsive Behavior"):
-   same data model, more room to show context at once. */
-@media (min-width: 900px) {
-  .page-viewport {
-    max-width: 720px;
-    margin: 0 auto;
-  }
-}
+   same data model, more room to show context at once. The narrow column is centered
+   on the *content* now (.page-stack, PageStack.css) and its edge decoration
+   (.page-stack-edges, PageStackEdges.css) — not on .page-viewport/.app__main
+   themselves, which stay full-width so the scrollable box (.app__main's own
+   overflow-y: auto) spans the whole screen. That lets a wheel/trackpad/touch scroll
+   started anywhere, including the side gutters beyond the centered column, still
+   scroll the Page — previously .page-viewport itself was the narrowed, centered
+   box, so anywhere outside it (the gutters) had no scrollable element under the
+   pointer at all. */
 
 /* A Card's own "expand" corner button (App.tsx's focusedPageCardId) — takes over
    .page-viewport's own flex slot in .app entirely (App.tsx renders one or the
@@ -147,6 +149,11 @@ input {
 .fullscreen-card .page-stack {
   height: 100%;
   padding: 0;
+  /* Overrides PageStack.css's own desktop narrow-column rule (max-width: 720px;
+     margin: 0 auto) — fullscreen stays edge-to-edge regardless of viewport width,
+     per this block's own doc comment above. */
+  max-width: none;
+  margin: 0;
 }
 
 .fullscreen-card .page-stack__page {

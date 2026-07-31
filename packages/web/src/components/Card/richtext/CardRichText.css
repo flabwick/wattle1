@@ -15,7 +15,7 @@
    its default blue, so the two never visually clash or double-tint once both are
    showing at once. */
 .card-rich-text ::selection {
-  background: color-mix(in srgb, var(--color-highlight) 45%, transparent);
+  background-color: color-mix(in srgb, var(--color-highlight) 45%, transparent);
 }
 
 .card-rich-text .ProseMirror p {

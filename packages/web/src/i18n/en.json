@@ -53,6 +53,8 @@
   "promptCard.context.done": "Done",
 
   "quickLookup.addQuote": "Turn selection into a Quote",
+  "quickLookup.copy": "Copy to clipboard",
+  "quickLookup.copied": "Copied",
   "quickLookup.placeholder": "Ask about this… (optional)",
   "quickLookup.ask": "Ask AI",
   "quickLookup.dismiss": "Dismiss",
@@ -176,8 +178,6 @@
   "card.openFullscreen": "Open fullscreen",
   "card.addCard": "Add card",
   "card.remove": "Remove",
-  "card.edit": "Edit",
-  "card.deselect": "Deselect",
   "card.insertLink": "Insert card link",
   "card.insertHyperlink": "Insert link",
   "card.hyperlinkPlaceholder": "https://example.com",

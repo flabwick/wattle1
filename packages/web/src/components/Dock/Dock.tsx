@@ -28,11 +28,10 @@ import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
 import { CardRichText } from "../Card/richtext/CardRichText.js";
 import { uploadRichTextImage } from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
+import { getCachedCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
-import { addQuote, clearQuotes, removeQuote, useQuotes } from "../../lib/quotesRegistry.js";
-import { useLiveSelection } from "../../lib/liveSelectionRegistry.js";
-import { setTargetedQuote, useTargetedQuote } from "../../lib/targetedQuoteRegistry.js";
+import { clearQuotes, useQuotes } from "../../lib/quotesRegistry.js";
 import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
 import { useSelectionLookup } from "../../hooks/useSelectionLookup.js";
 import { quickAddToDock, quickAddToPage } from "../../lib/quickAddRegistry.js";
@@ -54,16 +53,25 @@ interface DockProps {
    *  selected Stack's own generation, annotate/diff processes) gate on
    *  `.length === 1` and disappear otherwise. Empty when nothing's selected. */
   selectedCards: PageCardWithCard[];
-  /** An independently-selected embedded Card's id (mutually exclusive with, and takes
-   *  priority over, `selectedCards` — see App.tsx/CardContent.tsx). Gets the same
-   *  back-caret/Edit/Save/Move/Move to Dock actions a top-level Card does, plus
-   *  Remove/Delete which only an embed has — Save is always shown already-done
-   *  since embeds are always already-saved vault Cards (CardLinkPicker only offers
-   *  saved ones) that write straight through on every keystroke, so there's never
-   *  anything pending to commit. There's no per-embed Generate: Generate is only
-   *  ever available via `selectedCards` below. Tapping an already-selected embed
-   *  again jumps into editing it rather than deselecting (App.tsx's selectEmbed) —
-   *  onDeselectEmbed below is the only way back out. */
+  /** Every currently-selected embedded Card's id (App.tsx's selectEmbed toggles
+   *  membership the same way toggleSelectPageCard does for top-level Cards — several
+   *  can be selected at once, alongside `selectedCards` and Quotes, all feeding the
+   *  lookup panel's combined "N words, N cards, N quotes" context below). Used only
+   *  for that combined context — the single-embed action row further down keys off
+   *  `selectedEmbedId` instead. */
+  selectedEmbedIds: ReadonlySet<string>;
+  /** Which embedded Card, if exactly one is selected and no top-level Cards are also
+   *  selected, gets the single-target action row (App.tsx derives this from
+   *  `selectedEmbedIds`) — back-caret/Edit/Save/Move/Move to Dock same as a top-level
+   *  Card, plus Remove/Delete which only an embed has. Save is always shown
+   *  already-done since embeds are always already-saved vault Cards (CardLinkPicker
+   *  only offers saved ones) that write straight through on every keystroke, so
+   *  there's never anything pending to commit. There's no per-embed Generate:
+   *  Generate is only ever available via `selectedCards` below. Tapping an
+   *  already-selected embed again jumps into editing it rather than deselecting
+   *  (App.tsx's selectEmbed) — onDeselectEmbed below is the only way back out. Null
+   *  the moment a second embed (or any top-level Card) joins the selection — this
+   *  row disappears, but each embed's own highlight (via selectedEmbedIds) stays. */
   selectedEmbedId: string | null;
   /** True while whatever's selected (Page Card, Dock Card, or embed) is also in its
    *  own inline edit mode — swaps the row for the rich-text formatting toolbar
@@ -344,6 +352,7 @@ function supportedOperationIds(typeId: string): Set<string> {
  */
 export function Dock({
   selectedCards,
+  selectedEmbedIds,
   selectedEmbedId,
   isEditingActive,
   onExitEditing,
@@ -483,32 +492,80 @@ export function Dock({
   const [rewriteText, setRewriteText] = useState("");
   /** The quick-lookup/prompt panel — appears automatically the moment anything is
    *  selected: one or more Cards (selectedCards — same multi-selection Save/Hide/
-   *  Move/removeSelected already batch over), one or more Quotes (quotesRegistry.ts
-   *  — confirmed via the panel's own "Quote" action below, not automatically just
-   *  from dragging across text; see liveSelectionRegistry.ts's doc comment on why),
-   *  or a live (not yet turned into a Quote) text selection just to surface that
-   *  action, or any combination. No separate reveal step. *Adds* a panel above the
-   *  row rather than replacing it — the row keeps showing whatever it normally
-   *  would (the WYSIWYG formatting toolbar while editing, or the ordinary action
-   *  row otherwise), so a live text selection can still be formatted normally, or
-   *  turned into a Quote here, independently. Asking sends the combined content of
-   *  every selected Card plus every Quote as context — see buildLookupContextText
+   *  Move/removeSelected already batch over), one or more embeds (selectedEmbedIds
+   *  — App.tsx's selectEmbed), one or more Quotes (quotesRegistry.ts), or any
+   *  combination. No separate reveal step. *Adds* a panel above the row rather than
+   *  replacing it — the row keeps showing whatever it normally would (the WYSIWYG
+   *  formatting toolbar while editing, or the ordinary action row otherwise), so a
+   *  live text selection can still be formatted normally. Turning a selection into a
+   *  Quote is SelectionMenu.tsx's own quotation-mark button, shown right on the
+   *  selection itself, not a Dock action. Asking sends the combined content of every
+   *  selected Card/embed plus every Quote as context — see buildLookupContextText
    *  below. Never shown during Move Mode (showLookupRow below), so there's always a
-   *  way to cancel an in-flight move. Stays open (via lookup's own streaming/text/
-   *  error state) even after every Card/Quote clears — until explicitly dismissed
-   *  via its own close button. */
+   *  way to cancel an in-flight move. Stays open across Add to page/Add to Dock —
+   *  those are side-effect-only actions now, they don't dismiss anything — and even
+   *  after every Card/Quote/embed clears, until explicitly dismissed via its own
+   *  close button (dismissLookup). The one thing that *does* reset it on its own is
+   *  the underlying selection itself *changing* (the selectionSignature effect
+   *  below) — a different set of Cards/Quotes/embeds is a different topic, so the
+   *  old question/answer history no longer applies, but the selection change itself
+   *  is never undone by this — only dismissLookup touches Quotes/selection. */
   const [lookupInstruction, setLookupInstruction] = useState("");
+  // Every past question/answer for the *current* selection, oldest first — same
+  // "iterations" shape as the "prompt" CardType's own metadata.prompt.iterations
+  // (cardMetadata.ts), just kept as local component state instead of persisted:
+  // this panel's whole context resets the moment the selection changes anyway (see
+  // below), so there's nothing meaningful to persist across a reload.
+  const [lookupIterations, setLookupIterations] = useState<{ instruction: string; text: string }[]>([]);
+  const [lookupActiveIndex, setLookupActiveIndex] = useState(0);
+  // Flips the panel from the ask input over to the rendered result the moment a
+  // question is sent — same 3D flip mechanic as the "prompt" CardType's own
+  // PromptCardBody.tsx (front face = input, back face = rendered output).
+  const [lookupFlipped, setLookupFlipped] = useState(false);
   const quotes = useQuotes();
-  const liveSelection = useLiveSelection();
-  const targetedQuoteId = useTargetedQuote();
   const lookup = useSelectionLookup();
+  const lookupActiveIndexClamped =
+    lookupIterations.length === 0 ? 0 : Math.min(Math.max(lookupActiveIndex, 0), lookupIterations.length - 1);
+  const activeLookupIteration = lookupIterations[lookupActiveIndexClamped] ?? null;
+  // Whenever a new iteration lands, jump straight to it — browsing to an older one
+  // via the rail's prev/next (goToLookupIteration) doesn't change `.length`, so it
+  // doesn't retrigger this.
+  useEffect(() => {
+    setLookupActiveIndex(lookupIterations.length - 1);
+  }, [lookupIterations.length]);
   const lookupActive =
     selectedCards.length > 0 ||
+    selectedEmbedIds.size > 0 ||
     quotes.length > 0 ||
-    !!liveSelection ||
     lookup.streaming ||
-    !!lookup.text ||
+    lookupIterations.length > 0 ||
     !!lookup.error;
+  // The moment the underlying selection (which Cards/embeds/Quotes) actually
+  // changes, the whole question/answer history resets — a different selection is a
+  // different topic, so the old iterations no longer apply. Deliberately doesn't
+  // touch selectedCards/selectedEmbedIds/quotes themselves (those changing is what
+  // triggers this, not something this responds by further mutating) — only
+  // dismissLookup's own explicit close button does that (clearQuotes). Skipped on
+  // mount (the ref starts equal to the first signature) and whenever there's
+  // nothing yet to reset, so selecting the very first Card doesn't do anything.
+  const selectionSignature = [
+    "c:" + selectedCards.map((pc) => pc.id).sort().join(","),
+    "e:" + [...selectedEmbedIds].sort().join(","),
+    "q:" + quotes.map((q) => q.id).sort().join(","),
+  ].join("|");
+  const prevSelectionSignatureRef = useRef(selectionSignature);
+  useEffect(() => {
+    if (prevSelectionSignatureRef.current === selectionSignature) return;
+    prevSelectionSignatureRef.current = selectionSignature;
+    if (lookupIterations.length > 0 || lookupInstruction !== "" || lookupFlipped) {
+      setLookupInstruction("");
+      lookup.reset();
+      setLookupIterations([]);
+      setLookupActiveIndex(0);
+      setLookupFlipped(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionSignature]);
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
   /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
@@ -596,36 +653,37 @@ export function Dock({
    *  way to cancel it (the row would show the lookup UI instead of Cancel). */
   const showLookupRow = lookupActive && !moving && !dockCardMoving && !embedMoving && !vaultMoving;
 
-  /** Resets the current question/result and clears every Quote (quotesRegistry.ts's
-   *  clearQuotes). If one or more Cards are still selected, though, `lookupActive`
-   *  stays true regardless — the panel doesn't fully disappear, just returns to its
-   *  empty "ready to ask" state, since it's tied to the selection as a whole now,
-   *  not only to whether a question's been asked. Fully hiding it in that case
-   *  means deselecting the Cards themselves (a tap toggles each one back out), or
-   *  the row's own back-caret/Cancel underneath — unaffected, since this panel no
-   *  longer replaces the row). */
+  /** The panel's own explicit close button — the *only* thing that clears the
+   *  underlying selection (every Quote, via clearQuotes; selectedCards/
+   *  selectedEmbedIds are App.tsx state, deselected the same way they always are —
+   *  tapping each one, or the row's own back-caret) alongside the question/answer
+   *  history itself. Everything else (Add to page/Dock, Ask again, browsing past
+   *  outputs) leaves both the selection and the history alone. */
   function dismissLookup() {
     setLookupInstruction("");
     lookup.reset();
+    setLookupIterations([]);
+    setLookupActiveIndex(0);
+    setLookupFlipped(false);
     clearQuotes();
   }
 
-  /** Turns the current live text selection into a persistent Quote
-   *  (quotesRegistry.ts's addQuote) — the panel's own quotation-mark action, the
-   *  only way a selection ever becomes part of the context (dragging alone never
-   *  does — see liveSelectionRegistry.ts's doc comment). Clears the native browser
-   *  selection afterward so the freshly-created highlight decoration reads cleanly,
-   *  without a lingering native selection overlapping it. */
-  function handleAddQuote() {
-    if (!liveSelection) return;
-    addQuote({ id: crypto.randomUUID(), cardId: liveSelection.cardId, text: liveSelection.text });
-    document.getSelection()?.removeAllRanges();
+  /** The back face's own rail "Ask again"/edit button — same as PromptCardBody.tsx's
+   *  rail edit button, just flips back to the front face to send another question.
+   *  Every past iteration, the current selection, and whatever's typed in the
+   *  instruction box all stay exactly as they are — sending appends a *new*
+   *  iteration (handleAskLookup) rather than replacing anything. */
+  function handleAskAgain() {
+    setLookupFlipped(false);
   }
 
-  /** Combines every selected Card's own (draft-aware) plain-text content with every
-   *  confirmed Quote into one context blob for the lookup/prompt endpoint — same
-   *  draft-over-committed precedence every other read of a PageCard's content in
-   *  this app uses. */
+  /** Combines every selected Card's own (draft-aware) plain-text content, every
+   *  selected embed's own content (a plain cardStore cache read, not a live
+   *  subscription — embeds are rarely mid-edit while also gathering lookup context,
+   *  and Dock re-renders often enough regardless that this stays close enough to
+   *  fresh), and every confirmed Quote into one context blob for the lookup/prompt
+   *  endpoint — same draft-over-committed precedence every other read of a
+   *  PageCard's content in this app uses. */
   function buildLookupContextText(): string {
     const cardBlocks = selectedCards.map((pc) => {
       const title = pc.draftTitle ?? pc.card.title;
@@ -633,12 +691,17 @@ export function Dock({
       const text = flattenToPlainText(htmlToDoc(content)).text;
       return `[Card: ${title || t("common.untitled")}]\n${text}`;
     });
+    const embedBlocks = [...selectedEmbedIds]
+      .map((cardId) => getCachedCard(cardId))
+      .filter((card): card is Card => !!card)
+      .map((card) => `[Card: ${card.title || t("common.untitled")}]\n${flattenToPlainText(htmlToDoc(card.content)).text}`);
     const quoteBlocks = quotes.map((q) => `[Quote]\n${q.text}`);
-    return [...cardBlocks, ...quoteBlocks].join("\n\n");
+    return [...cardBlocks, ...embedBlocks, ...quoteBlocks].join("\n\n");
   }
 
-  /** "12 words, 2 cards, 1 quote" — a plain word count across every selected Card's
-   *  own content plus every Quote's text, alongside how many of each are selected. */
+  /** "12 words, 2 cards, 1 quote" — a plain word count across every selected Card's/
+   *  embed's own content plus every Quote's text, alongside how many of each are
+   *  selected (embeds count toward the "cards" figure — see the summary JSX below). */
   function countWords(text: string): number {
     const trimmed = text.trim();
     return trimmed ? trimmed.split(/\s+/).length : 0;
@@ -647,12 +710,28 @@ export function Dock({
     selectedCards.reduce((sum, pc) => {
       const content = pc.draftContent ?? pc.card.content;
       return sum + countWords(flattenToPlainText(htmlToDoc(content)).text);
-    }, 0) + quotes.reduce((sum, q) => sum + countWords(q.text), 0);
+    }, 0) +
+    [...selectedEmbedIds].reduce((sum, cardId) => {
+      const card = getCachedCard(cardId);
+      return sum + (card ? countWords(flattenToPlainText(htmlToDoc(card.content)).text) : 0);
+    }, 0) +
+    quotes.reduce((sum, q) => sum + countWords(q.text), 0);
 
   function handleAskLookup() {
     const text = buildLookupContextText();
     if (!text || lookup.streaming) return;
-    lookup.start(text, lookupInstruction);
+    const instructionAtSend = lookupInstruction;
+    lookup.start(text, instructionAtSend, (output) => {
+      setLookupIterations((prev) => [...prev, { instruction: instructionAtSend, text: output }]);
+    });
+    setLookupFlipped(true);
+  }
+
+  /** The back face's rail prev/next (mirrors PromptCardBody.tsx's goToIteration) —
+   *  browsing to an older answer doesn't touch `lookupIterations` itself, so the
+   *  "jump to the latest on append" effect above doesn't get retriggered by this. */
+  function goToLookupIteration(index: number) {
+    setLookupActiveIndex(Math.max(0, Math.min(index, lookupIterations.length - 1)));
   }
 
   /** Shared by both the `selected` and `selectedEmbedId` branches below — a Card and
@@ -731,6 +810,19 @@ export function Dock({
         onOpenPanel("vault");
       }
     },
+  };
+
+  // Reveals every hidden Card (card.metadata.hidden) on the current Page — only
+  // meaningful in the true default row (nothing selected, not moving), same as
+  // vaultAction/dockCardsAction alongside it. `active` (Button.css's .button--pressed)
+  // reads as "currently on" the same way a formatting toggle does.
+  const revealHiddenAction: DockAction = {
+    key: "revealHidden",
+    operationId: null,
+    icon: "eye",
+    label: t("dock.revealHidden"),
+    onClick: onToggleRevealHidden,
+    active: revealHidden,
   };
 
   const tabsLabel = tabsOpen ? t("dock.tabs.close") : t("dock.tabs.open");
@@ -1495,52 +1587,16 @@ export function Dock({
               ? (vaultModeActions ?? modeActions)
               : [vaultAction, dockCardsAction, ...(vaultModeActions ?? modeActions)];
 
-  // Quote/Deselect-quote are cross-cutting — reachable no matter what the row above
-  // is otherwise showing (formatting toolbar, selected-Cards row, default row),
-  // since a text selection can happen alongside any of them. Appended after the
-  // fact rather than folded into every branch above; never shown during any Move
-  // Mode, same as showLookupRow, so there's always a way to cancel an in-flight
-  // move without a stray Quote button competing for room in that row.
-  const rowActions: DockAction[] = [
-    ...actions,
-    ...(!moving && !dockCardMoving && !embedMoving && !vaultMoving
-      ? [
-          // Turns the current live text selection into a Quote — the quotation-mark
-          // icon reads as "this is now a Quote", same as clicking a Card marks it
-          // selected. Disabled with nothing live-selected; selecting text and using
-          // the regular Dock/WYSIWYG actions on it is completely unaffected either
-          // way — this is purely additive.
-          ...(liveSelection
-            ? [
-                {
-                  key: "addQuote",
-                  operationId: null,
-                  icon: "blockquote" as const,
-                  label: t("quickLookup.addQuote"),
-                  onClick: handleAddQuote,
-                },
-              ]
-            : []),
-          // Only once a Quote's own highlight has been clicked (targetedQuoteRegistry.ts)
-          // — removes just that one Quote, then clears the target.
-          ...(targetedQuoteId
-            ? [
-                {
-                  key: "deselectQuote",
-                  operationId: null,
-                  icon: "close" as const,
-                  label: t("card.deselect"),
-                  onClick: () => {
-                    removeQuote(targetedQuoteId);
-                    setTargetedQuote(null);
-                  },
-                  danger: true,
-                },
-              ]
-            : []),
-        ]
-      : []),
-  ];
+  const rowActions: DockAction[] = actions;
+
+  // True default state only (nothing selected, not editing, not moving) — same
+  // condition the row above resolves to its final [vaultAction, dockCardsAction, …]
+  // branch. Rendered as its own fixed button *outside* .dock__row (see the JSX
+  // below) rather than folded into that array: .dock__row scrolls horizontally once
+  // its buttons overflow, and this toggle needs to stay reachable without scrolling
+  // to it every time.
+  const showRevealHiddenButton =
+    !moving && !dockCardMoving && !embedMoving && !vaultMoving && !isEditingActive && !embedOrPageCardSelected;
 
   const dockCardsViewContent = renderedPanel === "dockCards" && (
     <div className="dock__extended-panel-view">
@@ -1692,95 +1748,164 @@ export function Dock({
           entirely (deselect/exit-editing) and can't double as this. */}
       {showLookupRow && (
         <div className="dock__lookup-panel">
-          <div className="dock__lookup-ask">
-            <input
-              className="dock__lookup-input"
-              value={lookupInstruction}
-              onChange={(e) => setLookupInstruction(e.target.value)}
-              placeholder={t("quickLookup.placeholder")}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") dismissLookup();
-                else if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAskLookup();
-                }
-              }}
-            />
-            <Button
-              iconOnly
-              onClick={handleAskLookup}
-              disabled={lookup.streaming || (selectedCards.length === 0 && quotes.length === 0)}
-              aria-label={t("quickLookup.ask")}
-              title={t("quickLookup.ask")}
+          {/* Same 3D flip mechanic as the "prompt" CardType's own PromptCardBody.tsx
+              (PromptCard.css) — front face is the ask input, back face is the
+              generated result rendered as its own bordered card rather than bare
+              text, flipping over the moment a question is sent (handleAskLookup). */}
+          <div className={`dock__lookup-flip${lookupFlipped ? " dock__lookup-flip--flipped" : ""}`}>
+            <div
+              className={`dock__lookup-face dock__lookup-face--front${lookupFlipped ? " dock__lookup-face--hidden" : ""}`}
             >
-              <Icon name="generate" spin={lookup.streaming} />
-            </Button>
-            <Button
-              iconOnly
-              onClick={dismissLookup}
-              aria-label={t("quickLookup.dismiss")}
-              title={t("quickLookup.dismiss")}
-            >
-              <Icon name="close" />
-            </Button>
-          </div>
-          {(selectedCards.length > 0 || quotes.length > 0) && (
-            <div className="dock__lookup-summary">
-              {lookupWordCount} word{lookupWordCount === 1 ? "" : "s"}, {selectedCards.length} card
-              {selectedCards.length === 1 ? "" : "s"}, {quotes.length} quote{quotes.length === 1 ? "" : "s"}
-            </div>
-          )}
-          {lookup.streaming ? (
-            <div className="dock__lookup-generating">
-              <Icon name="generate" spin />
-              <span>{t("promptCard.sending")}</span>
-            </div>
-          ) : lookup.text ? (
-            <>
-              <div className="dock__lookup-result">
-                <CardRichText
-                  content={lookup.text}
-                  onChangeContent={() => {}}
-                  editable={false}
-                  cardId="quick-lookup-result"
-                  ancestorIds={EMPTY_ANCESTOR_IDS}
-                  depth={0}
+              <div className="dock__lookup-ask">
+                <input
+                  className="dock__lookup-input"
+                  value={lookupInstruction}
+                  onChange={(e) => setLookupInstruction(e.target.value)}
+                  placeholder={t("quickLookup.placeholder")}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") dismissLookup();
+                    else if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAskLookup();
+                    }
+                  }}
                 />
-              </div>
-              <div className="dock__lookup-actions">
                 <Button
                   iconOnly
-                  onClick={() => lookup.reset()}
+                  onClick={handleAskLookup}
+                  disabled={
+                    lookup.streaming ||
+                    (selectedCards.length === 0 && selectedEmbedIds.size === 0 && quotes.length === 0)
+                  }
+                  aria-label={t("quickLookup.ask")}
+                  title={t("quickLookup.ask")}
+                >
+                  <Icon name="generate" spin={lookup.streaming} />
+                </Button>
+                <Button
+                  iconOnly
+                  onClick={dismissLookup}
+                  aria-label={t("quickLookup.dismiss")}
+                  title={t("quickLookup.dismiss")}
+                >
+                  <Icon name="close" />
+                </Button>
+              </div>
+              {(selectedCards.length > 0 || selectedEmbedIds.size > 0 || quotes.length > 0) && (
+                <div className="dock__lookup-summary">
+                  {(() => {
+                    const cardCount = selectedCards.length + selectedEmbedIds.size;
+                    return (
+                      <>
+                        {lookupWordCount} word{lookupWordCount === 1 ? "" : "s"}, {cardCount} card
+                        {cardCount === 1 ? "" : "s"}, {quotes.length} quote{quotes.length === 1 ? "" : "s"}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+            <div
+              className={`dock__lookup-face dock__lookup-face--back${lookupFlipped ? "" : " dock__lookup-face--hidden"}`}
+            >
+              {/* Same small rail as PromptCardBody.tsx's own (CardStackRail.tsx's
+                  "n / total" convention) — the edit button flips back to the front
+                  face to ask another question; prev/next browse past answers for
+                  the *current* selection without losing any of them. */}
+              <div className="dock__lookup-rail">
+                <Button
+                  iconOnly
+                  onClick={handleAskAgain}
                   aria-label={t("quickLookup.askAgain")}
                   title={t("quickLookup.askAgain")}
                 >
                   <Icon name="edit" />
                 </Button>
-                <Button
-                  onClick={() => {
-                    quickAddToPage(lookup.text);
-                    dismissLookup();
-                  }}
-                >
-                  <Icon name="plus" />
-                  {t("quickLookup.addToPage")}
-                </Button>
-                <Button
-                  onClick={() => {
-                    quickAddToDock(lookup.text);
-                    dismissLookup();
-                  }}
-                >
-                  <Icon name="tray" />
-                  {t("quickLookup.addToDock")}
-                </Button>
+                {lookupIterations.length > 1 && (
+                  <>
+                    <Button
+                      iconOnly
+                      aria-label={t("cardStack.previous")}
+                      title={t("cardStack.previous")}
+                      disabled={lookupActiveIndexClamped === 0}
+                      onClick={() => goToLookupIteration(lookupActiveIndexClamped - 1)}
+                    >
+                      <Icon name="up" className="dock__lookup-rail-arrow dock__lookup-rail-arrow--left" />
+                    </Button>
+                    <span className="dock__lookup-rail-position">
+                      {lookupActiveIndexClamped + 1} / {lookupIterations.length}
+                    </span>
+                    <Button
+                      iconOnly
+                      aria-label={t("cardStack.next")}
+                      title={t("cardStack.next")}
+                      disabled={lookupActiveIndexClamped === lookupIterations.length - 1}
+                      onClick={() => goToLookupIteration(lookupActiveIndexClamped + 1)}
+                    >
+                      <Icon name="up" className="dock__lookup-rail-arrow dock__lookup-rail-arrow--right" />
+                    </Button>
+                  </>
+                )}
               </div>
-            </>
-          ) : null}
+              {lookup.streaming ? (
+                <div className="dock__lookup-generating">
+                  <Icon name="generate" spin />
+                  <span>{t("promptCard.sending")}</span>
+                  <Button onClick={lookup.stop}>
+                    <Icon name="stop" />
+                    {t("promptCard.stop")}
+                  </Button>
+                </div>
+              ) : activeLookupIteration ? (
+                <>
+                  <div className="dock__lookup-result-card">
+                    <CardRichText
+                      key={lookupActiveIndexClamped}
+                      content={activeLookupIteration.text}
+                      onChangeContent={() => {}}
+                      editable={false}
+                      cardId="quick-lookup-result"
+                      ancestorIds={EMPTY_ANCESTOR_IDS}
+                      depth={0}
+                    />
+                  </div>
+                  <div className="dock__lookup-actions">
+                    <Button onClick={() => quickAddToPage(activeLookupIteration.text)}>
+                      <Icon name="plus" />
+                      {t("quickLookup.addToPage")}
+                    </Button>
+                    <Button onClick={() => quickAddToDock(activeLookupIteration.text)}>
+                      <Icon name="tray" />
+                      {t("quickLookup.addToDock")}
+                    </Button>
+                    <Button
+                      iconOnly
+                      onClick={dismissLookup}
+                      aria-label={t("quickLookup.dismiss")}
+                      title={t("quickLookup.dismiss")}
+                    >
+                      <Icon name="close" />
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
           {lookup.error && <p className="dock__lookup-error">{lookup.error}</p>}
         </div>
       )}
       <div className="dock__bottom-row">
+        {showRevealHiddenButton && (
+          <Button
+            iconOnly
+            className={`dock__reveal-hidden-button${revealHiddenAction.active ? " button--pressed" : ""}`}
+            onClick={revealHiddenAction.onClick}
+            aria-label={revealHiddenAction.label}
+            title={revealHiddenAction.label}
+          >
+            <Icon name={revealHiddenAction.icon} />
+          </Button>
+        )}
         <div className="dock__row">
           {rewriteBoxOpen ? (
             // The magic button's rewrite-in-place text box (onRewriteSelected) —
@@ -1931,7 +2056,10 @@ export function Dock({
         </div>
         {/* The Page nav cluster (formerly the standalone PageNav component,
             merged here per feedback) — up/down/add plus the Pages panel toggle,
-            pinned to the bottom-right corner of the Dock. The Tabs toggle sits
+            pinned to the bottom-right corner of the Dock. (The hidden-Cards reveal
+            toggle used to live here too — it's its own DockAction in the default
+            row now, revealHiddenAction above, alongside Vault/Dock Cards.) The Tabs
+            toggle sits
             further right still, deliberately styled much more subtly
             (dock__page-nav-tabs) — it's page manipulation's more minor sibling,
             not an equally-weighted action. Hidden while vault-item Move is active,
@@ -1972,16 +2100,6 @@ export function Dock({
                 {currentPageIndex + 1}/{sortedPages.length}
               </span>
             )}
-            <button
-              type="button"
-              className={revealHidden ? "dock__page-nav-toggle--active" : undefined}
-              onClick={onToggleRevealHidden}
-              aria-pressed={revealHidden}
-              aria-label={t("dock.revealHidden")}
-              title={t("dock.revealHidden")}
-            >
-              <Icon name="eye" />
-            </button>
             <button
               type="button"
               onClick={() => (pagesOpen ? onClosePanel() : onOpenPanel("pages"))}

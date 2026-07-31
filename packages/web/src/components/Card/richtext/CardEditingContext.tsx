@@ -11,7 +11,10 @@ import type { AnnotationProcess } from "../../../api/client.js";
 export interface CardEditingContextValue {
   ancestorIds: ReadonlySet<string>;
   depth: number;
-  selectedEmbedId?: string | null;
+  /** Every currently-selected embed's own cardId — several can be selected at once
+   *  now, alongside top-level Cards, all feeding the Dock's combined selection
+   *  (word/card/quote context) — see App.tsx's selectedEmbedIds. */
+  selectedEmbedIds?: ReadonlySet<string>;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
   onRequestEditEmbed?: (cardId: string, onRemove: () => void) => void;
   editingEmbedIds: ReadonlySet<string>;

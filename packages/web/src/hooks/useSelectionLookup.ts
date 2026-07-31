@@ -14,7 +14,10 @@ interface SelectionLookupState {
  * (generationService.ts's streamSelectionLookup) instead of a pageCardId-scoped
  * route — a lookup isn't tied to any Card at all until the user explicitly adds the
  * result to the Page or Dock (quickAddRegistry.ts), which happens client-side only,
- * no further model/server involvement.
+ * no further model/server involvement. `start`'s own `onDone` callback (same shape
+ * as usePromptGeneration.ts's) is Dock.tsx's hook for appending each completed
+ * answer to its own local iteration history — this hook itself only ever tracks the
+ * *current* stream, not a history of past ones.
  */
 export function useSelectionLookup() {
   const [state, setState] = useState<SelectionLookupState>({ streaming: false, text: "", error: null });
@@ -22,7 +25,7 @@ export function useSelectionLookup() {
 
   useEffect(() => () => sourceRef.current?.close(), []);
 
-  function start(selectedText: string, instruction: string) {
+  function start(selectedText: string, instruction: string, onDone: (text: string) => void) {
     sourceRef.current?.close();
     setState({ streaming: true, text: "", error: null });
 
@@ -48,6 +51,7 @@ export function useSelectionLookup() {
       } else if (event.type === "done") {
         source.close();
         setState((s) => ({ ...s, streaming: false }));
+        onDone(accumulated);
       } else if (event.type === "error") {
         source.close();
         setState((s) => ({ ...s, streaming: false, error: event.message ?? "Generation failed" }));

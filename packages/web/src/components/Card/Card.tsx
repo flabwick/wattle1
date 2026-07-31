@@ -32,11 +32,11 @@ interface CardProps {
    *  touch (see the touch handlers below), or the Dock's Edit action. */
   onRequestEdit: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
-  /** Which embedded Card, if any, is independently selected (App.tsx state) — see
+  /** Every embedded Card independently selected (App.tsx state) — see
    *  CardContent.tsx's doc comment. Wired into both render branches below now: an
    *  embed can be selected/edited independently of whether this Card itself is
-   *  being edited. */
-  selectedEmbedId?: string | null;
+   *  being edited, and several embeds can be selected at once. */
+  selectedEmbedIds?: ReadonlySet<string>;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
   /** Double-click / long-press an embedded Card to jump straight into editing it —
    *  same convention as onRequestEdit above, just for an embed instead of this Card
@@ -108,7 +108,7 @@ export function CardView({
   onCloseEditor,
   onRequestEdit,
   onChangeDraft,
-  selectedEmbedId,
+  selectedEmbedIds,
   onSelectEmbed,
   onRequestEditEmbed,
   editingEmbedIds,
@@ -299,7 +299,7 @@ export function CardView({
           onRunActionJob={onRunActionJob}
           generatingPageCardId={generatingPageCardId}
           pageSiblings={pageSiblings}
-          selectedEmbedId={selectedEmbedId}
+          selectedEmbedIds={selectedEmbedIds}
           onSelectEmbed={onSelectEmbed}
           onRequestEditEmbed={onRequestEditEmbed}
           editingEmbedIds={editingEmbedIds}
@@ -357,7 +357,7 @@ export function CardView({
           annotations={canonicalCard.metadata.annotations}
           ancestorIds={new Set([pageCard.card.id])}
           depth={0}
-          selectedEmbedId={selectedEmbedId}
+          selectedEmbedIds={selectedEmbedIds}
           onSelectEmbed={onSelectEmbed}
           onRequestEditEmbed={onRequestEditEmbed}
           editingEmbedIds={editingEmbedIds}

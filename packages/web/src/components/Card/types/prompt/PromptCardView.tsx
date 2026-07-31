@@ -10,8 +10,12 @@ import "../../Card.css";
  *  independently always-interactive regardless of selection — same "content isn't
  *  gated behind edit mode" precedent StackBody.tsx uses. */
 export function PromptCardView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
+  // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
+  // only while PageStack.tsx's revealHidden is on (see PageCardSlot), so this class
+  // is always the "still hidden" indicator, never a false positive.
+  const isHidden = Boolean(pageCard.card.metadata.hidden);
   return (
-    <CardShell selected={selected} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
       <div className="card__header">
         <div className="card__header-start">
           <span className="card__title">{t("promptCard.title")}</span>

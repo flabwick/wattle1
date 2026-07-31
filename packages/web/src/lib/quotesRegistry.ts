@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from "react";
 
 /** One confirmed "Quote" — a span of text the user explicitly turned into part of
- *  the current selection (Dock.tsx's "Quote" action, quotation-mark icon), alongside
- *  whatever Cards are also selected. Several can exist at once, even within the same
- *  Card — each gets its own persistent Kindle-style highlight
+ *  the current selection (SelectionMenu.tsx's quotation-mark icon, shown on any text
+ *  selection), alongside whatever Cards/embeds are also selected. Several can exist
+ *  at once, even within the same Card — each gets its own persistent Kindle-style
+ *  highlight
  *  (SelectionHighlightDecoration.ts) and its own entry in the Dock's "# words, #
  *  cards, # quotes" summary. Never persisted (gone on reload, same as
  *  selectedPageCardIds) — this is ephemeral context-gathering state, not an
@@ -24,15 +25,14 @@ function publish(next: readonly Quote[]): void {
   listeners.forEach((listener) => listener());
 }
 
-/** Turns the current live selection (liveSelectionRegistry.ts) into a persistent
- *  Quote — Dock.tsx's own "Quote" action, the only place this is ever called. */
+/** Turns the current text selection into a persistent Quote — SelectionMenu.tsx's
+ *  quotation-mark button, the only place this is ever called. */
 export function addQuote(quote: Quote): void {
   publish([...quotes, quote]);
 }
 
-/** Removes one specific Quote — the highlighted text's own "deselect" popup
- *  (Dock.tsx's "Deselect quote" action, once that Quote's own highlight is clicked
- *  — see targetedQuoteRegistry.ts). */
+/** Removes one specific Quote — clicking that Quote's own highlight opens a small
+ *  local popup (CardRichText.tsx) with just this. */
 export function removeQuote(id: string): void {
   publish(quotes.filter((q) => q.id !== id));
 }
