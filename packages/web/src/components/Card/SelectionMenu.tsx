@@ -83,13 +83,25 @@ export function SelectionMenu({ containerRef, editor, cardId }: SelectionMenuPro
       // this maps the DOM range to ProseMirror positions first, then slices the
       // *same* flattened plain text findAnchorRange resolves anchors against, so a
       // multi-paragraph Quote still matches server-side if it's ever needed there.
-      const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
-      const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
-      const { text: flattened, charDocPos } = flattenToPlainText(editor.state.doc);
-      const text = flattened.slice(
-        plainTextIndexForDocPos(charDocPos, from),
-        plainTextIndexForDocPos(charDocPos, to),
-      );
+      let text: string;
+      try {
+        const from = editor.view.posAtDOM(range.startContainer, range.startOffset);
+        const to = editor.view.posAtDOM(range.endContainer, range.endOffset);
+        const { text: flattened, charDocPos } = flattenToPlainText(editor.state.doc);
+        text = flattened.slice(
+          plainTextIndexForDocPos(charDocPos, from),
+          plainTextIndexForDocPos(charDocPos, to),
+        );
+      } catch {
+        // posAtDOM can throw if the DOM hasn't settled against ProseMirror's own
+        // model yet — the case that actually hits this is a Card whose editor just
+        // mounted a moment ago (e.g. a hidden Card just switched on via "reveal
+        // hidden cards"), unlike an always-visible Card whose editor has been
+        // stable the whole session. Falls back to the raw selection string rather
+        // than losing the menu entirely — Copy/Quote only need plain text, not the
+        // block-separator-aware mapping multi-paragraph anchoring wants.
+        text = selection.toString();
+      }
       if (!text.trim()) {
         setMenu(null);
         setCopied(false);

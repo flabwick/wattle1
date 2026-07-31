@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MouseEvent } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/core";
 import katex from "katex";
@@ -57,7 +58,11 @@ export function MathNodeView({ node, updateAttributes, selected }: NodeViewProps
     <NodeViewWrapper
       as={isBlock ? "div" : "span"}
       className={`math-node${isBlock ? " math-node--block" : ""}${selected ? " math-node--selected" : ""}`}
-      onClick={() => {
+      // A top-level Card's content area now bubbles a plain click up to select the
+      // Card (CardRichText.tsx) — clicking into this node's own LaTeX editing
+      // shouldn't also toggle that.
+      onClick={(e: MouseEvent) => {
+        e.stopPropagation();
         setDraft(latex);
         setEditing(true);
       }}

@@ -811,6 +811,14 @@ export function App() {
     );
   }
 
+  /** The Dock's Edit action (only ever shown for a single selected Card) — opens its
+   *  inline editor the same way double-click/long-press used to before Card.tsx
+   *  repurposed both gestures for text-selection/Quote instead. */
+  function handleEditSelected() {
+    if (!singleSelectedCard) return;
+    requestEditPageCard(singleSelectedCard.id);
+  }
+
   /** Saves every selected Card that has something pending to the vault — a no-op for
    *  any that don't (Step 6 spec §4.2's batched Save). */
   async function handleSaveSelected() {
@@ -1406,6 +1414,7 @@ export function App() {
         onDismissGenerationNotice={generation.dismissNotice}
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
+        onEditSelected={handleEditSelected}
         onSaveSelected={handleSaveSelected}
         onRemoveSelected={handleRemoveSelected}
         onToggleHiddenSelected={handleToggleHiddenSelected}

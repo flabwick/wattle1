@@ -21,13 +21,16 @@ import { DockCardsPanel } from "./DockCardsPanel.js";
 import { PagesPanel } from "./PagesPanel.js";
 import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
+import { ConvertPicker } from "./ConvertPicker.js";
 import { CardLinkPicker } from "../Card/CardLinkPicker.js";
 import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js";
 import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
 import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
 import { CardRichText } from "../Card/richtext/CardRichText.js";
-import { uploadRichTextImage } from "../../api/client.js";
+import { getCardFileUrl, uploadRichTextImage } from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
+import { isMarkdownFile } from "../../lib/isMarkdownFile.js";
+import { convertMarkdownToWattleHtml } from "../../lib/markdownToWattleHtml.js";
 import { getCachedCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
@@ -39,6 +42,14 @@ import { t } from "../../i18n/index.js";
 import "./Dock.css";
 
 const EMPTY_ANCESTOR_IDS: ReadonlySet<string> = new Set();
+
+/** A Quote's `text` is plain text (SelectionMenu.tsx's `menu.text`, straight off the
+ *  native browser Selection), so buildConvertHtml below has to escape it itself
+ *  before splicing it into an HTML blob — same escaping migrateContentToHtml.ts's
+ *  own plain-text migration path uses. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
@@ -118,6 +129,14 @@ interface DockProps {
    *  they're two independent features that can each be mid-action at once. */
   annotationError: string | null;
   onDismissAnnotationError: () => void;
+  /** Opens a single selected Card's inline editor (App.tsx's handleEditSelected →
+   *  requestEditPageCard) — the only way to enter it now that a plain tap/click
+   *  selects the Card instead and a double-click/long-press selects text for a Quote
+   *  instead of jumping into editing (Card.tsx no longer wires either gesture to
+   *  onRequestEdit). Only ever shown for exactly one selected Card, same
+   *  single-target scoping onRewriteSelected/isStackSelected below already use —
+   *  editing several Cards' inline editors open at once isn't a case this covers. */
+  onEditSelected: () => void;
   /** Saves every selected Card that has something pending — a no-op for any that
    *  don't (App.tsx batches the existing per-Card save-to-vault call). */
   onSaveSelected: () => void;
@@ -369,6 +388,7 @@ export function Dock({
   onDismissGenerationNotice,
   annotationError,
   onDismissAnnotationError,
+  onEditSelected,
   onSaveSelected,
   onRemoveSelected,
   onToggleHiddenSelected,
@@ -554,6 +574,12 @@ export function Dock({
     "q:" + quotes.map((q) => q.id).sort().join(","),
   ].join("|");
   const prevSelectionSignatureRef = useRef(selectionSignature);
+  /** Bumped on every handleConvertToStandardCard call and every selection change —
+   *  checked after each `await` in buildConvertHtml/handleConvertToStandardCard so a
+   *  fetch/parse still in flight when the selection moves on (or a second Convert is
+   *  fired before the first resolves) can't land its stale result into state after
+   *  the fact. */
+  const convertRequestIdRef = useRef(0);
   useEffect(() => {
     if (prevSelectionSignatureRef.current === selectionSignature) return;
     prevSelectionSignatureRef.current = selectionSignature;
@@ -564,10 +590,33 @@ export function Dock({
       setLookupActiveIndex(0);
       setLookupFlipped(false);
     }
+    // A different selection makes the old convert output/error stale the same way —
+    // cleared here rather than left to linger until the panel's own Dismiss. Also
+    // invalidates any markdown fetch/parse still in flight (convertRequestIdRef) so
+    // it can't land a result for a selection that's no longer current.
+    convertRequestIdRef.current++;
+    if (convertOutput !== null || convertError !== null || convertLoading) {
+      setConvertOutput(null);
+      setConvertError(null);
+      setConvertLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionSignature]);
   const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const processButtonRef = useRef<HTMLDivElement>(null);
+  /** "Convert" (selectedCards/quote rows) — same anchored-popover convention as
+   *  processPickerPos/processButtonRef above, picking which form to convert the
+   *  current selection into. convertOutput/convertError hold the compiled result (or
+   *  the file-Card error) once a target's actually been picked. Mostly a static
+   *  panel, not a live generation — convertLoading is the one exception, true only
+   *  while a selected markdown File Card's raw text is being fetched/parsed
+   *  (markdownToWattleHtml.ts), the one genuinely async part of an otherwise
+   *  synchronous compile. */
+  const [convertPickerPos, setConvertPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const convertButtonRef = useRef<HTMLDivElement>(null);
+  const [convertOutput, setConvertOutput] = useState<string | null>(null);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [convertLoading, setConvertLoading] = useState(false);
   /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
    *  every rich-text insert action lives here now, not a Card's own header (see
    *  Card.tsx/CardRichText.tsx). Same anchored-popover convention as
@@ -648,10 +697,28 @@ export function Dock({
 
   const currentVaultFolder = vaultFolderContents?.folder ?? null;
 
+  /** Same "never during Move Mode" reasoning showLookupRow below also uses — the
+   *  convert output/error panel. Computed first so showLookupRow can hide itself
+   *  while this is up (see showLookupRow's own doc comment) — the ask box and the
+   *  convert result never make sense stacked at the same time, and with two
+   *  max-height:40vh panels both mounted, a multi-Card convert result (taller than
+   *  a single Card's) was the one actually getting squeezed out of view under the
+   *  still-visible ask box, which read as "compiling multiple Cards is broken"
+   *  even though the compiled content itself was always complete. */
+  const showConvertPanel =
+    (convertOutput !== null || convertError !== null || convertLoading) &&
+    !moving &&
+    !dockCardMoving &&
+    !embedMoving &&
+    !vaultMoving;
+
   /** Never shown during Move Mode (of any kind) — otherwise a stray leftover text
    *  selection from before the move started would strand the user with no visible
-   *  way to cancel it (the row would show the lookup UI instead of Cancel). */
-  const showLookupRow = lookupActive && !moving && !dockCardMoving && !embedMoving && !vaultMoving;
+   *  way to cancel it (the row would show the lookup UI instead of Cancel). Also
+   *  never shown alongside the convert output panel (showConvertPanel above) — see
+   *  its own doc comment for why. */
+  const showLookupRow =
+    lookupActive && !showConvertPanel && !moving && !dockCardMoving && !embedMoving && !vaultMoving;
 
   /** The panel's own explicit close button — the *only* thing that clears the
    *  underlying selection (every Quote, via clearQuotes; selectedCards/
@@ -675,6 +742,162 @@ export function Dock({
    *  iteration (handleAskLookup) rather than replacing anything. */
   function handleAskAgain() {
     setLookupFlipped(false);
+  }
+
+  /** Same "live cardStore wins once saved" precedence Card.tsx's own canonicalCard
+   *  uses (useCard/editCard) — a saved Card's `pc.card` is only as fresh as the last
+   *  listPages fetch, so an edit made moments ago (through this same Card open
+   *  elsewhere, or through an embed) writes straight to the shared cardStore cache
+   *  and wouldn't show up in `pc.card` until the next refresh() round-trips. A
+   *  hidden Card is the case that actually surfaces this in practice: PageStack.tsx
+   *  never mounts its CardView (and the useCard subscription that keeps Card.tsx's
+   *  own display in sync) while revealHidden is off, so nothing ever nudges its
+   *  `pages`-state entry to catch up — this one-shot getCachedCard read goes
+   *  straight to the same cache canonicalCard already prefers, hidden or not. */
+  function resolveCanonicalCard(pc: PageCardWithCard): Card {
+    return getCachedCard(pc.card.id) ?? pc.card;
+  }
+
+  /** Mirrors Card.tsx's own `content` derivation: a saved Card reads through the
+   *  live cache, an unsaved (still page-local scratch) Card reads its own pending
+   *  draft instead. Falls back to `pc.card.content` — always fully populated
+   *  straight off the last `listPages` fetch, hidden or not (usePages.ts's refresh
+   *  calls publishCard for every pageCard unconditionally) — whenever that first
+   *  choice comes back empty rather than genuinely missing: a hidden Card's
+   *  `draftContent` in particular can be `""` (not null) despite real content
+   *  existing, since its CardView/onChangeDraft never mounts to have picked the
+   *  real content up in the first place while it's never been revealed, and `??`
+   *  alone doesn't fall through on `""`. */
+  function resolveCardContent(pc: PageCardWithCard): string {
+    const preferred = pc.card.savedToVault ? resolveCanonicalCard(pc).content : (pc.draftContent ?? pc.card.content);
+    return preferred || pc.card.content;
+  }
+
+  /** A "file"-typed Card's own upload metadata (cardMetadata.ts's `file` field) if
+   *  it's markdown (isMarkdownFile.ts — shared with FileView.tsx's own read-only
+   *  preview), else null. The one thing that actually distinguishes a convertible
+   *  File Card from every other one: markdownToWattleHtml.ts can parse a .md/
+   *  .markdown upload into real Wattle rich text; a PDF, image, or anything else
+   *  genuinely has no HTML-shaped content to compile at all. */
+  function markdownFileMeta(card: Card): { originalName: string; mimeType: string } | null {
+    if (getCardTypeId(card) !== "file") return null;
+    const file = card.metadata.file;
+    if (!file || !isMarkdownFile(file.originalName, file.mimeType)) return null;
+    return file;
+  }
+
+  /** True if any Card feeding the Convert action — a selected Page Card or a
+   *  selected embed — is a File Card that ISN'T markdown. A markdown File Card is
+   *  handled by buildConvertHtml below instead (fetched and parsed via
+   *  markdownToWattleHtml.ts); every other File Card (a PDF, an image, ...) has no
+   *  HTML-shaped content to compile at all — genuinely complicated (the C0 doc's
+   *  uploaded-bytes-on-disk model doesn't map onto a plain HTML `content` string the
+   *  way every other CardType does) and left for a later stage, so
+   *  handleConvertToStandardCard below shows convertError instead for those. */
+  function hasSelectedNonMarkdownFileCard(): boolean {
+    const isNonMarkdownFile = (card: Card) => getCardTypeId(card) === "file" && !markdownFileMeta(card);
+    if (selectedCards.some((pc) => isNonMarkdownFile(resolveCanonicalCard(pc)))) return true;
+    return [...selectedEmbedIds]
+      .map((cardId) => getCachedCard(cardId))
+      .filter((card): card is Card => !!card)
+      .some(isNonMarkdownFile);
+  }
+
+  /** Fetches a markdown File Card's raw text (same call FileView.tsx's own
+   *  read-only preview already makes — getCardFileUrl, the API's file-serving
+   *  endpoint) and runs it through the full markdown → Wattle rich-text pipeline.
+   *  Throws (caught by handleConvertToStandardCard) on a failed fetch or on
+   *  markdownToWattleHtml's own htmlToDoc validation failure — either way, a
+   *  half-converted or garbled result should never reach the preview panel. */
+  async function fetchAndConvertMarkdownCard(cardId: string): Promise<string> {
+    const res = await fetch(getCardFileUrl(cardId));
+    if (!res.ok) throw new Error(`Failed to fetch file for Card ${cardId}: ${res.status}`);
+    const text = await res.text();
+    return convertMarkdownToWattleHtml(text).html;
+  }
+
+  /** Compiles every selected Card's/embed's own HTML content plus every confirmed
+   *  Quote (wrapped as its own blockquote) into one combined HTML blob — the new
+   *  Standard Wattle Card's content when converting a multi-selection. A markdown
+   *  File Card's content is fetched and converted (fetchAndConvertMarkdownCard); any
+   *  other Card reads through the existing draft-aware/cache-fresh
+   *  resolveCardContent. Unlike buildLookupContextText below, this keeps the real
+   *  HTML rather than flattening to plain text: the whole point of "convert" is a
+   *  real, editable Card at the end, not a text summary for a model prompt. Async
+   *  only because of that markdown fetch — every other source resolves
+   *  synchronously, but Promise.all doesn't care either way. */
+  async function buildConvertHtml(): Promise<string> {
+    const cardHtmlPromises = selectedCards.map((pc) => {
+      const canonical = resolveCanonicalCard(pc);
+      const markdown = markdownFileMeta(canonical);
+      return markdown ? fetchAndConvertMarkdownCard(canonical.id) : Promise.resolve(resolveCardContent(pc));
+    });
+    const embedHtmlPromises = [...selectedEmbedIds]
+      .map((cardId) => getCachedCard(cardId))
+      .filter((card): card is Card => !!card)
+      .map((card) => {
+        const markdown = markdownFileMeta(card);
+        return markdown ? fetchAndConvertMarkdownCard(card.id) : Promise.resolve(card.content);
+      });
+    const quoteBlocks = quotes.map(
+      (q) => `<blockquote><p>${escapeHtml(q.text).replace(/\n/g, "<br>")}</p></blockquote>`,
+    );
+    const [cardBlocks, embedBlocks] = await Promise.all([
+      Promise.all(cardHtmlPromises),
+      Promise.all(embedHtmlPromises),
+    ]);
+    return [...cardBlocks, ...embedBlocks, ...quoteBlocks].join("<hr>");
+  }
+
+  /** The Convert popover's only working option today (see ConvertPicker.tsx) —
+   *  compiles the current selection into one combined blob and shows it in the
+   *  convert-output panel below, same "review before it lands anywhere" shape as
+   *  the lookup panel's own result face, reusing its own Add to Page/Add to Dock
+   *  (quickAddRegistry.ts) rather than a new endpoint, since the target really is
+   *  just "a new blank-title note Card with this HTML content". Async (unlike every
+   *  other Dock action) purely because a selected markdown File Card's content has
+   *  to be fetched first — convertLoading covers that window, and
+   *  convertRequestIdRef guards against the selection moving on (or a second
+   *  Convert firing) before it resolves. */
+  async function handleConvertToStandardCard() {
+    setConvertPickerPos(null);
+    if (hasSelectedNonMarkdownFileCard()) {
+      setConvertOutput(null);
+      setConvertError(t("dock.convert.fileError"));
+      return;
+    }
+    setConvertError(null);
+    setConvertOutput(null);
+    const requestId = ++convertRequestIdRef.current;
+    setConvertLoading(true);
+    try {
+      const html = await buildConvertHtml();
+      if (convertRequestIdRef.current !== requestId) return;
+      setConvertOutput(html);
+    } catch {
+      if (convertRequestIdRef.current !== requestId) return;
+      setConvertError(t("dock.convert.markdownError"));
+    } finally {
+      if (convertRequestIdRef.current === requestId) setConvertLoading(false);
+    }
+  }
+
+  function toggleConvertPicker() {
+    setConvertPickerPos((open) => {
+      if (open) return null;
+      const rect = convertButtonRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+    });
+  }
+
+  function dismissConvertOutput() {
+    // Bumped so a fetch/parse still in flight can't land its result after the panel
+    // was explicitly dismissed mid-load.
+    convertRequestIdRef.current++;
+    setConvertOutput(null);
+    setConvertError(null);
+    setConvertLoading(false);
   }
 
   /** Combines every selected Card's own (draft-aware) plain-text content, every
@@ -1145,8 +1368,24 @@ export function Dock({
             },
           ]
         : []),
-      // No Edit action: each selected Card's own header now has its own dedicated
-      // edit icon (Card.tsx's headerActions) — this button would be redundant.
+      // The only way to open a single selected Card's inline editor now — a plain
+      // tap/click selects the Card instead of editing it, and a double-click/
+      // long-press selects text for a Quote instead of jumping into editing (see
+      // Card.tsx's onSelect/onDoubleClick). Same single-target scoping as
+      // generateSelected above, plus operationId "card.edit" so it disappears
+      // entirely for a CardType that doesn't support editing at all (a File Card —
+      // see fileCardType.ts's own doc comment).
+      ...(selectedCards.length === 1
+        ? [
+            {
+              key: "editSelected",
+              operationId: "card.edit",
+              icon: "edit" as const,
+              label: t("dock.action.edit"),
+              onClick: onEditSelected,
+            },
+          ]
+        : []),
       ...(hasUnsavedDraft
         ? [
             {
@@ -1193,6 +1432,15 @@ export function Dock({
         icon: allSelectedHidden ? ("eye" as const) : ("eyeOff" as const),
         label: allSelectedHidden ? t("dock.action.show") : t("dock.action.hide"),
         onClick: onToggleHiddenSelected,
+      },
+      // Opens ConvertPicker anchored to its own button (same as "process" above),
+      // rather than firing an action directly.
+      {
+        key: "convert",
+        operationId: null,
+        icon: "convert" as const,
+        label: t("dock.action.convert"),
+        onClick: toggleConvertPicker,
       },
       // No separate Move to Dock: dropping onto the Dock is now one of Move's own
       // destinations — tap the Dock Cards toggle itself while moving (see
@@ -1249,6 +1497,27 @@ export function Dock({
         icon: "close" as const,
         label: t("dock.action.close"),
         onClick: onCloseSelectedDockCards,
+      },
+    ];
+  } else if (quotes.length > 0) {
+    // A Quote selected on its own (text highlighted via SelectionMenu.tsx, with no
+    // Page Card itself selected) — just enough of a row to get to Convert, same
+    // back-caret/dismiss convention as the other selection rows above.
+    modeActions = [
+      {
+        key: "backQuotes",
+        operationId: null,
+        icon: "back" as const,
+        label: t("dock.action.back"),
+        onClick: clearQuotes,
+      },
+      // Opens the same ConvertPicker as the selectedCards row's own Convert.
+      {
+        key: "convertQuotes",
+        operationId: null,
+        icon: "convert" as const,
+        label: t("dock.action.convert"),
+        onClick: toggleConvertPicker,
       },
     ];
   }
@@ -1894,6 +2163,64 @@ export function Dock({
           {lookup.error && <p className="dock__lookup-error">{lookup.error}</p>}
         </div>
       )}
+      {/* Convert's own result panel — same bordered-card-plus-actions shape as the
+          lookup panel's back face above (reusing its own CSS classes, per the
+          Convert feature's own "appears on the Dock like a prompt output does"
+          spec), just without the flip mechanic: this never has a "front face" input
+          to flip away from. convertLoading is the one async wrinkle — a selected
+          markdown File Card's raw text has to be fetched and parsed
+          (markdownToWattleHtml.ts) before there's anything to preview. */}
+      {showConvertPanel && (
+        <div className="dock__lookup-panel">
+          {/* Deliberately just "dock__lookup-face", not "...--back" — that modifier
+              only makes sense counter-rotated inside a flipped .dock__lookup-flip
+              parent (it'd render upside-down on its own); Convert has no flip
+              mechanic to begin with; see handleConvertToStandardCard's own comment. */}
+          <div className="dock__lookup-face">
+            {convertLoading ? (
+              <div className="dock__lookup-generating">
+                <Icon name="generate" spin />
+                <span>{t("dock.convert.converting")}</span>
+              </div>
+            ) : convertError ? (
+              <p className="dock__lookup-error">{convertError}</p>
+            ) : (
+              <div className="dock__lookup-result-card">
+                <CardRichText
+                  content={convertOutput ?? ""}
+                  onChangeContent={() => {}}
+                  editable={false}
+                  cardId="convert-result"
+                  ancestorIds={EMPTY_ANCESTOR_IDS}
+                  depth={0}
+                />
+              </div>
+            )}
+            <div className="dock__lookup-actions">
+              {!convertLoading && !convertError && (
+                <>
+                  <Button onClick={() => quickAddToPage(convertOutput ?? "")}>
+                    <Icon name="plus" />
+                    {t("quickLookup.addToPage")}
+                  </Button>
+                  <Button onClick={() => quickAddToDock(convertOutput ?? "")}>
+                    <Icon name="tray" />
+                    {t("quickLookup.addToDock")}
+                  </Button>
+                </>
+              )}
+              <Button
+                iconOnly
+                onClick={dismissConvertOutput}
+                aria-label={t("dock.action.dismiss")}
+                title={t("dock.action.dismiss")}
+              >
+                <Icon name="close" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="dock__bottom-row">
         {showRevealHiddenButton && (
           <Button
@@ -1963,6 +2290,22 @@ export function Dock({
             // unlike every other plain-click DockAction below.
             action.key === "process" ? (
               <div key="process" className="dock__process-wrap" ref={processButtonRef}>
+                <Button
+                  iconOnly
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} spin={action.spin} />
+                </Button>
+              </div>
+            ) : action.key === "convert" || action.key === "convertQuotes" ? (
+              // Same "needs its own positioned wrapper" reasoning as "process" above
+              // — one shared ref, since only one of "convert"/"convertQuotes" is ever
+              // present in a given row's actions at once (selectedCards vs. the
+              // quotes-only row), so there's no risk of two DOM nodes fighting over it.
+              <div key={action.key} className="dock__convert-wrap" ref={convertButtonRef}>
                 <Button
                   iconOnly
                   onClick={action.onClick}
@@ -2133,6 +2476,13 @@ export function Dock({
             onRunProcess?.(process);
           }}
           onClose={() => setProcessPickerPos(null)}
+        />
+      )}
+      {convertPickerPos && (
+        <ConvertPicker
+          style={{ left: convertPickerPos.left, bottom: convertPickerPos.bottom }}
+          onPickStandardCard={handleConvertToStandardCard}
+          onClose={() => setConvertPickerPos(null)}
         />
       )}
       {linkPickerPos && (

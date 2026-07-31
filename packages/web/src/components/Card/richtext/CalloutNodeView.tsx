@@ -30,7 +30,13 @@ export function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
         type="button"
         className="callout__toggle"
         contentEditable={false}
-        onClick={() => updateAttributes({ collapsed: !collapsed })}
+        // A top-level Card's content area now bubbles a plain click up to select
+        // the Card (CardRichText.tsx) — this button's own fold/unfold action
+        // shouldn't also toggle that every time.
+        onClick={(e) => {
+          e.stopPropagation();
+          updateAttributes({ collapsed: !collapsed });
+        }}
       >
         <Icon name="down" className={`callout__caret${collapsed ? " callout__caret--collapsed" : ""}`} />
         <span className="callout__label">{t(labelKey)}</span>

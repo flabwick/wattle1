@@ -439,24 +439,22 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
         ref={containerRef}
         className="card-rich-text"
         data-card-id={cardId}
-        // Clicking (or dragging to select) the actual text content must never
-        // bubble up to the Card's own onClick (Card.tsx/etc. — toggles the whole
-        // Card's selection in/out). Selecting a Card is reserved for its "blank
-        // space" — the header, margins, anything outside this content area — text
-        // stays a plain, always-available highlight target instead (SelectionMenu's
-        // own quotation-mark action is what turns a selection into something
-        // persistent now, not a click on the text itself).
-        onClick={(e) => e.stopPropagation()}
-        // Same reasoning, for double-click: a double-click on this content area is
-        // the browser's native "select the word under the cursor" gesture, not a
-        // request to jump into editing — that stays reserved for double-clicking the
-        // "blank space" (Card.tsx/CardEmbed.tsx's own onDoubleClick, on the header/
-        // margins outside this element). Without this, the dblclick event still
-        // bubbles up even though the click events it's paired with are already
-        // stopped above (dblclick is its own event type, not just two clicks), so a
-        // double-click meant to select a word would instead select-and-edit the
-        // whole Card/embed out from under it.
-        onDoubleClick={(e) => e.stopPropagation()}
+        // Only stopped for a nested embed (depth > 0), never for a top-level Card
+        // (depth 0): CardEmbed.tsx's own container still reserves plain-click/
+        // double-click selection-and-edit for its "blank space" (header/margins)
+        // the same way it always has — an embed is its own independently
+        // selectable/editable thing nested inside another Card's content, so a
+        // click on ITS OWN text must stop at the embed's own boundary rather than
+        // bubbling out to select/edit an ancestor embed or the top-level Card. A
+        // top-level Card has no such ancestor to protect against: Card.tsx's own
+        // onClick already resolves a plain click vs. the first/second click of a
+        // double-click via `event.detail` (see its own comment), so a click
+        // anywhere in its content — not just the header/margins — correctly
+        // selects the Card, and a double-click is free to fall through to the
+        // browser's native word-selection (SelectionMenu.tsx) since Card.tsx
+        // doesn't wire an onDoubleClick handler at all any more.
+        onClick={depth === 0 ? undefined : (e) => e.stopPropagation()}
+        onDoubleClick={depth === 0 ? undefined : (e) => e.stopPropagation()}
       >
         <EditorContent editor={editor} />
         {editor?.isEmpty && !editable && placeholder && (

@@ -1,9 +1,16 @@
-import type { HTMLAttributes, KeyboardEvent } from "react";
+import type { HTMLAttributes, KeyboardEvent, MouseEvent } from "react";
 import "./CardShell.css";
 
 interface CardShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   selected?: boolean;
-  onClick?: () => void;
+  /** Takes the native click event (unlike a plain `() => void`) so a caller can tell
+   *  a real single click apart from the first/second click of a double-click via
+   *  `event.detail` — Card.tsx's own onClick uses this to avoid toggling selection
+   *  twice (flickering on/off) during a double-click-to-select-text gesture.
+   *  `event` is undefined for the keyboard-activation path below (Enter/Space isn't
+   *  a MouseEvent at all), which callers should treat the same as a definite single
+   *  click. */
+  onClick?: (event?: MouseEvent<HTMLDivElement>) => void;
 }
 
 /**

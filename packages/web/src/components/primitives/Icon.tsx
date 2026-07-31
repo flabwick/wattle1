@@ -59,7 +59,8 @@ export type IconName =
   | "callout"
   | "math"
   | "eyeOff"
-  | "copy";
+  | "copy"
+  | "convert";
 
 interface IconProps {
   name: IconName;
@@ -474,6 +475,17 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <rect x="9" y="9" width="11" height="11" rx="1.5" />
       <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </>
+  ),
+  // Two opposing curved arrows forming a loop — the Dock's "Convert" action
+  // (selectedCards/quote rows), distinct from "move" (repositioning, not a type
+  // change) by the cyclical rather than directional shape.
+  convert: (
+    <>
+      <path d="M4 9a8 8 0 0 1 14-5" />
+      <path d="M18 4v5h-5" />
+      <path d="M20 15a8 8 0 0 1-14 5" />
+      <path d="M6 20v-5h5" />
     </>
   ),
 };

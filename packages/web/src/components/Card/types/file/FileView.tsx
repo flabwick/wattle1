@@ -5,15 +5,12 @@ import remarkGfm from "remark-gfm";
 import { Badge, Button, CardShell, Icon } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { getCardFileUrl } from "../../../../api/client.js";
+import { isMarkdownFile } from "../../../../lib/isMarkdownFile.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
 
 function isPdf(originalName: string, mimeType: string): boolean {
   return mimeType === "application/pdf" || /\.pdf$/i.test(originalName);
-}
-
-function isMarkdown(originalName: string, mimeType: string): boolean {
-  return mimeType === "text/markdown" || /\.(md|markdown)$/i.test(originalName);
 }
 
 /** ".pdf" -> "PDF"; a name with no dot (or ending in one) shows no badge at all. */
@@ -35,7 +32,7 @@ function extensionLabel(originalName: string): string | null {
  */
 export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
   const file = pageCard.card.metadata.file;
-  const markdown = !!file && isMarkdown(file.originalName, file.mimeType);
+  const markdown = !!file && isMarkdownFile(file.originalName, file.mimeType);
   const [markdownText, setMarkdownText] = useState<string | null>(null);
 
   useEffect(() => {
