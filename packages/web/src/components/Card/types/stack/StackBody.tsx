@@ -139,8 +139,9 @@ export function StackBody({
             onChange={(e) => stack.updateActiveDraft({ title: e.target.value })}
             // Clicking into the title to place the cursor (or drag-selecting its
             // text to retype it) shouldn't also toggle this Stack's own Dock
-            // selection via StackView.tsx's outer CardShell onClick — same guard
-            // CardEmbed.tsx's own title input already has.
+            // selection — an <input> is already excluded from StackView.tsx's
+            // outer CardShell select gesture (useCardSelectGesture.ts), this is
+            // just belt-and-suspenders, same as CardEmbed.tsx's own title input.
             onClick={(e) => e.stopPropagation()}
           />
         </div>

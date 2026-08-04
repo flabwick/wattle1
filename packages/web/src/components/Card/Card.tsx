@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { MouseEvent } from "react";
 import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
@@ -10,28 +9,20 @@ import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
 
-/** How long a click waits to see whether a second one follows (making it a
- *  double-click) before actually toggling selection — see selectClickTimer below.
- *  Needs to be at least as long as the browser/OS's own double-click speed
- *  (commonly ~500ms, and user-configurable higher still) — anything shorter and
- *  the timer can fire and select the Card *before* a slightly-slower-but-still-
- *  legitimate second click ever arrives to cancel it, which is worse than a barely
- *  perceptible delay on an ordinary single click. */
-const DOUBLE_CLICK_WINDOW_MS = 500;
-
 interface CardProps {
   pageCard: PageCardWithCard;
   selected: boolean;
   /** Whether this Card's inline editor is open — controlled from above (App.tsx). */
   editing: boolean;
-  /** A click/tap anywhere on the Card body toggles its own membership in the current
+  /** A tap anywhere on the Card body toggles its own membership in the current
    *  (possibly multi-Card) selection — tapping it in adds it, tapping it again
-   *  removes it (App.tsx's toggleSelectPageCard). Held back briefly by
-   *  handleShellClick/selectClickTimer below rather than called straight from the
-   *  click: a double-click/long-press selects text for a Quote instead (native
-   *  browser selection + SelectionMenu.tsx), and shouldn't touch selection at all,
-   *  not even a brief flicker from its first click. Everything else (Edit, Save,
-   *  Move, Hide, remove) is reached from the Dock instead of a per-Card popup. */
+   *  removes it (App.tsx's toggleSelectPageCard). Resolved by CardShell's own
+   *  pointer gesture (selectGesture="prose-aware" below) rather than called
+   *  straight from a click: a double-click/drag selects text for a Quote instead
+   *  (native browser selection + SelectionMenu.tsx), and shouldn't touch selection
+   *  at all, not even a brief flicker from its first tap. Everything else (Edit,
+   *  Save, Move, Hide, remove) is reached from the Dock instead of a per-Card
+   *  popup. */
   onSelect: () => void;
   /** The click-outside-to-close effect below calls this instead of onSelect —
    *  fully exits editing *and* deselects this one Card (App.tsx's
@@ -210,75 +201,6 @@ export function CardView({
 
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // A click doesn't toggle selection immediately — it waits DOUBLE_CLICK_WINDOW_MS
-  // to see whether a second click follows within that window. If one does (this is
-  // actually a double-click, selecting a word to quote), the pending toggle is
-  // cancelled outright rather than firing on the first click and just skipping the
-  // second — a double-click shouldn't touch the Card's selection state at all, not
-  // even briefly. Keyboard activation (Enter/Space — see CardShell.tsx, `event` is
-  // undefined there) bypasses this entirely and toggles immediately: there's no
-  // "double-press" gesture to disambiguate against for a keyboard user, and adding
-  // an artificial delay there would just be a regression for them.
-  const selectClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Whether a real (non-collapsed) text selection already existed the moment this
-  // gesture's mousedown fired — set by handleShellMouseDown below, read (and reset)
-  // by handleShellClick. Needed because a click that lands *outside* existing
-  // highlighted text to dismiss it clears that selection as part of the same
-  // mousedown/click, so by the time the click handler runs and checks
-  // window.getSelection() itself, the very thing that should have disqualified it
-  // is already gone — this captures it a moment earlier, before that happens.
-  const hadSelectionOnMouseDown = useRef(false);
-
-  useEffect(() => {
-    return () => {
-      if (selectClickTimer.current !== null) clearTimeout(selectClickTimer.current);
-    };
-  }, []);
-
-  function isRealSelection(selection: Selection | null): boolean {
-    return !!selection && !selection.isCollapsed && selection.toString() !== "";
-  }
-
-  function handleShellMouseDown() {
-    hadSelectionOnMouseDown.current = isRealSelection(window.getSelection());
-  }
-
-  function handleShellClick(e?: MouseEvent<HTMLDivElement>) {
-    if (!e) {
-      onSelect();
-      return;
-    }
-    // Disqualifies this click from toggling selection at all if either:
-    //  - a real text selection exists right now — a mousedown-drag-mouseup still
-    //    fires "click" on release (same target either side, regardless of
-    //    movement in between), but it just finished making a selection, not
-    //    requesting the Card; same for the word a double-click's second click
-    //    may have just selected, on top of the timer-cancel below already
-    //    covering that case too; or
-    //  - a selection existed *before* this click (hadSelectionOnMouseDown) — this
-    //    click landed outside it, dismissing it, which isn't a request to select
-    //    the Card either.
-    // A plain click starting and ending with nothing selected trips neither.
-    const hadOrHasSelection = hadSelectionOnMouseDown.current || isRealSelection(window.getSelection());
-    hadSelectionOnMouseDown.current = false;
-    if (hadOrHasSelection) {
-      if (selectClickTimer.current !== null) {
-        clearTimeout(selectClickTimer.current);
-        selectClickTimer.current = null;
-      }
-      return;
-    }
-    if (selectClickTimer.current !== null) {
-      clearTimeout(selectClickTimer.current);
-      selectClickTimer.current = null;
-      return;
-    }
-    selectClickTimer.current = setTimeout(() => {
-      selectClickTimer.current = null;
-      onSelect();
-    }, DOUBLE_CLICK_WINDOW_MS);
-  }
-
   // Click-outside-to-close: only listens while editing, and only acts on presses
   // outside the editor itself (so clicking the title/content inputs, or the caret,
   // never closes it). Also excludes the Dock: it's a toolbar *for* this editing
@@ -409,16 +331,17 @@ export function CardView({
     <CardShell
       selected={selected}
       className={isHidden ? "card-shell--hidden" : undefined}
-      // handleShellClick above delays toggling selection just long enough to see
-      // whether a second click follows (a double-click, selecting a word to
-      // quote), in which case it cancels rather than ever toggling at all.
-      // Nothing extra needed for the "select text instead" half — this Card used
-      // to also wire onDoubleClick to onRequestEdit and run a long-press timer
-      // that did the same on touch; dropping both entirely just gets out of the
-      // way and lets native browser double-click/long-press text selection (and
-      // SelectionMenu.tsx, which is always listening) happen on its own.
-      onMouseDown={handleShellMouseDown}
-      onClick={handleShellClick}
+      // selectGesture="prose-aware": a tap in the rich-text body below waits to see
+      // whether a second tap follows (a double-click, selecting a word to quote)
+      // before toggling selection, cancelling outright rather than ever toggling at
+      // all if one does (useCardSelectGesture.ts). Nothing extra needed for the
+      // "select text instead" half — this Card used to also wire onDoubleClick to
+      // onRequestEdit and run a long-press timer that did the same on touch;
+      // dropping both entirely just gets out of the way and lets native browser
+      // double-click/long-press text selection (and SelectionMenu.tsx, which is
+      // always listening) happen on its own.
+      onSelect={onSelect}
+      selectGesture="prose-aware"
       // The 3D rotateY on .card__flip below needs `perspective` set on its own
       // parent to render as a flip rather than a flat squash (same reason
       // PromptCard.css sets it on .prompt-card, the equivalent parent there) — set
@@ -484,7 +407,13 @@ export function CardView({
         </div>
         <div
           className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}
-          onClick={(e) => e.stopPropagation()}
+          // Blocks CardShell's own select gesture (pointerdown/pointerup, not
+          // click) from seeing any tap here — this info back-face has plenty of
+          // blank space between CardPropertyRow entries that isn't itself an
+          // interactive control, which would otherwise fall through to an instant
+          // card-select.
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
         >
           <CardInfoPanel card={canonicalCard} onClose={() => setShowingInfo(false)} />
         </div>

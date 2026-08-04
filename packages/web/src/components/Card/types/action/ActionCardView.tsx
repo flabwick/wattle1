@@ -40,7 +40,7 @@ export function ActionCardView({
   const isHidden = Boolean(canonicalCard.metadata.hidden);
 
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
       <div className="card__header">
         <div className="card__header-start">
           <span className="card__title">{t("actionCard.pickerTileLabel")}</span>

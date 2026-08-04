@@ -1,16 +1,22 @@
-import type { HTMLAttributes, KeyboardEvent, MouseEvent } from "react";
+import type { HTMLAttributes, KeyboardEvent } from "react";
+import { useCardSelectGesture } from "../../hooks/useCardSelectGesture.js";
+import type { CardSelectGestureMode } from "../../hooks/useCardSelectGesture.js";
 import "./CardShell.css";
 
 interface CardShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   selected?: boolean;
-  /** Takes the native click event (unlike a plain `() => void`) so a caller can tell
-   *  a real single click apart from the first/second click of a double-click via
-   *  `event.detail` — Card.tsx's own onClick uses this to avoid toggling selection
-   *  twice (flickering on/off) during a double-click-to-select-text gesture.
-   *  `event` is undefined for the keyboard-activation path below (Enter/Space isn't
-   *  a MouseEvent at all), which callers should treat the same as a definite single
-   *  click. */
-  onClick?: (event?: MouseEvent<HTMLDivElement>) => void;
+  /** Toggles this Card's membership in the current selection — resolved from the
+   *  underlying pointer gesture (useCardSelectGesture) rather than called straight
+   *  from a native click, so a drag, an in-progress/just-dismissed text selection,
+   *  or a tap on an interactive child never also selects the card. Keyboard
+   *  activation (Enter/Space below) calls it directly — there's no "double-press"
+   *  gesture to disambiguate against for a keyboard user. */
+  onSelect?: () => void;
+  /** 'instant' (the default) resolves a plain tap immediately. 'prose-aware' —
+   *  Card.tsx's own note render — defers a tap landing in quotable rich-text prose
+   *  so a following double-click (selecting a word for Quote) can cancel it instead
+   *  of the card flickering selected. See useCardSelectGesture's own doc comment. */
+  selectGesture?: CardSelectGestureMode;
 }
 
 /**
@@ -22,7 +28,15 @@ interface CardShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick">
  * another button — the div + role/tabIndex/keydown combination gives the same
  * tap/keyboard-activation semantics without that HTML nesting restriction.
  */
-export function CardShell({ selected, className, onClick, onKeyDown, ...rest }: CardShellProps) {
+export function CardShell({
+  selected,
+  className,
+  onSelect,
+  selectGesture = "instant",
+  onKeyDown,
+  ...rest
+}: CardShellProps) {
+  const gesture = useCardSelectGesture({ onSelect, mode: selectGesture });
   const selectedClass = selected ? " card-shell--selected" : "";
   const classes = `card-shell${selectedClass}${className ? ` ${className}` : ""}`;
   return (
@@ -30,15 +44,17 @@ export function CardShell({ selected, className, onClick, onKeyDown, ...rest }: 
       role="button"
       tabIndex={0}
       className={classes}
-      onClick={onClick}
+      {...rest}
+      onPointerDown={gesture.onPointerDown}
+      onPointerMove={gesture.onPointerMove}
+      onPointerUp={gesture.onPointerUp}
       onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
         onKeyDown?.(e);
         if (!e.defaultPrevented && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
-          onClick?.();
+          onSelect?.();
         }
       }}
-      {...rest}
     />
   );
 }

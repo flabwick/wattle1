@@ -14,7 +14,7 @@ export function StackView({ pageCard, selected, onSelect, onOpenFullscreen }: Ca
   // is always the "still hidden" indicator, never a false positive.
   const isHidden = Boolean(pageCard.card.metadata.hidden);
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
       <StackBody
         stackCardId={pageCard.card.id}
         selected={selected}

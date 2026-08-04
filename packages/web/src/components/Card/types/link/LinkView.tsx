@@ -17,7 +17,7 @@ export function LinkView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
   const url = canonicalCard.metadata.link?.url ?? "";
 
   return (
-    <CardShell selected={selected} onClick={onSelect} onDoubleClick={onRequestEdit}>
+    <CardShell selected={selected} onSelect={onSelect} onDoubleClick={onRequestEdit}>
       <div className="card__header">
         <div className="card__header-start">
           <span className="card__title">{canonicalCard.title || t("card.titlePlaceholder")}</span>

@@ -96,7 +96,7 @@ export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: Car
   const isHidden = Boolean(pageCard.card.metadata.hidden);
 
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
       {header}
       {body}
     </CardShell>

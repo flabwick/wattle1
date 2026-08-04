@@ -18,7 +18,7 @@ export function NoteView({ pageCard, selected, onSelect, onRequestEdit }: CardTy
   const content = pageCard.draftContent ?? pageCard.card.content;
 
   return (
-    <CardShell selected={selected} onClick={onSelect} onDoubleClick={onRequestEdit}>
+    <CardShell selected={selected} onSelect={onSelect} selectGesture="prose-aware" onDoubleClick={onRequestEdit}>
       <div className="card__header">
         <div className="card__header-start">
           <button

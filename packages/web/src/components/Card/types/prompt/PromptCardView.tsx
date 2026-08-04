@@ -15,7 +15,7 @@ export function PromptCardView({ pageCard, selected, onSelect, onOpenFullscreen 
   // is always the "still hidden" indicator, never a false positive.
   const isHidden = Boolean(pageCard.card.metadata.hidden);
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onClick={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
       <div className="card__header">
         <div className="card__header-start">
           <span className="card__title">{t("promptCard.title")}</span>

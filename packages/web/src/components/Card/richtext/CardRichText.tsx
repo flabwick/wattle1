@@ -446,13 +446,13 @@ export const CardRichText = forwardRef<CardRichTextHandle, CardRichTextProps>(fu
         // selectable/editable thing nested inside another Card's content, so a
         // click on ITS OWN text must stop at the embed's own boundary rather than
         // bubbling out to select/edit an ancestor embed or the top-level Card. A
-        // top-level Card has no such ancestor to protect against: Card.tsx's own
-        // onClick already resolves a plain click vs. the first/second click of a
-        // double-click via `event.detail` (see its own comment), so a click
-        // anywhere in its content — not just the header/margins — correctly
-        // selects the Card, and a double-click is free to fall through to the
-        // browser's native word-selection (SelectionMenu.tsx) since Card.tsx
-        // doesn't wire an onDoubleClick handler at all any more.
+        // top-level Card has no such ancestor to protect against: its own CardShell
+        // resolves selection from the pointer gesture instead (`.card-embed` is one
+        // of useCardSelectGesture.ts's own exclusions, so a *further* ancestor
+        // Card's gesture already ignores anything inside this depth's embed
+        // regardless of what happens here), and a double-click is free to fall
+        // through to the browser's native word-selection (SelectionMenu.tsx) since
+        // depth 0 doesn't wire an onDoubleClick handler at all.
         onClick={depth === 0 ? undefined : (e) => e.stopPropagation()}
         onDoubleClick={depth === 0 ? undefined : (e) => e.stopPropagation()}
       >
