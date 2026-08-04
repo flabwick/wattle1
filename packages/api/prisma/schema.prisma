@@ -31,6 +31,18 @@ model Card {
   /// layer "between 'in context' and 'in the vault'", made explicit as a real flag
   /// rather than just PageCard's draft fields.
   savedToVault Boolean @default(true)
+  /// Null while Open (editable in place — the default). Set to the freeze time once
+  /// Frozen: read-only, safe as stable context to link/embed against. Editing a
+  /// Frozen Card never mutates it — see forkedFromId below and
+  /// cardService.ts's freezeCard/forkCard.
+  frozenAt DateTime?
+  /// Set only on a Card created by forking a Frozen Card (cardService.ts's
+  /// forkCard) — points at the Frozen original it was copied from, for lineage
+  /// display and so proximityService can record a strong durable tie between them.
+  /// Not cascaded on delete: losing the original shouldn't take the fork down too.
+  forkedFromId String?
+  forkedFrom   Card?    @relation("CardFork", fields: [forkedFromId], references: [id])
+  forks        Card[]   @relation("CardFork")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -47,8 +59,34 @@ model Card {
   /// This Card is the alternate content of a StackMember belonging to some other
   /// (container) Card — the other side of the same relation.
   memberOfStack StackMember? @relation("StackMemberCard")
+  /// This Card's durable Nearby ties (proximityService.ts) — one row per unordered
+  /// pair this Card participates in, as either side.
+  proximityAsA CardProximity[] @relation("ProximityCardA")
+  proximityAsB CardProximity[] @relation("ProximityCardB")
 
   @@index([folderId])
+}
+
+/// A durable Nearby tie between two Cards (Wattle vault plan's "durable map") —
+/// reinforced by Page co-presence, embeds/links, and forks (proximityService.ts),
+/// decaying with disuse at read time so old, unused ties don't dominate forever.
+/// One row per unordered pair: `cardAId` is always the lexicographically smaller id,
+/// so a pair is looked up/upserted unambiguously regardless of which Card triggered
+/// the reinforcement.
+model CardProximity {
+  id               String   @id @default(cuid())
+  cardAId          String
+  cardBId          String
+  score            Float    @default(0)
+  lastReinforcedAt DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  cardA Card @relation("ProximityCardA", fields: [cardAId], references: [id], onDelete: Cascade)
+  cardB Card @relation("ProximityCardB", fields: [cardBId], references: [id], onDelete: Cascade)
+
+  @@unique([cardAId, cardBId])
+  @@index([cardAId])
+  @@index([cardBId])
 }
 
 /// A Folder in the vault — groups Cards and other Folders into a navigable tree.

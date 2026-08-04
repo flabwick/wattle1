@@ -1,0 +1,25 @@
+.linkCard__url-input {
+  margin-top: var(--space-1);
+}
+
+.linkCard__url {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.linkCard__url:hover {
+  text-decoration: underline;
+}
+
+.linkCard__url .icon {
+  flex-shrink: 0;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}

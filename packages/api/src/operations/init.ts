@@ -1,6 +1,8 @@
 import { operationRegistry } from "@wattle/shared";
 import { cardDeleteOperation } from "./cardDelete.js";
 import { cardEditOperation } from "./cardEdit.js";
+import { cardForkOccurrenceOperation } from "./cardForkOccurrence.js";
+import { cardFreezeOperation } from "./cardFreeze.js";
 import { cardGenerateAcceptOperation } from "./cardGenerateAccept.js";
 import { cardMoveOperation } from "./cardMove.js";
 import { cardRenameOperation } from "./cardRename.js";
@@ -23,6 +25,8 @@ export function initOperations(): void {
   operationRegistry.register(cardReorderOperation);
   operationRegistry.register(cardEditOperation);
   operationRegistry.register(cardSaveOperation);
+  operationRegistry.register(cardFreezeOperation);
+  operationRegistry.register(cardForkOccurrenceOperation);
   operationRegistry.register(cardGenerateAcceptOperation);
   operationRegistry.register(cardMoveOperation);
   operationRegistry.register(folderRenameOperation);

@@ -1,6 +1,38 @@
 /* Box styling (background/border/radius/selection) now lives in
    components/primitives/CardShell.css — this file only has Card-specific layout. */
 
+/* The info flip mechanic — same convention as PromptCard.css's own
+   .prompt-card__flip: both faces (this Card's normal content, and its
+   CardInfoPanel.tsx back face) are always mounted, grid-stacked into the same
+   cell, and `showingInfo` just toggles which one is rotated toward the viewer. */
+.card__flip {
+  position: relative;
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.card__flip--flipped {
+  transform: rotateY(180deg);
+}
+
+.card__face {
+  grid-row: 1;
+  grid-column: 1;
+  min-width: 0;
+  backface-visibility: hidden;
+}
+
+.card__face--back {
+  transform: rotateY(180deg);
+}
+
+/* Whichever face is rotated away is still in the DOM (see above) but shouldn't be
+   clickable/tabbable while hidden. */
+.card__face--hidden {
+  pointer-events: none;
+}
+
 .card__header {
   display: flex;
   align-items: center;
@@ -106,6 +138,20 @@
   font-family: var(--font-family-heading);
   font-weight: var(--font-weight-bold);
   font-size: var(--font-size-md);
+}
+
+/* A Frozen Card's read-only marker, next to its title — quiet by design (muted
+   color, small icon) since Frozen is the common "stable, done with" state, not an
+   alert. */
+.card__frozen-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+.card__frozen-badge .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 /* Not line-clamped: the Card's box has no fixed height (CardShell.css), so it grows

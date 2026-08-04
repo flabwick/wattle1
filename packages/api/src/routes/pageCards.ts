@@ -21,6 +21,12 @@ pageCardsRouter.post("/:id/save", async (req, res) => {
   res.json(await runOperation<PageCard>("card.save", { id: req.params.id }));
 });
 
+// POST /api/page-cards/:id/fork — forks the Frozen Card this occurrence points at and
+// repoints this occurrence at the fork. Wraps the "card.forkOccurrence" Operation.
+pageCardsRouter.post("/:id/fork", async (req, res) => {
+  res.json(await runOperation<PageCard>("card.forkOccurrence", { location: "page", pageCardId: req.params.id }));
+});
+
 // DELETE /api/page-cards/:id — remove from this Page only; vault Card is untouched.
 pageCardsRouter.delete("/:id", async (req, res) => {
   await pageCardService.removeFromPage(req.params.id);

@@ -1,0 +1,178 @@
+.card-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card-info__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-info__title {
+  font-family: var(--font-family-heading);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-md);
+}
+
+.card-info__row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.card-info__row .card-info__section {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-info__section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-info__label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.card-info__value {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
+.card-info__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.card-info__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.card-info__badge .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.card-info__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.card-info__properties {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.card-info__property-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.card-info__property-key {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* Wraps the value field (or, once linked, the chip below) — `position: relative`
+   so CardLinkPicker.tsx's own `position: absolute` popover anchors to this row
+   rather than the whole panel. */
+.card-info__property-value-wrap {
+  position: relative;
+  flex: 2;
+  min-width: 0;
+}
+
+.card-info__property-value {
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+
+/* A linked property's value — same compact pill treatment as .card-info__badge,
+   distinct only by the "link" icon and its own unlink "x" instead of plain text. */
+.card-info__property-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 2;
+  min-width: 0;
+  height: var(--touch-target-sm);
+  padding: 0 var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+}
+
+.card-info__property-link-icon {
+  flex-shrink: 0;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--color-text-muted);
+}
+
+.card-info__property-link-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-info__property-unlink {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.card-info__property-unlink:hover {
+  color: var(--color-text);
+}
+
+.card-info__property-unlink .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.card-info__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-info__list-item {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}

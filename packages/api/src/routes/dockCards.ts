@@ -1,5 +1,7 @@
 import { Router } from "express";
+import type { DockCardWithCard } from "@wattle/shared";
 import * as dockCardService from "../services/dockCardService.js";
+import { runOperation } from "../operations/run.js";
 import { fileUpload } from "../uploads.js";
 
 // Mounted at /api/dock-cards — the persistent Dock scratchpad layer (Step 6 spec
@@ -44,6 +46,14 @@ dockCardsRouter.post("/files", fileUpload.single("file"), async (req, res) => {
 dockCardsRouter.delete("/:id", async (req, res) => {
   await dockCardService.removeDockCard(req.params.id);
   res.status(204).end();
+});
+
+// POST /api/dock-cards/:id/fork — forks the Frozen Card this DockCard points at and
+// repoints it at the fork. Wraps the "card.forkOccurrence" Operation.
+dockCardsRouter.post("/:id/fork", async (req, res) => {
+  res.json(
+    await runOperation<DockCardWithCard>("card.forkOccurrence", { location: "dock", dockCardId: req.params.id }),
+  );
 });
 
 // PUT /api/dock-cards/:id/move-to-page  { pageId, destIndex }

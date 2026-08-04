@@ -13,6 +13,7 @@ import * as api from "./api/client.js";
 import { usePages } from "./hooks/usePages.js";
 import { useVault } from "./hooks/useVault.js";
 import { useDockCards } from "./hooks/useDockCards.js";
+import { useNearby } from "./hooks/useNearby.js";
 import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
@@ -707,6 +708,22 @@ export function App() {
   // same as when none are.
   const singleSelectedCard = selectedPageCards.length === 1 ? selectedPageCards[0] : null;
 
+  // Nearby's live rank (Wattle vault plan) — re-scored against the current Page's
+  // open Cards plus whatever's actually being typed right now, if anything is being
+  // edited. Only fetches while the Nearby panel is actually open (useNearby.ts).
+  const nearbyFocusedCard = editingSelectedPageCard ?? singleSelectedCard;
+  const nearbyDraftText = editingSelectedPageCard
+    ? `${editingSelectedPageCard.draftTitle ?? editingSelectedPageCard.card.title}\n${
+        editingSelectedPageCard.draftContent ?? editingSelectedPageCard.card.content
+      }`
+    : "";
+  const nearby = useNearby(currentPage?.id ?? null, nearbyFocusedCard?.card.id ?? null, nearbyDraftText, openPanel === "nearby");
+
+  async function handleOpenNearbyCard(cardId: string) {
+    if (!currentPage) return;
+    await openCardIntoPage(currentPage.id, cardId);
+  }
+
   // Which Card a Dock process action would run against — a single selected embed
   // takes priority, same convention as selectedEmbedId elsewhere (Dock.tsx/richtext/
   // CardRichText.tsx). Null when nothing's selected (or more than one Card/embed is).
@@ -814,9 +831,26 @@ export function App() {
   /** The Dock's Edit action (only ever shown for a single selected Card) — opens its
    *  inline editor the same way double-click/long-press used to before Card.tsx
    *  repurposed both gestures for text-selection/Quote instead. */
-  function handleEditSelected() {
+  // Editing a Frozen Card always forks (Open/Frozen — Wattle vault plan): the fork
+  // happens *before* entering `editing`, so Card.tsx never has to reconcile a still-
+  // frozen `canonicalCard` with a live edit. The PageCard id itself doesn't change —
+  // pageCardService.forkOccurrence just repoints its `cardId` at the new fork — so
+  // requestEditPageCard still targets the same id either way; refresh() (called by
+  // every mutating api.* call's caller elsewhere) isn't needed here since usePages'
+  // own polling/refresh picks up the repointed cardId before the editor next reads it.
+  async function handleEditSelected() {
     if (!singleSelectedCard) return;
+    if (singleSelectedCard.card.frozenAt) {
+      await api.forkPageCardOccurrence(singleSelectedCard.id);
+      await refresh();
+    }
     requestEditPageCard(singleSelectedCard.id);
+  }
+
+  async function handleFreezeSelected() {
+    if (!singleSelectedCard) return;
+    await api.freezeCard(singleSelectedCard.card.id);
+    await refresh();
   }
 
   /** Saves every selected Card that has something pending to the vault — a no-op for
@@ -1391,7 +1425,6 @@ export function App() {
                     onAddStack: handleAddStackToCurrentPage,
                     onAddAction: handleAddActionToCurrentPage,
                     onAddPrompt: handleAddPromptToCurrentPage,
-                    onNewFromApp: () => setAppBrowserOpen(true),
                   }
                 : null
             }
@@ -1415,6 +1448,7 @@ export function App() {
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onEditSelected={handleEditSelected}
+        onFreezeSelected={handleFreezeSelected}
         onSaveSelected={handleSaveSelected}
         onRemoveSelected={handleRemoveSelected}
         onToggleHiddenSelected={handleToggleHiddenSelected}
@@ -1459,6 +1493,9 @@ export function App() {
         openPanel={openPanel}
         onOpenPanel={setOpenPanel}
         onClosePanel={() => setOpenPanel(null)}
+        nearbyItems={nearby.items}
+        nearbyLoading={nearby.loading}
+        onOpenNearbyCard={handleOpenNearbyCard}
         revealHidden={revealHidden}
         onToggleRevealHidden={() => setRevealHidden((r) => !r)}
         vaultSearchResults={vault.cards}
@@ -1468,6 +1505,7 @@ export function App() {
         onOpenVaultFolder={vault.openFolder}
         onCreateVaultCard={handleCreateVaultCard}
         onCreateVaultFolder={vault.createFolder}
+        onUploadVaultFile={vault.uploadFile}
         onRenameVaultCard={vault.renameCard}
         onRenameVaultFolder={vault.renameFolder}
         onMoveVaultCard={vault.moveCard}

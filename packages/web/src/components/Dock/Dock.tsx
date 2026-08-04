@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type {
   ActionFieldKind,
   Card,
@@ -6,6 +6,7 @@ import type {
   DockCardWithCard,
   Folder,
   FolderContents,
+  NearbyItem,
   PageCardWithCard,
   PageWithCards,
   Tab,
@@ -18,6 +19,7 @@ import { Button, Icon } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
 import { DockCardsPanel } from "./DockCardsPanel.js";
+import { NearbyPanel } from "./NearbyPanel.js";
 import { PagesPanel } from "./PagesPanel.js";
 import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
@@ -54,7 +56,7 @@ function escapeHtml(text: string): string {
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
  *  independent booleans so that's structurally guaranteed, not just convention. */
-export type DockPanel = "vault" | "dockCards" | "pages" | "tabs";
+export type DockPanel = "vault" | "dockCards" | "pages" | "tabs" | "nearby";
 
 interface DockProps {
   /** Every currently-selected Card — multiple Cards can be selected at once now
@@ -137,6 +139,10 @@ interface DockProps {
    *  single-target scoping onRewriteSelected/isStackSelected below already use —
    *  editing several Cards' inline editors open at once isn't a case this covers. */
   onEditSelected: () => void;
+  /** Freezes the single selected Card (Open/Frozen — Wattle vault plan) — read-only
+   *  from here on; only shown once it's savedToVault, still Open, and has nothing
+   *  unsaved pending (see this action's own gating above). */
+  onFreezeSelected: () => void;
   /** Saves every selected Card that has something pending — a no-op for any that
    *  don't (App.tsx batches the existing per-Card save-to-vault call). */
   onSaveSelected: () => void;
@@ -204,6 +210,12 @@ interface DockProps {
   openPanel: DockPanel | null;
   onOpenPanel: (panel: DockPanel) => void;
   onClosePanel: () => void;
+  /** The live Nearby list for whatever Page/Card is currently in view (useNearby.ts,
+   *  driven from App.tsx) — re-scored against what's open and what's being typed,
+   *  not a fixed list (Wattle vault plan). */
+  nearbyItems: NearbyItem[];
+  nearbyLoading: boolean;
+  onOpenNearbyCard: (cardId: string) => void;
   vaultSearchResults: Card[];
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
@@ -218,6 +230,10 @@ interface DockProps {
    *  search is active (there's no single Folder to create into). */
   onCreateVaultCard: (() => Promise<Card>) | null;
   onCreateVaultFolder: ((title: string) => Promise<Folder>) | null;
+  /** Uploads a file straight into the vault, in whichever Folder is currently open —
+   *  the Vault panel's own Upload action (cardService.createFileCard), same
+   *  "null while search is active" gating as onCreateVaultCard/onCreateVaultFolder. */
+  onUploadVaultFile: ((file: File) => void) | null;
   onRenameVaultCard: (id: string, title: string) => void;
   onRenameVaultFolder: (id: string, title: string) => void;
   onMoveVaultCard: (id: string, folderId: string | null) => void;
@@ -389,6 +405,7 @@ export function Dock({
   annotationError,
   onDismissAnnotationError,
   onEditSelected,
+  onFreezeSelected,
   onSaveSelected,
   onRemoveSelected,
   onToggleHiddenSelected,
@@ -407,6 +424,9 @@ export function Dock({
   openPanel,
   onOpenPanel,
   onClosePanel,
+  nearbyItems,
+  nearbyLoading,
+  onOpenNearbyCard,
   vaultSearchResults,
   vaultQuery,
   onVaultQueryChange,
@@ -414,6 +434,7 @@ export function Dock({
   onOpenVaultFolder,
   onCreateVaultCard,
   onCreateVaultFolder,
+  onUploadVaultFile,
   onRenameVaultCard,
   onRenameVaultFolder,
   onMoveVaultCard,
@@ -457,6 +478,7 @@ export function Dock({
   const dockCardsOpen = openPanel === "dockCards";
   const pagesOpen = openPanel === "pages";
   const tabsOpen = openPanel === "tabs";
+  const nearbyOpen = openPanel === "nearby";
 
   // Content stays mounted one tick behind `openPanel` going to null, so the slide-
   // closed CSS transition below has something to animate away rather than the panel
@@ -496,11 +518,25 @@ export function Dock({
   const [selectedVaultItem, setSelectedVaultItem] = useState<{ type: "card" | "folder"; id: string } | null>(
     null,
   );
+  /** Non-null while the selected vault Card's click-through detail view (links +
+   *  Nearby — VaultCardDetail.tsx) is open. Deliberately independent of selection
+   *  itself: selecting a Card (a plain click/tap, IDE-file-manager style) only ever
+   *  selects it, never opens anything — the Dock's own "Preview" action
+   *  (vaultModeActions below) is the one explicit way in, same as Add to Page/Add to
+   *  Dock are the explicit ways to actually open it *somewhere*. */
+  const [vaultDetailId, setVaultDetailId] = useState<string | null>(null);
   /** Non-null while a vault Card/Folder row shows an inline rename input in place of
    *  its label (VaultView.tsx's ItemLabel) — set by the Rename action below. */
   const [vaultRenaming, setVaultRenaming] = useState<{ type: "card" | "folder"; id: string } | null>(
     null,
   );
+  /** The Card id "New Card" (vaultNewCard below) most recently created, from the
+   *  moment it's created until its very first naming is committed or abandoned —
+   *  never touched again after that (a later rename of the same Card is a normal
+   *  rename, revert-on-blank like any other). Drives VaultView.tsx's
+   *  renamingIsNewCard (blank rename input, no "Untitled" default) and this file's
+   *  own onCommitRename/onCancelRename below (delete-on-blank instead of keep). */
+  const [vaultNewCardId, setVaultNewCardId] = useState<string | null>(null);
   /** Non-null while a vault Card/Folder is "in transit" waiting for a destination
    *  Folder to be picked — the vault-panel equivalent of movingPageCardIds/Move Mode. */
   const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
@@ -639,6 +675,10 @@ export function Dock({
    *  hidden native file input, same trigger-a-hidden-input pattern
    *  FeedInputButton.tsx's own upload action uses. */
   const imageFileInputRef = useRef<HTMLInputElement>(null);
+  /** "Upload" — the vault-browsing row's own upload action (see vaultModeActions'
+   *  "nothing selected" branch below), same trigger-a-hidden-input pattern as
+   *  imageFileInputRef above. */
+  const vaultFileInputRef = useRef<HTMLInputElement>(null);
 
   // The formatting toolbar's target — whichever CardRichText instance was most
   // recently focused (activeEditorRegistry.ts), reactively re-read here since Dock is
@@ -680,6 +720,7 @@ export function Dock({
    *  mid-move at some Card/Folder that may not even be in view any more. */
   function closeVaultSelection() {
     setSelectedVaultItem(null);
+    setVaultDetailId(null);
     setVaultRenaming(null);
     setVaultMoving(null);
   }
@@ -1089,6 +1130,17 @@ export function Dock({
     },
   };
 
+  // Same toggle convention as vaultAction alongside it — stays in the default row,
+  // just swaps its icon/label between open and closed rather than disappearing.
+  const nearbyLabel = nearbyOpen ? t("dock.nearby.close") : t("dock.nearby.open");
+  const nearbyAction: DockAction = {
+    key: "nearby",
+    operationId: null,
+    icon: nearbyOpen ? "close" : "compass",
+    label: nearbyLabel,
+    onClick: () => (nearbyOpen ? onClosePanel() : onOpenPanel("nearby")),
+  };
+
   const vaultViewContent = renderedPanel === "vault" && (
     <div className="dock__extended-panel-view">
       <VaultView
@@ -1100,28 +1152,31 @@ export function Dock({
         subfolders={vaultFolderContents?.folders ?? []}
         cards={vaultFolderContents?.cards ?? []}
         onOpenFolder={handleOpenVaultFolder}
-        onCreateCard={
-          onCreateVaultCard && !vaultQuery
-            ? async () => {
-                const card = await onCreateVaultCard();
-                setSelectedVaultItem({ type: "card", id: card.id });
-              }
-            : null
-        }
-        onCreateFolder={
-          onCreateVaultFolder && !vaultQuery
-            ? async () => {
-                const folder = await onCreateVaultFolder(t("vault.untitledFolder"));
-                setVaultRenaming({ type: "folder", id: folder.id });
-              }
-            : null
-        }
         selectedCardId={selectedVaultItem?.type === "card" ? selectedVaultItem.id : null}
         onSelectCard={(id) =>
           setSelectedVaultItem((prev) =>
             prev?.type === "card" && prev.id === id ? null : { type: "card", id },
           )
         }
+        // Only non-null once selection and the explicit "Preview" action
+        // (vaultModeActions above) agree on the same Card — selecting a different
+        // Card (or Folder, or nothing) implicitly closes whatever was previewed,
+        // same as Move starting does (see vaultModeActions' vaultMove/vaultRename,
+        // which clear this too for the same reason).
+        detailCardId={
+          !vaultMoving && selectedVaultItem?.type === "card" && vaultDetailId === selectedVaultItem.id
+            ? vaultDetailId
+            : null
+        }
+        // A link/Nearby row *within* the detail view drilling into another Card —
+        // unlike onSelectCard (a plain row click, select-only), this both selects
+        // *and* keeps the detail view open on the new Card, so "click through them"
+        // stays one click each rather than select-then-Preview-again per hop.
+        onOpenCardDetail={(id) => {
+          setSelectedVaultItem({ type: "card", id });
+          setVaultDetailId(id);
+        }}
+        onCloseCardDetail={() => setVaultDetailId(null)}
         selectedFolderId={selectedVaultItem?.type === "folder" ? selectedVaultItem.id : null}
         onSelectFolder={(id) =>
           setSelectedVaultItem((prev) =>
@@ -1129,17 +1184,42 @@ export function Dock({
           )
         }
         renamingId={vaultRenaming?.id ?? null}
+        renamingIsNewCard={vaultRenaming?.type === "card" && vaultRenaming.id === vaultNewCardId}
         onCommitRename={(title) => {
           if (!vaultRenaming) return;
           const { type, id } = vaultRenaming;
+          const isNewCard = type === "card" && id === vaultNewCardId;
           setVaultRenaming(null);
+          setVaultNewCardId(null);
+          if (title.trim() === "" && isNewCard) {
+            // Never named — this placeholder title was never a real choice the user
+            // made (see vaultNewCard's own onClick), so leaving it blank means "never
+            // mind" rather than "keep the placeholder". No confirmation: same
+            // low-stakes, freely-reversible territory as a blank Page/Dock Card
+            // getting silently deleted when removed unsaved (pageCardService.
+            // removeFromPage's sibling for scratch content).
+            onDeleteVaultCard(id);
+            setSelectedVaultItem(null);
+            return;
+          }
           if (type === "folder") onRenameVaultFolder(id, title);
           // A vault Card's title is required (cardService.updateCard rejects blank
           // for an already-saved Card) — rather than surfacing that as an error,
-          // blank just reverts to whatever title it already had.
+          // blank just reverts to whatever title it already had (an *established*
+          // Card's title, unlike the new-Card case above, which is always something
+          // the user actually chose at some point).
           else if (title.trim() !== "") onRenameVaultCard(id, title);
         }}
-        onCancelRename={() => setVaultRenaming(null)}
+        onCancelRename={() => {
+          if (vaultRenaming?.type === "card" && vaultRenaming.id === vaultNewCardId) {
+            // Escape abandons a new Card's naming the same way submitting it blank
+            // does — never leaves it sitting there under its placeholder title.
+            onDeleteVaultCard(vaultRenaming.id);
+            setSelectedVaultItem(null);
+          }
+          setVaultRenaming(null);
+          setVaultNewCardId(null);
+        }}
         moving={vaultMoving}
         onPickMoveTarget={() => {
           if (!vaultMoving) return;
@@ -1154,11 +1234,14 @@ export function Dock({
   );
 
   /**
-   * Actions for whatever's selected *within* the Vault panel — takes priority over
-   * selectedEmbedId/selectedCards below while the panel's open and something
-   * in it is selected, since that's the more specific, more recent thing the user
-   * pointed at. Falls through to the usual Page/Card row once nothing's selected in
-   * the vault (e.g. freshly opened at the root with nothing picked yet), so opening
+   * Actions for the Vault panel itself — either whatever's selected *within* it (a
+   * Card or Folder row), or, once nothing is selected and there's no search active,
+   * the panel's own creation actions (New Folder/New Card/Upload — VaultView.tsx no
+   * longer has a toolbar of its own for these, same "everything reachable from the
+   * Dock" convention every other action already follows). Takes priority over
+   * selectedEmbedId/selectedCards below while the panel's open, since that's the more
+   * specific, more recent thing the user pointed at. Falls through to the usual
+   * Page/Card row only while the panel is closed or actively searching, so opening
    * the panel over an already-selected Page Card doesn't blank the row out. A
    * selected Folder needn't be the one currently browsed — see VaultView.tsx's doc
    * comment — so Delete only navigates out if they happen to be the same one.
@@ -1183,11 +1266,29 @@ export function Dock({
           ]
         : []),
       {
+        key: "vaultAddToDock",
+        operationId: null,
+        icon: "tray" as const,
+        label: t("dock.action.addToDock"),
+        onClick: () => {
+          onAddVaultCardToDock(cardId);
+          closeVaultSelection();
+        },
+      },
+      {
+        key: "vaultPreview",
+        operationId: null,
+        icon: "expand" as const,
+        label: t("dock.action.preview"),
+        onClick: () => setVaultDetailId(cardId),
+      },
+      {
         key: "vaultRename",
         operationId: null,
         icon: "edit" as const,
         label: t("dock.action.rename"),
         onClick: () => {
+          setVaultDetailId(null);
           setVaultMoving(null);
           setVaultRenaming({ type: "card", id: cardId });
         },
@@ -1198,6 +1299,7 @@ export function Dock({
         icon: "move" as const,
         label: t("dock.action.move"),
         onClick: () => {
+          setVaultDetailId(null);
           setVaultRenaming(null);
           setVaultMoving({ type: "card", id: cardId });
         },
@@ -1211,6 +1313,7 @@ export function Dock({
         onClick: () => {
           onDeleteVaultCard(cardId);
           setSelectedVaultItem(null);
+          setVaultDetailId(null);
         },
       },
     ];
@@ -1254,6 +1357,67 @@ export function Dock({
           setSelectedVaultItem(null);
         },
       },
+    ];
+  } else if (
+    vaultOpen &&
+    !selectedVaultItem &&
+    !vaultQuery &&
+    !selectedEmbedId &&
+    selectedCards.length === 0
+  ) {
+    // Just browsing (nothing selected in the vault or on the Page, not searching) —
+    // creation actions move down into this same row rather than living as buttons
+    // inside VaultView's own toolbar, same "everything reachable from the Dock"
+    // convention every other action in this app already follows. Each is left out
+    // entirely (rather than shown disabled) when its creator prop is absent, same
+    // convention onAddVaultCardToPage above already uses. Gated on nothing being
+    // selected on the Page either (same as this variable's own doc comment above),
+    // so opening Vault over an already-selected Page Card still falls through to
+    // that Card's own row instead of stealing it — the reason vaultModeActions can
+    // be null even while vaultOpen is true.
+    vaultModeActions = [
+      ...(onCreateVaultFolder
+        ? [
+            {
+              key: "vaultNewFolder",
+              operationId: null,
+              icon: "folder" as const,
+              label: t("vault.createFolder"),
+              onClick: async () => {
+                const folder = await onCreateVaultFolder(t("vault.untitledFolder"));
+                setVaultRenaming({ type: "folder", id: folder.id });
+              },
+            },
+          ]
+        : []),
+      ...(onCreateVaultCard
+        ? [
+            {
+              key: "vaultNewCard",
+              operationId: null,
+              icon: "plus" as const,
+              label: t("vault.create"),
+              onClick: async () => {
+                const card = await onCreateVaultCard();
+                setSelectedVaultItem({ type: "card", id: card.id });
+                setVaultNewCardId(card.id);
+                setVaultMoving(null);
+                setVaultRenaming({ type: "card", id: card.id });
+              },
+            },
+          ]
+        : []),
+      ...(onUploadVaultFile
+        ? [
+            {
+              key: "vaultUpload",
+              operationId: null,
+              icon: "upload" as const,
+              label: t("vault.upload"),
+              onClick: () => vaultFileInputRef.current?.click(),
+            },
+          ]
+        : []),
     ];
   }
 
@@ -1383,6 +1547,24 @@ export function Dock({
               icon: "edit" as const,
               label: t("dock.action.edit"),
               onClick: onEditSelected,
+            },
+          ]
+        : []),
+      // Freeze (Open/Frozen — Wattle vault plan): only offered for a single, already-
+      // saved, still-Open Card — nothing to freeze yet if it's still page-local
+      // scratch content or a draft is pending (hasUnsavedDraft), and freezing an
+      // already-Frozen Card is meaningless (cardService.freezeCard would just throw).
+      ...(selectedCards.length === 1 &&
+      selectedCards[0].card.savedToVault &&
+      !selectedCards[0].card.frozenAt &&
+      !hasUnsavedDraft
+        ? [
+            {
+              key: "freeze",
+              operationId: "card.freeze",
+              icon: "lock" as const,
+              label: t("dock.action.freeze"),
+              onClick: onFreezeSelected,
             },
           ]
         : []),
@@ -1854,7 +2036,7 @@ export function Dock({
             ? formattingActions
             : embedOrPageCardSelected
               ? (vaultModeActions ?? modeActions)
-              : [vaultAction, dockCardsAction, ...(vaultModeActions ?? modeActions)];
+              : [vaultAction, dockCardsAction, nearbyAction, ...(vaultModeActions ?? modeActions)];
 
   const rowActions: DockAction[] = actions;
 
@@ -1880,6 +2062,19 @@ export function Dock({
         onUploadFile={onUploadDockCardFile}
         openCardId={dockCardToOpen}
         onOpenedCard={onOpenedDockCard}
+      />
+    </div>
+  );
+
+  const nearbyViewContent = renderedPanel === "nearby" && (
+    <div className="dock__extended-panel-view">
+      <NearbyPanel
+        items={nearbyItems}
+        loading={nearbyLoading}
+        onOpenCard={(cardId) => {
+          onOpenNearbyCard(cardId);
+          onClosePanel();
+        }}
       />
     </div>
   );
@@ -1913,9 +2108,12 @@ export function Dock({
     </div>
   );
 
-  // Pages/Tabs are short lists — cap them noticeably smaller than Vault/Dock Cards
-  // (which can hold a lot more), so they don't take up more space than they need.
-  const isCompactPanel = renderedPanel === "pages" || renderedPanel === "tabs";
+  // Pages/Tabs are short lists — cap them noticeably smaller than Dock Cards (which
+  // can hold a lot more), so they don't take up more space than they need. Vault
+  // joins them now that its own toolbar moved down into this row (VaultView.tsx is
+  // just a search bar + flat rows these days) — a quieter, quicker-glance drawer
+  // even though it can still hold as many Cards as before.
+  const isCompactPanel = renderedPanel === "pages" || renderedPanel === "tabs" || renderedPanel === "vault";
 
   // The Extended Panel (Step 6 spec §3.2) — a single slide-up drawer floating over
   // the page content, whichever of the four views above is currently open. Reachable
@@ -1937,6 +2135,7 @@ export function Dock({
     >
       {vaultViewContent}
       {dockCardsViewContent}
+      {nearbyViewContent}
       {pagesViewContent}
       {tabsViewContent}
     </div>
@@ -2284,7 +2483,27 @@ export function Dock({
               </Button>
             </>
           ) : (
-            rowActions.map((action) =>
+            rowActions.map((action, index) => {
+            // Vault-specific actions (New Folder/New Card/Upload while just
+            // browsing; Add to Page/Rename/Move/Delete once something in the vault
+            // is selected — vaultModeActions above) get a visibly different
+            // treatment and a divider ahead of the first one, so they read as their
+            // own cluster rather than blending into the row's other actions — the
+            // exact toggle button itself (key "vault") is excluded, since that one
+            // belongs with dockCardsAction/nearbyAction as a plain panel toggle, not
+            // a vault-content action. Same `key.startsWith(...)` convention the
+            // onMouseDown formatting-button check below already uses.
+            const isVaultAction = action.key !== "vault" && action.key.startsWith("vault");
+            const previousAction = index > 0 ? rowActions[index - 1] : undefined;
+            const previousIsVaultAction =
+              !!previousAction && previousAction.key !== "vault" && previousAction.key.startsWith("vault");
+            const showDivider = isVaultAction && !previousIsVaultAction;
+            const vaultClass = isVaultAction ? "dock__action--vault" : "";
+
+            return (
+            <Fragment key={action.key}>
+            {showDivider && <span className="dock__action-divider" aria-hidden="true" />}
+            {
             // "process" opens ProcessPicker anchored to its own button, rather
             // than firing an action directly — needs its own positioned wrapper,
             // unlike every other plain-click DockAction below.
@@ -2374,7 +2593,7 @@ export function Dock({
                 key={action.key}
                 iconOnly
                 variant={action.danger ? "danger" : "default"}
-                className={action.active ? "button--pressed" : undefined}
+                className={[action.active ? "button--pressed" : "", vaultClass].filter(Boolean).join(" ") || undefined}
                 // Formatting/insert buttons must not steal focus from the
                 // ProseMirror contentEditable on mousedown — doing so collapses the
                 // text selection/cursor before the click's toggleBold()/insertContent()/
@@ -2393,8 +2612,11 @@ export function Dock({
               >
                 <Icon name={action.icon} spin={action.spin} />
               </Button>
-            ),
             )
+            }
+            </Fragment>
+            );
+            })
           )}
         </div>
         {/* The Page nav cluster (formerly the standalone PageNav component,
@@ -2565,6 +2787,18 @@ export function Dock({
           if (!file || !activeEditor) return;
           const { url } = await uploadRichTextImage(file);
           activeEditor.chain().focus().setImage({ src: url }).run();
+        }}
+      />
+      {/* Hidden native file input backing the vault row's "Upload" action — see
+          vaultFileInputRef above. */}
+      <input
+        ref={vaultFileInputRef}
+        type="file"
+        className="dock__hidden-file-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onUploadVaultFile?.(file);
         }}
       />
     </footer>

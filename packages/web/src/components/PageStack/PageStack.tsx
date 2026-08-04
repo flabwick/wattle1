@@ -265,7 +265,6 @@ interface PageStackProps {
     onAddStack: () => void;
     onAddAction: () => void;
     onAddPrompt: () => void;
-    onNewFromApp: () => void;
   } | null;
 }
 
@@ -432,7 +431,6 @@ export function PageStack({
               onAddStack={feedInput.onAddStack}
               onAddAction={feedInput.onAddAction}
               onAddPrompt={feedInput.onAddPrompt}
-              onNewFromApp={feedInput.onNewFromApp}
             />
           )}
         </div>

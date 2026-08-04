@@ -53,6 +53,20 @@ export const cardMetadataV1Schema = z.object({
   version: z.literal(1),
   /** ids of related Cards. */
   links: z.array(z.string()).default([]),
+  /** User-editable key/value pairs shown and edited on the Card's info back face
+   *  (CardInfoPanel.tsx) — arbitrary facts the user attaches themselves (e.g.
+   *  "status: draft"), distinct from every other field here, which the app itself
+   *  sets. An array, not a Record, so an in-progress edit (retyping a key) never
+   *  silently collides with another entry the way object-key assignment would.
+   *  A property's value is either plain text, or (when `linkedCardId` is set) a
+   *  reference to another Card — picked via the "@" trigger in CardPropertyRow.tsx,
+   *  same CardLinkPicker.tsx search popover the rich-text editor's own card-link
+   *  insert uses. `value` still caches that Card's title at link time so the row
+   *  has something to show before the live Card loads, but the *live* title (via
+   *  useCard) is what's actually displayed once it has. */
+  properties: z
+    .array(z.object({ key: z.string(), value: z.string(), linkedCardId: z.string().nullable().optional() }))
+    .default([]),
   summary: z.string().optional(),
   color: z.string().optional(),
   aiParams: z.record(z.unknown()).optional(),
@@ -106,6 +120,12 @@ export const cardMetadataV1Schema = z.object({
       jobParams: z.record(z.unknown()),
     })
     .optional(),
+  /** Set only on typeId "link" Cards — a bookmark to an external URL. The Card's own
+   *  `title` is the display title (same convention every other type uses, rather than
+   *  registries/definitions/linkCardType.ts's separate, never-enforced `title` field
+   *  on its dataSchema); this is just the one field that isn't already covered by an
+   *  existing Card column. */
+  link: z.object({ url: z.string() }).optional(),
   /** Set only on typeId "prompt" Cards — a flip-card input/output box: `input` is the
    *  live draft prompt text on the front face; each Send appends a new entry to
    *  `iterations` (never overwrites one) rather than replacing a single output, so
@@ -155,6 +175,7 @@ export function defaultMetadata(): CardMetadataV1 {
   return {
     version: CURRENT_METADATA_VERSION,
     links: [],
+    properties: [],
     log: [],
     annotations: [],
     diffHistory: [],

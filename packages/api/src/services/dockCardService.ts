@@ -1,7 +1,8 @@
 import type { DockCard, DockCardWithCard, PageCard } from "@wattle/shared";
 import { defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
-import { serializeCard } from "./cardService.js";
+import { forkCard, serializeCard } from "./cardService.js";
+import * as proximityService from "./proximityService.js";
 import type { UploadedFile } from "./pageCardService.js";
 
 function serialize(dc: {
@@ -94,6 +95,19 @@ export async function addFileCardToDock(file: UploadedFile): Promise<DockCardWit
   return { ...serialize(dockCard), card: serializeCard(dockCard.card) };
 }
 
+/** Forks the Frozen Card this DockCard points at and repoints it at the new fork —
+ *  the Dock's own counterpart to pageCardService.forkOccurrence above, same reasoning. */
+export async function forkOccurrence(dockCardId: string): Promise<DockCardWithCard> {
+  const dockCard = await prisma.dockCard.findUniqueOrThrow({ where: { id: dockCardId } });
+  const fork = await forkCard(dockCard.cardId);
+  const updated = await prisma.dockCard.update({
+    where: { id: dockCardId },
+    data: { cardId: fork.id },
+    include: { card: true },
+  });
+  return { ...serialize(updated), card: serializeCard(updated.card) };
+}
+
 /** The Dock Card panel's "Close" action — a Card saved to the vault just gets unpinned
  *  (its DockCard row deleted, the vault Card itself untouched), but one that was only
  *  ever a Dock scratch Card has nowhere else to live: closing it deletes the Card
@@ -151,7 +165,7 @@ export async function moveDockCardToPage(
   destPageId: string,
   destIndex: number,
 ): Promise<PageCard> {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const dockCard = await tx.dockCard.findUniqueOrThrow({ where: { id: dockCardId } });
     await tx.dockCard.delete({ where: { id: dockCardId } });
 
@@ -183,4 +197,6 @@ export async function moveDockCardToPage(
       updatedAt: pageCard.updatedAt.toISOString(),
     };
   });
+  await proximityService.reinforcePageCoPresence(destPageId);
+  return result;
 }

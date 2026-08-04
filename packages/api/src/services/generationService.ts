@@ -22,6 +22,7 @@ import { activeProviderId } from "../providers/init.js";
 import { configuredProviderSettings } from "../modelConfig.js";
 import { serializeCard } from "./cardService.js";
 import { getStackData, serializeMember } from "./stackService.js";
+import * as nearbyService from "./nearbyService.js";
 
 /** Where a generation is anchored: a specific triggering Card (insert directly below
  *  it, context is everything above it), a Page with nothing selected (append at the
@@ -147,6 +148,42 @@ async function resolveContextContent(pc: {
   };
 }
 
+/** Which Page (and, where there's one obvious answer, which Card) a generation target
+ *  belongs to — reuses the same target-to-Page resolution assembleContextForTarget
+ *  does above, just without the "everything above" cutoff this doesn't need. Feeds
+ *  buildNearbyAppendix below. */
+async function resolveTargetPageContext(
+  target: GenerationTarget,
+): Promise<{ pageId: string; focusedCardId?: string }> {
+  if (target.type === "card") {
+    const trigger = await prisma.pageCard.findUniqueOrThrow({ where: { id: target.pageCardId } });
+    return { pageId: trigger.pageId, focusedCardId: trigger.cardId };
+  }
+  if (target.type === "stackMember") {
+    const member = await prisma.stackMember.findUniqueOrThrow({ where: { id: target.memberId } });
+    const containerPageCard = await prisma.pageCard.findFirstOrThrow({ where: { cardId: member.stackCardId } });
+    return { pageId: containerPageCard.pageId, focusedCardId: member.stackCardId };
+  }
+  return { pageId: target.pageId };
+}
+
+/** A single extra block appended to the compiled prompt: titles + summaries only
+ *  (never full Card content) for the top Nearby results at this target's Page —
+ *  Wattle vault plan's "first cut" of feeding Nearby into Generate, deliberately not
+ *  the doc's recursive "peel deeper" ring-expansion (a separate, larger feature).
+ *  Best-effort: a failure here (or nothing to say) must never break a generation. */
+async function buildNearbyAppendix(target: GenerationTarget): Promise<string> {
+  try {
+    const { pageId, focusedCardId } = await resolveTargetPageContext(target);
+    const items = await nearbyService.getLiveNearby({ pageId, focusedCardId, limit: 5 });
+    if (items.length === 0) return "";
+    const list = items.map((item) => `- ${item.title || "Untitled"}: ${item.summary}`).join("\n");
+    return `\n\n---\nRelated Cards you may want to be aware of (not shown in full, summaries only):\n${list}`;
+  } catch {
+    return "";
+  }
+}
+
 /** Card-level preview (GET /api/generate/context/:pageCardId — spec1.md Part 1 §2). */
 export function assembleContext(pageCardId: string): Promise<GenerationContextEntry[]> {
   return assembleContextForTarget({ type: "card", pageCardId });
@@ -253,7 +290,8 @@ async function* streamForTarget(
   const { systemPrompt, userMessage } = resolvedInstruction
     ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
     : compilePrompt({ mode: "generate", context });
-  yield* streamCompiledPrompt(systemPrompt, userMessage);
+  const nearbyAppendix = standalone ? "" : await buildNearbyAppendix(target);
+  yield* streamCompiledPrompt(systemPrompt, `${userMessage}${nearbyAppendix}`);
 }
 
 /** Card-level generation — GET /api/generate/stream/:pageCardId. `standalone` is

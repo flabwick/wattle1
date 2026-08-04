@@ -37,6 +37,40 @@
   height: var(--icon-size-sm);
 }
 
+/* A thin vertical rule ahead of the first vault-specific action in the row (see
+   Dock.tsx's showDivider) — reads as "everything past here is about the vault",
+   distinct from the plain gap every other pair of buttons already has. Stretches to
+   the row's own height (its buttons are all --touch-target-sm) rather than a fixed
+   pixel value, so it still looks right if that sizing ever changes. */
+.dock__action-divider {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: var(--border-width-thin);
+  margin: 0 var(--space-1);
+  background: var(--color-border);
+}
+
+/* Vault-specific actions (New Folder/New Card/Upload, Add to Page/Rename/Move/
+   Delete) — deliberately a step quieter than the row's other "thick stock"
+   buttons: thin border, no shadow, no press-offset. They're contextual to whatever
+   the Vault panel is currently showing, not equally-weighted primary actions like
+   Generate/Edit/Save, so they shouldn't compete visually with those for attention.
+   Only border/shadow/background change here, never color — danger (Delete) and
+   pressed states still need their own usual coloring untouched. */
+.dock__action--vault {
+  border-width: var(--border-width-thin);
+  box-shadow: none;
+  background: var(--color-surface);
+}
+
+.dock__action--vault:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.dock__action--vault:active:not(:disabled) {
+  transform: translate(1px, 1px);
+}
+
 /* The Extended Panel (Step 6 spec §3.2) — a slide-open drawer directly above the
    Dock's own rows, no gap in between, so it reads as attached to the Dock rather
    than a separate floating box elsewhere on screen. Only one of Vault/Dock

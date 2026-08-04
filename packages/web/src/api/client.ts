@@ -9,6 +9,7 @@ import type {
   FolderContents,
   GeneratedCardPart,
   GenerateResponse,
+  NearbyItem,
   OpenAppInput,
   OpenAppResult,
   Page,
@@ -79,6 +80,20 @@ export const moveCard = (id: string, folderId: string | null) =>
 /** Direct URL (not routed through `request()`) for a "file"-typed Card's uploaded
  *  bytes — used as an <iframe>/<img> src or fetched as raw text, never as JSON. */
 export const getCardFileUrl = (id: string) => `/api/cards/${id}/file`;
+/** The Vault panel's own Upload action — a real, already-savedToVault "file"-typed
+ *  Card straight in `folderId` (or the vault root). Same multipart/bypass-request()
+ *  shape as uploadFileToPage. */
+export const uploadFileToVault = async (file: File, folderId: string | null): Promise<Card> => {
+  const body = new FormData();
+  body.append("file", file);
+  if (folderId) body.append("folderId", folderId);
+  const res = await fetch(`/api/cards/files`, { method: "POST", body });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
+  }
+  return res.json() as Promise<Card>;
+};
 
 // Vault Folders
 export const getFolderContents = (folderId: string | null) =>
@@ -172,6 +187,21 @@ export const movePageCard = (pageCardId: string, destPageId: string, destIndex: 
  *  (Step 6 spec §4.2). */
 export const movePageCardToDock = (pageCardId: string) =>
   request<DockCardWithCard>(`/page-cards/${pageCardId}/move-to-dock`, { method: "PUT" });
+/** Freezes a vault Card — read-only from here on (Open/Frozen). */
+export const freezeCard = (cardId: string) => request<Card>(`/cards/${cardId}/freeze`, { method: "POST" });
+/** Forks the Frozen Card a PageCard/DockCard occurrence points at and repoints that
+ *  one occurrence at the fork — App.tsx's handleEditSelected calls this before
+ *  entering edit mode on a Frozen Card. */
+export const forkPageCardOccurrence = (pageCardId: string) =>
+  request<PageCard>(`/page-cards/${pageCardId}/fork`, { method: "POST" });
+export const forkDockCardOccurrence = (dockCardId: string) =>
+  request<DockCardWithCard>(`/dock-cards/${dockCardId}/fork`, { method: "POST" });
+
+// Nearby — durable proximity + live re-rank (Wattle vault plan).
+export const getDurableNearby = (cardId: string, limit = 8) =>
+  request<NearbyItem[]>(`/nearby/durable/${cardId}?limit=${limit}`);
+export const getLiveNearby = (input: { pageId: string; focusedCardId?: string; draftText?: string; limit?: number }) =>
+  request<NearbyItem[]>("/nearby/live", { method: "POST", body: JSON.stringify(input) });
 
 // Stacks — see registries/definitions/stackCardType.ts, stackService.ts, useCardStack.ts.
 export const createStack = (pageId: string) =>

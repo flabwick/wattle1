@@ -133,6 +133,17 @@ export function useVault() {
     [currentFolderId, refreshFolder],
   );
 
+  /** The Vault panel's own Upload action (Dock.tsx's "vault open, nothing selected"
+   *  row) — uploads straight into whichever Folder is currently browsed. */
+  const uploadFile = useCallback(
+    async (file: File): Promise<Card> => {
+      const card = await api.uploadFileToVault(file, currentFolderId);
+      await refreshFolder(currentFolderId);
+      return card;
+    },
+    [currentFolderId, refreshFolder],
+  );
+
   const renameCard = useCallback(
     async (id: string, title: string) => {
       await api.updateCard(id, { title });
@@ -173,6 +184,7 @@ export function useVault() {
     moveFolder,
     deleteFolder,
     createCardInCurrentFolder,
+    uploadFile,
     renameCard,
     moveCard,
     deleteCard,

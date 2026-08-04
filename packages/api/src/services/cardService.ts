@@ -1,6 +1,8 @@
 import type { Card, CreateCardInput, UpdateCardInput } from "@wattle/shared";
 import { cardMetadataV1Schema, defaultMetadata, migrateMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
+import * as proximityService from "./proximityService.js";
+import * as summaryService from "./summaryService.js";
 
 /** Card.metadata is stored as a JSON string (see schema.prisma); parse defensively. */
 function parseMetadataColumn(raw: string): unknown {
@@ -18,6 +20,8 @@ export function serializeCard(card: {
   content: string;
   metadata: string;
   savedToVault: boolean;
+  frozenAt: Date | null;
+  forkedFromId: string | null;
   folderId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +32,8 @@ export function serializeCard(card: {
     content: card.content,
     metadata: migrateMetadata(parseMetadataColumn(card.metadata)),
     savedToVault: card.savedToVault,
+    frozenAt: card.frozenAt ? card.frozenAt.toISOString() : null,
+    forkedFromId: card.forkedFromId,
     folderId: card.folderId,
     createdAt: card.createdAt.toISOString(),
     updatedAt: card.updatedAt.toISOString(),
@@ -79,6 +85,39 @@ export async function createCard(input: CreateCardInput): Promise<Card> {
   return serializeCard(card);
 }
 
+export interface UploadedFile {
+  storedName: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
+/** Uploads a file straight into the vault (the Vault panel's own Upload action) — a
+ *  real, already-savedToVault "file"-typed Card from the start, unlike
+ *  pageCardService.addFileCardToPage/dockCardService.addFileCardToDock's page/Dock-
+ *  local scratch versions, since there's no Page or Dock row for this one to be
+ *  scratch content *of*: the vault is where it's being added directly. */
+export async function createFileCard(file: UploadedFile, folderId: string | null): Promise<Card> {
+  const card = await prisma.card.create({
+    data: {
+      title: file.originalName,
+      content: "",
+      metadata: JSON.stringify({
+        ...defaultMetadata(),
+        typeId: "file",
+        file: {
+          storedName: file.storedName,
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          size: file.size,
+        },
+      }),
+      folderId,
+    },
+  });
+  return serializeCard(card);
+}
+
 /** Moves a Card to a different Folder (or to the vault root, if `folderId` is null). */
 export async function moveCard(id: string, folderId: string | null): Promise<Card> {
   const card = await prisma.card.update({
@@ -97,8 +136,11 @@ export async function updateCard(
   id: string,
   input: UpdateCardInput,
 ): Promise<Card> {
+  const existing = await prisma.card.findUniqueOrThrow({ where: { id } });
+  if (existing.frozenAt) {
+    throw new Error("A Frozen Card can't be edited directly — fork it first");
+  }
   if (input.title !== undefined && input.title.trim() === "") {
-    const existing = await prisma.card.findUniqueOrThrow({ where: { id } });
     if (existing.savedToVault) {
       throw new Error("A title is required to save a Card to the vault");
     }
@@ -113,9 +155,55 @@ export async function updateCard(
         : {}),
     },
   });
-  return serializeCard(card);
+  const serialized = serializeCard(card);
+  if (existing.savedToVault && input.content !== undefined) {
+    await proximityService.reinforceContentLinks(serialized);
+    summaryService.scheduleSummaryRefresh(serialized.id);
+  }
+  return serialized;
 }
 
 export async function deleteCard(id: string): Promise<void> {
   await prisma.card.delete({ where: { id } });
+}
+
+/** Freezes a Card: read-only from here on, safe as stable context to link/embed
+ *  against (Wattle vault plan's Open/Frozen). Only a real vault Card can be frozen —
+ *  page-local scratch content has nothing stable to freeze yet — and freezing an
+ *  already-Frozen Card is a no-op error rather than silently refreshing the
+ *  timestamp, so callers don't accidentally reset it. */
+export async function freezeCard(id: string): Promise<Card> {
+  const existing = await prisma.card.findUniqueOrThrow({ where: { id } });
+  if (!existing.savedToVault) {
+    throw new Error("Only a Card already saved to the vault can be frozen");
+  }
+  if (existing.frozenAt) {
+    throw new Error("Card is already frozen");
+  }
+  const card = await prisma.card.update({ where: { id }, data: { frozenAt: new Date() } });
+  return serializeCard(card);
+}
+
+/** Forks a Frozen Card: a brand-new Card copying its title/content/metadata, Open and
+ *  independently editable, `forkedFromId` pointing back at the Frozen original — which
+ *  is never mutated by this. The caller (pageCardService/dockCardService's
+ *  forkOccurrence) is responsible for repointing whichever PageCard/DockCard occurrence
+ *  triggered this at the new fork's id. */
+export async function forkCard(id: string): Promise<Card> {
+  const original = await prisma.card.findUniqueOrThrow({ where: { id } });
+  if (!original.frozenAt) {
+    throw new Error("Only a Frozen Card can be forked");
+  }
+  const fork = await prisma.card.create({
+    data: {
+      title: original.title,
+      content: original.content,
+      metadata: original.metadata,
+      savedToVault: true,
+      folderId: original.folderId,
+      forkedFromId: original.id,
+    },
+  });
+  await proximityService.reinforceFork(original.id, fork.id);
+  return serializeCard(fork);
 }

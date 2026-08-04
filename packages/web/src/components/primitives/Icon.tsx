@@ -60,7 +60,10 @@ export type IconName =
   | "math"
   | "eyeOff"
   | "copy"
-  | "convert";
+  | "convert"
+  | "lock"
+  | "compass"
+  | "info";
 
 interface IconProps {
   name: IconName;
@@ -486,6 +489,34 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M18 4v5h-5" />
       <path d="M20 15a8 8 0 0 1-14 5" />
       <path d="M6 20v-5h5" />
+    </>
+  ),
+  // A padlock — the Dock's "Freeze" action (selectedCards row) and a Frozen Card's
+  // own header badge (Card.tsx), distinct from every other icon here as the one
+  // read-only/state glyph rather than an action-in-motion shape.
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  // A compass needle — the Nearby panel's own toggle (Wattle vault plan), distinct
+  // from "search" (an explicit query) since Nearby is an ambient, situational
+  // ranking rather than something the user typed a query for.
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15 9l-2 6-4-2z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // A circled "i" — the standard info glyph; a Card's own "flip to properties"
+  // header button (Card.tsx), distinct from "settings" (a gear, for configuring
+  // something) since this just discloses read-only facts about the Card itself.
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="8" r="0.2" fill="currentColor" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 11v6" />
     </>
   ),
 };

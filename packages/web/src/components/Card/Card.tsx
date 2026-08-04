@@ -4,6 +4,7 @@ import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
+import { CardInfoPanel } from "./CardInfoPanel.js";
 import { useCard } from "../../hooks/useCard.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
@@ -145,6 +146,13 @@ export function CardView({
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
   const [collapsed, setCollapsed] = useState(false);
+  // Whether this Card is showing its info back-face (title/dates/links/relationships,
+  // CardInfoPanel.tsx) instead of its own content — same "flip" mechanic as the
+  // prompt CardType's own front/back faces (PromptCardBody.tsx), just for a static
+  // info view here rather than input-vs-output. Only reachable from the static
+  // (non-editing) view below — editing has its own dedicated layout and nothing to
+  // flip away from.
+  const [showingInfo, setShowingInfo] = useState(false);
 
   const savedToVault = pageCard.card.savedToVault;
   // Once saved, `pageCard.card` (only as fresh as the last listPages fetch) stops
@@ -158,8 +166,14 @@ export function CardView({
   // Only relevant while the Dock's "reveal hidden cards" toggle is on — see
   // PageStack.tsx's PageCardSlot, which doesn't render this Card at all otherwise.
   const isHidden = Boolean(canonicalCard.metadata.hidden);
+  // Frozen (Open/Frozen — Wattle vault plan): read-only, safe as stable context.
+  // Editing one always forks instead — see App.tsx's handleEditSelected, which forks
+  // *before* ever entering `editing`, so this component never has to reconcile a
+  // frozen `canonicalCard` with a live edit itself.
+  const isFrozen = Boolean(canonicalCard.frozenAt);
 
   function handleTitleChange(value: string) {
+    if (isFrozen) return;
     if (savedToVault) {
       editCard(pageCard.card.id, { title: value });
     } else {
@@ -168,6 +182,7 @@ export function CardView({
   }
 
   function handleContentChange(value: string) {
+    if (isFrozen) return;
     if (savedToVault) {
       editCard(pageCard.card.id, { content: value });
     } else {
@@ -283,40 +298,60 @@ export function CardView({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [editing, onCloseEditor]);
 
-  const headerActions = (onOpenFullscreen || onTurnIntoStack) && (
-    <div className="card__header-actions">
-      {onTurnIntoStack && (
-        <Button
-          iconOnly
-          aria-label={t("card.addCard")}
-          title={t("card.addCard")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onTurnIntoStack();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="plus" />
-        </Button>
-      )}
-      {onOpenFullscreen && (
-        <Button
-          iconOnly
-          aria-label={t("card.openFullscreen")}
-          title={t("card.openFullscreen")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenFullscreen();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="expand" />
-        </Button>
-      )}
-    </div>
-  );
+  // `includeInfo` is only ever true from the static (non-editing) view below —
+  // there's no info back-face to flip to while editing (see `showingInfo` above).
+  function renderHeaderActions(includeInfo: boolean) {
+    if (!onOpenFullscreen && !onTurnIntoStack && !includeInfo) return null;
+    return (
+      <div className="card__header-actions">
+        {onTurnIntoStack && (
+          <Button
+            iconOnly
+            aria-label={t("card.addCard")}
+            title={t("card.addCard")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTurnIntoStack();
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <Icon name="plus" />
+          </Button>
+        )}
+        {onOpenFullscreen && (
+          <Button
+            iconOnly
+            aria-label={t("card.openFullscreen")}
+            title={t("card.openFullscreen")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFullscreen();
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <Icon name="expand" />
+          </Button>
+        )}
+        {includeInfo && (
+          <Button
+            iconOnly
+            aria-label={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
+            title={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowingInfo((v) => !v);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <Icon name="info" />
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   if (editing) {
     return (
@@ -341,7 +376,7 @@ export function CardView({
               onChange={(e) => handleTitleChange(e.target.value)}
             />
           </div>
-          {headerActions}
+          {renderHeaderActions(false)}
         </div>
         <CardRichText
           content={content}
@@ -384,55 +419,76 @@ export function CardView({
       // SelectionMenu.tsx, which is always listening) happen on its own.
       onMouseDown={handleShellMouseDown}
       onClick={handleShellClick}
+      // The 3D rotateY on .card__flip below needs `perspective` set on its own
+      // parent to render as a flip rather than a flat squash (same reason
+      // PromptCard.css sets it on .prompt-card, the equivalent parent there) — set
+      // inline here rather than in the shared CardShell.css primitive, since it's
+      // only meaningful for this one flipping child.
+      style={{ perspective: "1600px" }}
     >
-      <div className="card__header">
-        <div className="card__header-start">
-          <button
-            type="button"
-            className="card__caret-btn"
-            aria-label={collapsed ? t("card.expand") : t("card.collapse")}
-            title={collapsed ? t("card.expand") : t("card.collapse")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setCollapsed((c) => !c);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon
-              name="down"
-              className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
+      <div className={`card__flip${showingInfo ? " card__flip--flipped" : ""}`}>
+        <div className={`card__face card__face--front${showingInfo ? " card__face--hidden" : ""}`}>
+          <div className="card__header">
+            <div className="card__header-start">
+              <button
+                type="button"
+                className="card__caret-btn"
+                aria-label={collapsed ? t("card.expand") : t("card.collapse")}
+                title={collapsed ? t("card.expand") : t("card.collapse")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCollapsed((c) => !c);
+                }}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                <Icon
+                  name="down"
+                  className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
+                />
+              </button>
+              {title && <span className="card__title">{title}</span>}
+              {isFrozen && (
+                <span className="card__frozen-badge" title={t("card.frozen")} aria-label={t("card.frozen")}>
+                  <Icon name="lock" />
+                </span>
+              )}
+            </div>
+            {renderHeaderActions(true)}
+          </div>
+          {!collapsed && (
+            <CardRichText
+              content={content}
+              onChangeContent={handleContentChange}
+              editable={false}
+              cardId={pageCard.card.id}
+              annotations={canonicalCard.metadata.annotations}
+              ancestorIds={new Set([pageCard.card.id])}
+              depth={0}
+              selectedEmbedIds={selectedEmbedIds}
+              onSelectEmbed={onSelectEmbed}
+              onRequestEditEmbed={onRequestEditEmbed}
+              editingEmbedIds={editingEmbedIds}
+              onToggleEmbedEdit={onToggleEmbedEdit}
+              onRunProcess={wrappedOnRunProcess}
+              onCreateManualHighlight={wrappedOnCreateManualHighlight}
+              onAcceptDiff={wrappedOnAcceptDiff}
+              onRemoveAnnotation={onRemoveAnnotation}
+              onUpdateAnnotationText={onUpdateAnnotationText}
+              ownerPageCard={pageCard}
+              onRunActionJob={onRunActionJob}
+              generatingPageCardId={generatingPageCardId}
+              pageSiblings={pageSiblings}
             />
-          </button>
-          {title && <span className="card__title">{title}</span>}
+          )}
         </div>
-        {headerActions}
+        <div
+          className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <CardInfoPanel card={canonicalCard} onClose={() => setShowingInfo(false)} />
+        </div>
       </div>
-      {!collapsed && (
-        <CardRichText
-          content={content}
-          onChangeContent={handleContentChange}
-          editable={false}
-          cardId={pageCard.card.id}
-          annotations={canonicalCard.metadata.annotations}
-          ancestorIds={new Set([pageCard.card.id])}
-          depth={0}
-          selectedEmbedIds={selectedEmbedIds}
-          onSelectEmbed={onSelectEmbed}
-          onRequestEditEmbed={onRequestEditEmbed}
-          editingEmbedIds={editingEmbedIds}
-          onToggleEmbedEdit={onToggleEmbedEdit}
-          onRunProcess={wrappedOnRunProcess}
-          onCreateManualHighlight={wrappedOnCreateManualHighlight}
-          onAcceptDiff={wrappedOnAcceptDiff}
-          onRemoveAnnotation={onRemoveAnnotation}
-          onUpdateAnnotationText={onUpdateAnnotationText}
-          ownerPageCard={pageCard}
-          onRunActionJob={onRunActionJob}
-          generatingPageCardId={generatingPageCardId}
-          pageSiblings={pageSiblings}
-        />
-      )}
     </CardShell>
   );
 }

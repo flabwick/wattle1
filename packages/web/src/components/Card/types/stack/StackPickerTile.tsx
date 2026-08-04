@@ -1,11 +1,9 @@
 import { Icon } from "../../../primitives/index.js";
 import type { CardTypePickerTileProps } from "../../../../registries/cardTypeUi.js";
 
-/** Stub tile for a future "choose a CardType" picker — see NotePickerTile.tsx. The
- *  Feed Input Button's own type picker (FeedInputButton.tsx) special-cases "stack"
- *  directly rather than going through this tile today (creating a Stack needs a
- *  dedicated endpoint, stackService.createStackInPage, not the plain addNewCardToPage
- *  every other type still stubs out to). */
+/** The Feed Input Button's type-picker "Stack" option — its onSelect is
+ *  handleAddStackToCurrentPage (App.tsx), since creating a Stack needs its own
+ *  endpoint (stackService.createStackInPage) rather than plain addNewCardToPage. */
 export function StackPickerTile({ onSelect }: CardTypePickerTileProps) {
   return (
     <button type="button" className="card-type-picker-tile" onClick={onSelect}>

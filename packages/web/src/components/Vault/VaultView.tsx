@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Card, Folder } from "@wattle/shared";
 import { Button, Icon, InputField } from "../primitives/index.js";
+import { useVaultCardDetail } from "../../hooks/useVaultCardDetail.js";
+import { VaultCardDetail } from "./VaultCardDetail.js";
 import { t } from "../../i18n/index.js";
 import "./VaultView.css";
 
@@ -23,17 +25,24 @@ interface VaultViewProps {
    *  row's chevron button, and double-clicking a Folder row all open it this way. */
   onOpenFolder: (id: string | null) => void;
 
-  /**
-   * Create a new Card directly in the vault, in whichever Folder is currently open —
-   * an IDE "new file" affordance like the old page-oriented one this replaces: no
-   * title/content form, it just appears ready to act on. Null (hides the action) if
-   * search is active (there's no single folder to create into).
-   */
-  onCreateCard: (() => void) | null;
-  onCreateFolder: (() => void) | null;
-
   selectedCardId: string | null;
+  /** A plain row click/tap — only ever selects (IDE-file-manager convention), never
+   *  opens anything. What "open" even means for a Card is ambiguous on its own
+   *  (add to Page? to the Dock? preview its links/Nearby?) — see Dock.tsx's
+   *  vaultModeActions for the explicit actions selecting one surfaces instead. */
   onSelectCard: (id: string) => void;
+  /** Non-null while the selected Card's click-through detail view (links + Nearby)
+   *  is open — set only by the Dock's own explicit "Preview" action, never by
+   *  selection alone. Null hides VaultCardDetail entirely, back to the plain list. */
+  detailCardId: string | null;
+  /** A link/Nearby row *within* the open detail view, drilling into another Card —
+   *  distinct from onSelectCard: this also keeps the detail view open on the new
+   *  Card, so following a chain of links stays one click each. */
+  onOpenCardDetail: (id: string) => void;
+  /** Closes the click-through detail view (back to the list/search results),
+   *  leaving the Card itself still selected — same as closing a preview pane in a
+   *  file manager doesn't deselect the file. */
+  onCloseCardDetail: () => void;
   /** A selected Folder — a single click on a Folder row (or on the breadcrumb's
    *  trailing "current folder" crumb, which does nothing else) selects it *without*
    *  navigating, so the Dock can show Rename/Move/Delete for it — see Dock.tsx's
@@ -45,6 +54,13 @@ interface VaultViewProps {
   /** Which row (a Card or Folder id) is mid-rename, showing a text input in place of
    *  its label — set by the Dock's Rename action, not from within this view. */
   renamingId: string | null;
+  /** True while `renamingId` is a Card just created by the "New Card" action,
+   *  naming it for the very first time — its rename input starts blank (never
+   *  pre-filled with a placeholder title the user never actually chose), and
+   *  submitting it blank deletes the Card instead of reverting to that placeholder
+   *  (see Dock.tsx's onCommitRename/onCancelRename). Never true for a Folder or an
+   *  already-named Card being renamed normally. */
+  renamingIsNewCard: boolean;
   onCommitRename: (title: string) => void;
   onCancelRename: () => void;
 
@@ -62,12 +78,17 @@ function ItemLabel({
   id,
   title,
   renamingId,
+  startBlank,
   onCommitRename,
   onCancelRename,
 }: {
   id: string;
   title: string;
   renamingId: string | null;
+  /** Starts the rename input blank instead of pre-filled with `title` — a brand new
+   *  Card's placeholder title was never a real choice the user made, so it
+   *  shouldn't appear as text to delete before typing a real one. */
+  startBlank?: boolean;
   onCommitRename: (title: string) => void;
   onCancelRename: () => void;
 }) {
@@ -77,12 +98,13 @@ function ItemLabel({
 
   useEffect(() => {
     if (renaming) {
-      setDraft(title);
+      setDraft(startBlank ? "" : title);
       inputRef.current?.focus();
       inputRef.current?.select();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset the draft
-    // when this row *becomes* the one being renamed, not on every `title` change.
+    // when this row *becomes* the one being renamed, not on every `title`/`startBlank`
+    // change.
   }, [renaming]);
 
   if (!renaming) {
@@ -105,14 +127,35 @@ function ItemLabel({
   );
 }
 
+/** The toolbar row — just a search field, full width. Every other action (New
+ *  Folder/New Card/Upload, and whatever's selected) lives in the Dock's own row
+ *  underneath instead (Dock.tsx's vaultModeActions) — this panel stays a plain,
+ *  quiet list. */
+function SearchBar({ query, onQueryChange }: { query: string; onQueryChange: (q: string) => void }) {
+  return (
+    <div className="vault__toolbar">
+      <div className="vault__search-wrap">
+        <Icon name="search" className="vault__search-icon" />
+        <InputField
+          className="vault__search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder={t("vault.searchPlaceholder")}
+        />
+      </div>
+    </div>
+  );
+}
+
 /**
  * The vault, styled as a compact file explorer: a breadcrumb over folders-then-cards,
  * or a flat search list. A single click on any row — Folder or Card — only *selects*
- * it, so the Dock can show what to do with it (add to page, rename, move, delete,
- * ...) rather than acting on it immediately (see Dock.tsx's vault selection model).
- * Opening a Folder (navigating into it) is a deliberately separate gesture — double-
- * click, or its row's chevron button — so a Folder can be renamed/moved/deleted
- * without having to step into it first.
+ * it, exactly like an IDE's own file tree: nothing opens on its own. The Dock then
+ * shows what to do with it — Add to Page, Add to Dock, Preview (links + Nearby),
+ * Rename, Move, Delete — see Dock.tsx's vaultModeActions. Opening a Folder
+ * (navigating into it) is a deliberately separate gesture — double-click, or its
+ * row's chevron button — so a Folder can be renamed/moved/deleted without having to
+ * step into it first.
  */
 export function VaultView({
   query,
@@ -123,13 +166,15 @@ export function VaultView({
   subfolders,
   cards,
   onOpenFolder,
-  onCreateCard,
-  onCreateFolder,
   selectedCardId,
   onSelectCard,
+  detailCardId,
+  onOpenCardDetail,
+  onCloseCardDetail,
   selectedFolderId,
   onSelectFolder,
   renamingId,
+  renamingIsNewCard,
   onCommitRename,
   onCancelRename,
   moving,
@@ -137,41 +182,27 @@ export function VaultView({
 }: VaultViewProps) {
   const searching = query.length > 0;
   const movingFolderIntoItself = moving?.type === "folder" && moving.id === folder?.id;
+  const cardDetail = useVaultCardDetail(detailCardId);
+
+  if (detailCardId && cardDetail.card) {
+    return (
+      <div className="vault">
+        <SearchBar query={query} onQueryChange={onQueryChange} />
+        <VaultCardDetail
+          card={cardDetail.card}
+          links={cardDetail.links}
+          nearbyItems={cardDetail.nearbyItems}
+          loading={cardDetail.loading}
+          onOpenCard={onOpenCardDetail}
+          onBack={onCloseCardDetail}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="vault">
-      <div className="vault__toolbar">
-        <div className="vault__search-wrap">
-          <Icon name="search" className="vault__search-icon" />
-          <InputField
-            className="vault__search"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder={t("vault.searchPlaceholder")}
-          />
-        </div>
-        {onCreateFolder && (
-          <Button
-            iconOnly
-            aria-label={t("vault.createFolder")}
-            title={t("vault.createFolder")}
-            onClick={onCreateFolder}
-          >
-            <Icon name="folder" />
-          </Button>
-        )}
-        {onCreateCard && (
-          <Button
-            iconOnly
-            variant="primary"
-            aria-label={t("vault.create")}
-            title={t("vault.create")}
-            onClick={onCreateCard}
-          >
-            <Icon name="plus" />
-          </Button>
-        )}
-      </div>
+      <SearchBar query={query} onQueryChange={onQueryChange} />
 
       {!searching && folder && (
         <div className="vault__breadcrumb">
@@ -264,6 +295,7 @@ export function VaultView({
                 id={card.id}
                 title={card.title}
                 renamingId={renamingId}
+                startBlank={renamingIsNewCard}
                 onCommitRename={onCommitRename}
                 onCancelRename={onCancelRename}
               />

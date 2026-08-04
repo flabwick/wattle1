@@ -17,6 +17,13 @@ export interface Card {
   /** Whether this Card independently exists in the Vault (searchable/listable there)
    *  yet, or is still page-local scratch content — see schema.prisma's Card model. */
   savedToVault: boolean;
+  /** Null while Open (editable in place). Set (ISO 8601) once Frozen — read-only,
+   *  safe as stable context. Editing a Frozen Card always forks a new Card rather
+   *  than mutating it — see cardService.ts's freezeCard/forkCard. */
+  frozenAt: string | null;
+  /** Set only on a Card created by forking a Frozen Card — points at the Frozen
+   *  original it was copied from. */
+  forkedFromId: string | null;
   /** Which vault Folder this Card sits in, or null for the vault root. */
   folderId: string | null;
   createdAt: string; // ISO 8601
@@ -236,6 +243,16 @@ export interface OpenAppResult {
   scope: AppScope;
   tabId: string;
   pageId: string;
+}
+
+/** One ranked result from either Nearby query (proximityService's durable graph, or
+ *  nearbyService's live re-rank against what's open/typed) — see routes/nearby.ts.
+ *  `summary` falls back to `title` server-side when a Card has no auto-summary yet. */
+export interface NearbyItem {
+  cardId: string;
+  title: string;
+  summary: string;
+  score: number;
 }
 
 /** A Folder in the vault — see schema.prisma's Folder model. */

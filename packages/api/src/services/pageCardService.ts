@@ -1,7 +1,9 @@
 import type { PageCard, PageCardWithCard } from "@wattle/shared";
 import { cardMetadataV1Schema, defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
-import { serializeCard } from "./cardService.js";
+import { forkCard, serializeCard } from "./cardService.js";
+import * as proximityService from "./proximityService.js";
+import * as summaryService from "./summaryService.js";
 
 export interface UploadedFile {
   storedName: string;
@@ -44,6 +46,7 @@ export async function addExistingCardToPage(
   const pageCard = await prisma.pageCard.create({
     data: { pageId, cardId, order: (bottom._max.order ?? -1) + 1 },
   });
+  await proximityService.reinforcePageCoPresence(pageId);
   return serialize(pageCard);
 }
 
@@ -152,7 +155,7 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
     throw new Error("A title is required to save a Card to the vault");
   }
 
-  await prisma.card.update({
+  const saved = await prisma.card.update({
     where: { id: pageCard.cardId },
     data: {
       title,
@@ -165,7 +168,29 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
     where: { id: pageCardId },
     data: { draftTitle: null, draftContent: null },
   });
+  // The moment this Card's content becomes canonical — reinforce its co-presence with
+  // whatever else is already saved on this Page, plus any embeds/links it already
+  // carries, and kick off its first summary immediately (a Save is a discrete event,
+  // not a keystroke stream, so no debounce needed here unlike cardService.updateCard).
+  await proximityService.reinforcePageCoPresence(pageCard.pageId);
+  await proximityService.reinforceContentLinks(serializeCard(saved));
+  await summaryService.refreshSummary(saved.id);
   return serialize(cleared);
+}
+
+/** Forks the Frozen Card this one PageCard occurrence points at (cardService.ts's
+ *  forkCard) and repoints just this occurrence's `cardId` at the new fork — the
+ *  Wattle vault plan's "editing a Frozen Card always forks": only the occurrence
+ *  being edited switches to the fork, any other open instance of the same Frozen
+ *  original elsewhere is untouched. */
+export async function forkOccurrence(pageCardId: string): Promise<PageCard> {
+  const pageCard = await prisma.pageCard.findUniqueOrThrow({ where: { id: pageCardId } });
+  const fork = await forkCard(pageCard.cardId);
+  const updated = await prisma.pageCard.update({
+    where: { id: pageCardId },
+    data: { cardId: fork.id },
+  });
+  return serialize(updated);
 }
 
 /** Remove a Card from a Page only — never the vault Card itself. "Remove" is meant to
@@ -217,6 +242,8 @@ export async function reorderPageCards(
       }),
     ),
   );
+  // Reordering changes stack-order distance, which co-presence weight depends on.
+  await proximityService.reinforcePageCoPresence(pageId);
 }
 
 /** Move a PageCard to a specific position, either within its own Page or onto a
@@ -265,4 +292,5 @@ export async function movePageCard(
       ),
     );
   });
+  await proximityService.reinforcePageCoPresence(destPageId);
 }

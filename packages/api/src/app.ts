@@ -8,6 +8,7 @@ import { cardsRouter } from "./routes/cards.js";
 import { dockCardsRouter } from "./routes/dockCards.js";
 import { foldersRouter } from "./routes/folders.js";
 import { generateRouter } from "./routes/generate.js";
+import { nearbyRouter } from "./routes/nearby.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
 import { pagesRouter } from "./routes/pages.js";
 import { richTextImagesRouter } from "./routes/richTextImages.js";
@@ -31,6 +32,7 @@ export function createApp() {
   app.use("/api/stacks", stacksRouter);
   app.use("/api/dock-cards", dockCardsRouter);
   app.use("/api/generate", generateRouter);
+  app.use("/api/nearby", nearbyRouter);
   app.use("/api/annotations", annotationsRouter);
   app.use("/api/rich-text-images", richTextImagesRouter);
 

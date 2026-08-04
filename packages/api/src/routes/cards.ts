@@ -3,7 +3,7 @@ import { Router } from "express";
 import type { Card } from "@wattle/shared";
 import * as cardService from "../services/cardService.js";
 import { runOperation } from "../operations/run.js";
-import { uploadsDir } from "../uploads.js";
+import { fileUpload, uploadsDir } from "../uploads.js";
 
 export const cardsRouter = Router();
 
@@ -48,6 +48,27 @@ cardsRouter.post("/", async (req, res) => {
   );
 });
 
+// POST /api/cards/files  multipart/form-data, field "file", optional field
+// "folderId" — the Vault panel's own Upload action (see cardService.createFileCard),
+// as opposed to POST /api/pages/:pageId/files (page-local) or
+// POST /api/dock-cards/files (Dock-local).
+cardsRouter.post("/files", fileUpload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "file is required" });
+  }
+  const folderId = typeof req.body?.folderId === "string" ? req.body.folderId : null;
+  const card = await cardService.createFileCard(
+    {
+      storedName: req.file.filename,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size,
+    },
+    folderId,
+  );
+  res.status(201).json(card);
+});
+
 // Direct vault edit — wraps the "card.rename" Operation. Distinct from the "card.edit"
 // Operation used by PATCH /api/page-cards/:id, which edits an in-page draft instead.
 cardsRouter.patch("/:id", async (req, res) => {
@@ -65,4 +86,10 @@ cardsRouter.delete("/:id", async (req, res) => {
 cardsRouter.patch("/:id/move", async (req, res) => {
   const payload = { id: req.params.id, folderId: req.body?.folderId ?? null };
   res.json(await runOperation<Card>("card.move", payload));
+});
+
+// POST /api/cards/:id/freeze — read-only from here on (Wattle vault plan's
+// Open/Frozen). Wraps the "card.freeze" Operation.
+cardsRouter.post("/:id/freeze", async (req, res) => {
+  res.json(await runOperation<Card>("card.freeze", { cardId: req.params.id }));
 });

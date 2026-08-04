@@ -2,6 +2,7 @@ export * from "./parsers/index.js";
 export * from "./parsers/cardBlockParser.js";
 export * from "./promptCompiler.js";
 export * from "./annotationCompiler.js";
+export * from "./summaryCompiler.js";
 export * from "./annotationParser.js";
 export * from "./credentials/index.js";
 export * from "./models/modelRegistry.js";
