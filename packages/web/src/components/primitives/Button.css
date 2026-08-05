@@ -2,6 +2,7 @@
    outline, a solid offset shadow, and a press that flattens the shadow to read as the
    button sinking to the surface. No blur, no color inversion on press. */
 .button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -18,7 +19,8 @@
   cursor: pointer;
   box-shadow: var(--shadow-button);
   transform: translate(0, 0);
-  transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+  overflow: hidden;
+  transition: transform var(--duration-strike) var(--ease-strike), box-shadow var(--duration-strike) var(--ease-strike);
 }
 
 .button--icon {
@@ -26,9 +28,36 @@
   padding: 0;
 }
 
+/* BLEED: a soft ink spread on hover instead of a flat color swap — reads well
+   over the plain/danger buttons' cardstock fill. Skipped on --primary/--pressed
+   (a solid leather fill has no paper underneath to spread into — see below). */
+.button::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  background: radial-gradient(circle, var(--color-shadow) 0%, transparent 70%);
+  filter: blur(4px);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.3);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  transition: opacity var(--duration-bleed) ease-out, transform var(--duration-bleed) ease-out;
+}
+
+.button:hover:not(:disabled)::before {
+  opacity: 0.4;
+  transform: translate(-50%, -50%) scale(6);
+}
+
+/* STRIKE: a stamp hitting paper — quick compress-and-rotate, shadow flattening
+   to zero, with the same slight overshoot --ease-strike gives the release back
+   up. */
 .button:active:not(:disabled) {
   box-shadow: var(--shadow-button-pressed);
-  transform: translate(2px, 2px);
+  transform: translate(2px, 2px) rotate(-0.6deg);
 }
 
 .button:disabled {
@@ -50,6 +79,12 @@
   color: var(--color-danger);
 }
 
+.button--primary:hover:not(:disabled)::before,
+.button--pressed:hover::before {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.3);
+}
+
 /* A toggled-on state (e.g. the Dock formatting toolbar's Bold button while the
    cursor sits in bold text) — permanently reads as "sunk", the same shadow/offset
    :active already uses for a momentary press, so "currently on" looks like the
@@ -59,4 +94,14 @@
   color: var(--color-accent-text);
   box-shadow: var(--shadow-button-pressed);
   transform: translate(2px, 2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .button::before {
+    transition: none;
+  }
+  .button:hover::before {
+    opacity: 0;
+  }
 }

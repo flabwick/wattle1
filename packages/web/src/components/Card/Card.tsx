@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { FocusEvent } from "react";
 import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
@@ -6,6 +6,7 @@ import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
 import { CardInfoPanel } from "./CardInfoPanel.js";
 import { useCard } from "../../hooks/useCard.js";
+import { useDismiss } from "../../hooks/useDismiss.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
@@ -248,7 +249,11 @@ export function CardView({
   // an "away" click — without this, pointerdown on any Dock button would drop this
   // Card out of `editing` a beat before the Dock's own onClick (which fires later,
   // on "click") ever got to run.
-  const cardRef = useRef<HTMLDivElement>(null);
+  const cardRef = useDismiss<HTMLDivElement>(onCloseEditor, {
+    enabled: editing,
+    excludeSelector: ".dock",
+    escape: false,
+  });
 
   // Clicking a <button> (the caret, the select button, or a header action) also
   // focuses it in most browsers, and CardShell's own outer div is itself a
@@ -261,18 +266,6 @@ export function CardView({
     if ((e.target as Element).closest("button")) return;
     onActivateEditor();
   }
-
-  useEffect(() => {
-    if (!editing) return;
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (cardRef.current && !cardRef.current.contains(target) && !target.closest(".dock")) {
-        onCloseEditor();
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [editing, onCloseEditor]);
 
   return (
     <CardShell

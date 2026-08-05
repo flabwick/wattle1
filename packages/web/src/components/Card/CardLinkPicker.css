@@ -1,14 +1,14 @@
 /* Positioned by its parent by default (EmbeddableTextField.tsx's own
    .action-card-editor__link-btn-wrap sets position: relative and anchors this
-   absolutely below its toolbar button) — this file only has the popover's own
-   box/list styling, borrowed from VaultView.css's compact file-list look rather
-   than CardShell's "thick stock" treatment (a search popover isn't a physical
-   card). The Dock's own "insert card link" action (Dock.tsx) overrides this
-   entirely via the `style` prop instead, since .dock__row's horizontal scrolling
-   would clip a CSS-anchored popover. */
+   absolutely below its toolbar button). Box/list treatment (background/border/
+   radius/shadow/overflow) comes from primitives/Popover.css's `.popover-surface`,
+   composed via PopoverSurface — this file only has this picker's own anchoring and
+   sizing. The Dock's own "insert card link" action (Dock.tsx) overrides the
+   position entirely via the `style` prop instead, since .dock__row's horizontal
+   scrolling would clip a CSS-anchored popover. */
 .card-link-picker {
   position: absolute;
-  z-index: 10;
+  z-index: var(--z-popover);
   top: calc(100% + var(--space-1));
   /* Anchored from the right, not the left, in the default (non-Dock) case: the
      toolbar button this hangs off of sits flush against its container's right
@@ -19,33 +19,6 @@
   max-height: 260px;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-.card-link-picker__search-wrap {
-  position: relative;
-  flex-shrink: 0;
-  padding: var(--space-2);
-  border-bottom: var(--border-width-thin) solid var(--color-border);
-}
-
-.card-link-picker__search-icon {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--space-2) + var(--space-2));
-  transform: translateY(-50%);
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.card-link-picker__search {
-  padding-left: calc(var(--icon-size-sm) + var(--space-3));
 }
 
 .card-link-picker__list {
@@ -55,42 +28,10 @@
   overflow-y: auto;
 }
 
-.card-link-picker__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--touch-target-sm);
-  padding: 0 var(--space-2);
-  border: none;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.card-link-picker__item:hover {
-  background: var(--color-surface);
-}
-
-.card-link-picker__item-icon {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
 .card-link-picker__item-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-family-mono);
-  font-size: var(--font-size-sm);
-}
-
-.card-link-picker__empty {
-  padding: var(--space-2);
-  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }

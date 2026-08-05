@@ -1,47 +1,11 @@
 /* Same popover shape/positioning convention as ProcessPicker.css — position: fixed
    with `left`/`bottom` computed in Dock.tsx from the trigger button's own rect,
-   opening upward since the Dock is pinned to the bottom of the screen. */
+   opening upward since the Dock is pinned to the bottom of the screen. Box/item
+   treatment comes from primitives/Popover.css via PopoverSurface/PopoverItem. */
 .convert-picker {
   position: fixed;
-  z-index: 10;
+  z-index: var(--z-popover);
   width: max-content;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-.convert-picker__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--touch-target-sm);
-  padding: 0 var(--space-3);
-  border: none;
-  border-bottom: var(--border-width-thin) solid var(--color-border);
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.convert-picker__item:last-child {
-  border-bottom: none;
-}
-
-.convert-picker__item:hover {
-  background: var(--color-surface);
-}
-
-.convert-picker__item-icon {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-  color: var(--color-text-muted);
-  flex-shrink: 0;
 }

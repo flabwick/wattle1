@@ -1,26 +1,10 @@
-.apps-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  padding: var(--space-4);
-}
-
+/* Extends primitives/Overlay.css's `.overlay__box` (border/shadow/radius/background/
+   padding/gap already come from there) — just the size/scroll behavior that differs
+   from Overlay's own defaults. */
 .apps-modal {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
   width: min(420px, 100%);
   max-height: 80vh;
   overflow-y: auto;
-  background: var(--color-surface);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-4);
 }
 
 .apps-modal__title {

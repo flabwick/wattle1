@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { ACTION_FIELD_KINDS } from "@wattle/shared";
 import type { ActionFieldKind } from "@wattle/shared";
+import { PopoverSurface } from "../../primitives/index.js";
+import { useDismiss } from "../../../hooks/useDismiss.js";
 import { t } from "../../../i18n/index.js";
 import type { TranslationKey } from "../../../i18n/index.js";
 import "./ActionNodes.css";
@@ -34,28 +35,10 @@ interface ActionFieldKindPickerProps {
  *  picks which of the fixed, flexible set of field kinds (richText/actionFieldNode.ts)
  *  to insert. Same outside-click/Escape-to-close convention as CardLinkPicker.tsx. */
 export function ActionFieldKindPicker({ onSelect, onClose, style, excludeSelector }: ActionFieldKindPickerProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (rootRef.current && !rootRef.current.contains(target) && !target.closest(excludeSelector)) {
-        onClose();
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose, excludeSelector]);
+  const rootRef = useDismiss<HTMLDivElement>(onClose, { excludeSelector });
 
   return (
-    <div ref={rootRef} className="action-field-kind-picker" style={style}>
+    <PopoverSurface ref={rootRef} className="action-field-kind-picker" style={style}>
       {ACTION_FIELD_KINDS.map((kind) => (
         <button
           key={kind}
@@ -66,6 +49,6 @@ export function ActionFieldKindPicker({ onSelect, onClose, style, excludeSelecto
           {t(KIND_LABEL_KEYS[kind])}
         </button>
       ))}
-    </div>
+    </PopoverSurface>
   );
 }

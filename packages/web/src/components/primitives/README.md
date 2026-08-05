@@ -7,26 +7,35 @@ bespoke box-model CSS, mirroring the pattern in
 [`packages/shared/src/registries/README.md`](../../../../shared/src/registries/README.md)
 (a small shared vocabulary, referenced everywhere, edited in one place).
 
-As of Step 4, `tokens.css`'s color/border/shadow/type values implement
-[docs/styling.md](../../../../../docs/styling.md) ("Olive Styling: Refined
-Neo-Brutalism") — see [docs/step4-design-system.md](../../../../../docs/step4-design-system.md)
-for the full mapping from that spec's sections to specific tokens. The short version:
-bold espresso borders, solid offset shadows (no blur), a warm parchment/terracotta
-palette, and a humanist-sans/warm-serif type pairing, all expressed as tokens so
-`styling.md`'s rules only need encoding once.
+`tokens.css`'s color/border/shadow/type/motion values implement
+[docs/styling.md](../../../../../docs/styling.md) ("Paper & Wood Brutalism") — a
+material-based palette (`--material-*`, each `--color-*` role a `var()` onto one),
+zero corner radius throughout, and four physical motion cues (lift/bleed/strike/
+tint) instead of a generic easing-curve library. The short version: bold ink
+borders, solid offset shadows (no blur), a cardstock/leather/oak palette, and a
+humanist-sans/warm-serif/mono type trio, all expressed as tokens so `styling.md`'s
+rules only need encoding once.
 
 ## What's here
 
 | Primitive | For | Variants / props |
 |---|---|---|
-| `Button` | Any clickable action | `variant`: `"default"` (bordered, surface fill) / `"primary"` (terracotta fill) / `"danger"` (oxblood text). `iconOnly` squares it up to `--touch-target-min`/`--touch-target-sm` instead of text padding (Step 5). |
+| `Button` | Any clickable action | `variant`: `"default"` (bordered, surface fill) / `"primary"` (leather fill) / `"danger"` (oxblood text). `iconOnly` squares it up to `--touch-target-min`/`--touch-target-sm` instead of text padding (Step 5). |
 | `CardShell` | A tappable card-like container | `selected` (accent border + accent-colored shadow). A `<div role="button">`, not a real `<button>` (Step 5 — Card.tsx nests real buttons/gesture handlers inside it, and a `<button>` can't legally nest another). |
 | `Badge` | A small inline label ("archive stamp": bordered, uppercase, mono) | — |
 | `InputField` | A text input or textarea | `multiline` switches `<input>` → `<textarea>` |
 | `Icon` | A line icon in place of a text label (Step 5) | `name`: one of the fixed set in `Icon.tsx` (`edit`, `generate`, `remove`, `delete`, `done`, `plus`, `file`, `vault`, `close`, `search`, `up`, `down`, `folder`, `chevronRight`, ...) — add a new one there, don't inline an `<svg>` at a call site. `spin` for the in-progress generate icon. |
+| `Overlay` | A centered modal (backdrop + card-like box) | Escape/outside-press both close it, via `useDismiss`. `className` extends `.overlay__box` for per-instance sizing/background (AnnotationDetail, SaveAsAppModal, AppBrowser). Doesn't portal itself — wrap the caller's own `createPortal` around it when needed. |
+| `PopoverSurface` | The box shell an anchored popover renders its content in | Forwards its ref (hand it straight to `useDismiss`). Deliberately doesn't set `position`/`z-index`/`flex-direction` — those stay in the caller's own class, since they vary per popover (CardLinkPicker, ConvertPicker, ProcessPicker, DiffPopover, SelectionMenu, the ActionNode popovers, ...). |
+| `PopoverItem` | One row in a popover's list/menu | `variant`: `"list"` (full-width, no divider — CardLinkPicker/ContextCardPicker) / `"menu"` (compact, border-bottom dividers — ConvertPicker/ProcessPicker). `icon` renders an `Icon` at the row's leading edge. |
+| `PopoverSearch` | The search-as-you-type header a popover list opens with | A leading search icon over an `InputField` — passes every prop straight through (CardLinkPicker, ContextCardPicker). |
 
 Each ships its own `.css` file (e.g. `Button.tsx` / `Button.css`) — same one-file-per-
-component convention as everywhere else in `packages/web/src/components/`.
+component convention as everywhere else in `packages/web/src/components/`. `Overlay`
+and `Popover` build on `hooks/useDismiss.ts` — the app's one outside-press/Escape
+dismiss convention, previously duplicated near-verbatim across every anchored popover
+and inline edit-mode boundary (CardEmbed.tsx's/Card.tsx's own click-outside-to-close
+for inline editing included).
 
 ## Why this exists
 

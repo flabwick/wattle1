@@ -1,19 +1,16 @@
 /* position: fixed with top/left computed in AnnotatedText.tsx from the triggering
    span's own rect (this portals to document.body, so it can't anchor via
-   position:absolute against a DOM ancestor — see DiffPopover.tsx). */
+   position:absolute against a DOM ancestor — see DiffPopover.tsx). Box treatment
+   comes from primitives/Popover.css via PopoverSurface. */
 .diff-popover {
   position: fixed;
-  z-index: 10;
+  z-index: var(--z-popover);
   width: max-content;
   max-width: min(320px, 80vw);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
   cursor: default;
   white-space: normal;
 }

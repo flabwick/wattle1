@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Card } from "@wattle/shared";
-import { Button, Icon, InputField } from "../../../primitives/index.js";
+import { Button, Icon, PopoverItem, PopoverSearch, PopoverSurface } from "../../../primitives/index.js";
 import { listCards } from "../../../../api/client.js";
 import { t } from "../../../../i18n/index.js";
 import "./ContextCardPicker.css";
@@ -38,25 +38,17 @@ export function ContextCardPicker({ selectedIds, onToggle, onDone }: ContextCard
   const selected = new Set(selectedIds);
 
   return (
-    <div className="context-card-picker">
-      <div className="context-card-picker__search-wrap">
-        <Icon name="search" className="context-card-picker__search-icon" />
-        <InputField
-          className="context-card-picker__search"
-          value={query}
-          autoFocus
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("card.linkPicker.searchPlaceholder")}
-        />
-      </div>
+    <PopoverSurface className="context-card-picker">
+      <PopoverSearch
+        value={query}
+        autoFocus
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t("card.linkPicker.searchPlaceholder")}
+      />
       <ul className="context-card-picker__list">
         {cards.map((card) => (
           <li key={card.id}>
-            <button
-              type="button"
-              className="context-card-picker__item"
-              onClick={() => onToggle(card.id)}
-            >
+            <PopoverItem onClick={() => onToggle(card.id)}>
               <span
                 className={`context-card-picker__checkbox${
                   selected.has(card.id) ? " context-card-picker__checkbox--checked" : ""
@@ -66,15 +58,15 @@ export function ContextCardPicker({ selectedIds, onToggle, onDone }: ContextCard
                 {selected.has(card.id) && <Icon name="done" />}
               </span>
               <span className="context-card-picker__item-title">{card.title || t("common.untitled")}</span>
-            </button>
+            </PopoverItem>
           </li>
         ))}
-        {cards.length === 0 && <li className="context-card-picker__empty">{t("card.linkPicker.empty")}</li>}
+        {cards.length === 0 && <li className="popover-empty">{t("card.linkPicker.empty")}</li>}
       </ul>
       <div className="context-card-picker__footer">
         <span className="context-card-picker__count">{selectedIds.length} selected</span>
         <Button onClick={onDone}>{t("promptCard.context.done")}</Button>
       </div>
-    </div>
+    </PopoverSurface>
   );
 }

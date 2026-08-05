@@ -1,6 +1,6 @@
-/* styling.md §5 "Cards and panels": "thick stock or leather-wrapped folios" — a bold
-   espresso border and a solid offset shadow give the card physical thickness instead
-   of a flat drop-shadow blur. */
+/* styling.md §5 "Shape language and containers": a bold ink border and a solid
+   offset shadow give the card physical thickness instead of a flat drop-shadow
+   blur. */
 .card-shell {
   display: block;
   width: 100%;
@@ -15,17 +15,43 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
+  transition: transform var(--duration-lift) var(--ease-settle), box-shadow var(--duration-lift) var(--ease-settle);
+}
+
+/* LIFT: a card rises off the stack when you reach for it, then settles back —
+   not a generic hover highlight. Skipped for --editing (not a tap target, cursor
+   is already `default`) and --ghost (a transient in-progress generation, not
+   something you'd "pick up"). */
+.card-shell:not(.card-shell--editing, .card-shell--ghost):hover {
+  transform: translate(-1px, -3px);
+  box-shadow: var(--shadow-card-lifted);
+}
+
+/* A selected card keeps its accent-colored shadow while lifted, rather than
+   losing it to the plain ink one above — same specificity tier as that rule, so
+   source order (this comes after) is what decides it wins. */
+.card-shell.card-shell--selected:hover {
+  box-shadow: 5px 6px 0 var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-shell {
+    transition: none;
+  }
 }
 
 /* The border/shadow is the existing "this is selected" boundary; the background
-   wash is new — same --color-highlight token AnnotatedText.css's own
-   .selection-highlight text mark uses, so a selected Card and a highlighted span of
-   text read as the same "part of the current selection" treatment (a lighter mix
-   than the text mark's, since this covers a much larger area). */
+   wash is the highlighter material — same one AnnotatedText.css's own
+   .selection-highlight text mark uses (via --color-selection-tint), so a selected
+   Card and a highlighted span of text read as the same "part of the current
+   selection" treatment (a lighter mix than the text mark's, since this covers a
+   much larger area). Mixed straight from the material rather than
+   --color-selection-tint itself, which is already pre-mixed with transparent at a
+   ratio tuned for text, not a whole card's background. */
 .card-shell--selected {
   border-color: var(--color-accent);
   box-shadow: 3px 3px 0 var(--color-accent);
-  background: color-mix(in srgb, var(--color-highlight) 20%, var(--color-surface));
+  background: color-mix(in srgb, var(--material-highlighter) 20%, var(--color-surface));
 }
 
 .card-shell:focus-visible {

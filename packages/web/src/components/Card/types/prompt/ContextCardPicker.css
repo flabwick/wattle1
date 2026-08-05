@@ -1,41 +1,15 @@
-/* A multi-select sibling of CardLinkPicker.css — same box/list treatment, plus a
-   checkbox column and a footer (Done + selected count) instead of select-and-close. */
+/* A multi-select sibling of CardLinkPicker.css — same popover-surface/list
+   treatment (see that file's own comment), plus a checkbox column and a footer
+   (Done + selected count) instead of select-and-close. */
 .context-card-picker {
   position: absolute;
-  z-index: 10;
+  z-index: var(--z-popover);
   top: calc(100% + var(--space-1));
   right: 0;
   width: min(280px, 80vw);
   max-height: 320px;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-}
-
-.context-card-picker__search-wrap {
-  position: relative;
-  flex-shrink: 0;
-  padding: var(--space-2);
-  border-bottom: var(--border-width-thin) solid var(--color-border);
-}
-
-.context-card-picker__search-icon {
-  position: absolute;
-  top: 50%;
-  left: calc(var(--space-2) + var(--space-2));
-  transform: translateY(-50%);
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.context-card-picker__search {
-  padding-left: calc(var(--icon-size-sm) + var(--space-3));
 }
 
 .context-card-picker__list {
@@ -44,25 +18,6 @@
   padding: var(--space-1) 0;
   overflow-y: auto;
   flex: 1;
-}
-
-.context-card-picker__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: var(--touch-target-sm);
-  padding: 0 var(--space-2);
-  border: none;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.context-card-picker__item:hover {
-  background: var(--color-surface);
 }
 
 .context-card-picker__checkbox {
@@ -91,12 +46,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-family-mono);
-  font-size: var(--font-size-sm);
-}
-
-.context-card-picker__empty {
-  padding: var(--space-2);
-  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
 

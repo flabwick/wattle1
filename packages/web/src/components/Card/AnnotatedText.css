@@ -28,22 +28,24 @@
 /* The Dock's multi-select/prompt-context highlight (SelectionHighlightDecoration.ts)
    — a Kindle-style "you highlighted this" mark, translucent so the text underneath
    stays legible (unlike .annot--highlight's per-entry opaque color, chosen by the
-   user from a palette). Same --color-highlight token CardShell.css's own
+   user from a palette). Same --color-selection-tint token CardShell.css's own
    .card-shell--selected overlay uses, so a highlighted span and a selected Card read
-   as the same "this is part of the current selection" treatment. */
+   as the same "this is part of the current selection" treatment — the highlighter
+   material, not --color-highlight (that's the unrelated brass/badge accent). */
 .selection-highlight {
   padding: 0 2px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-highlight) 45%, transparent);
+  background: var(--color-selection-tint);
   color: var(--color-text);
   cursor: pointer;
 }
 
 /* The Quote a click just opened the local "remove this Quote" popup for
    (CardRichText.tsx) — reads visibly different from any other Quotes coexisting in
-   the same Card. */
+   the same Card: the same marker-pen color, laid down at full opacity instead of
+   the passive translucent wash above. */
 .selection-highlight--targeted {
-  background: var(--color-highlight);
+  background: var(--material-highlighter);
   outline: var(--border-width-thin) solid var(--color-border-strong);
 }
 

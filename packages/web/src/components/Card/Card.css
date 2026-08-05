@@ -13,7 +13,7 @@
 .card__header--pinned {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-raised);
   background-color: var(--color-surface);
   /* Negative top/side margins escape CardShell.css's own padding (so the sticky
      header's background can reach the shell's actual top/left/right edges once

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Icon, InputField } from "../primitives/index.js";
 import { useCard } from "../../hooks/useCard.js";
+import { useDismiss } from "../../hooks/useDismiss.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
@@ -102,18 +103,11 @@ export function CardEmbed({
   // edit states untouched. Also excludes the Dock (see Card.tsx's identical guard) —
   // otherwise pointerdown on the Dock's own Edit/Save/Remove/Delete buttons for
   // *this* embed would close it before its onClick ever got to run.
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!editing) return;
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (containerRef.current && !containerRef.current.contains(target) && !target.closest(".dock")) {
-        onToggleEmbedEdit(cardId);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [editing, onToggleEmbedEdit, cardId]);
+  const containerRef = useDismiss<HTMLDivElement>(() => onToggleEmbedEdit(cardId), {
+    enabled: editing,
+    excludeSelector: ".dock",
+    escape: false,
+  });
 
   // Long-press-to-edit on touch devices, same convention as Card.tsx's top-level
   // equivalent — start a timer on touchstart, jump straight into editing if it's

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { Button, InputField } from "../../primitives/index.js";
+import { useDismiss } from "../../../hooks/useDismiss.js";
 import { t } from "../../../i18n/index.js";
 import "./ActionNodes.css";
 
@@ -25,26 +26,8 @@ interface LinkUrlPickerProps {
  *  CardLinkPicker) there's no list of candidates to pick from. Same outside-click/
  *  Escape-to-close convention as ActionFieldKindPicker.tsx. */
 export function LinkUrlPicker({ initialUrl, onSubmit, onRemove, onClose, style, excludeSelector }: LinkUrlPickerProps) {
-  const rootRef = useRef<HTMLFormElement>(null);
   const [url, setUrl] = useState(initialUrl);
-
-  useEffect(() => {
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (rootRef.current && !rootRef.current.contains(target) && !target.closest(excludeSelector)) {
-        onClose();
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose, excludeSelector]);
+  const rootRef = useDismiss<HTMLFormElement>(onClose, { excludeSelector });
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -54,7 +37,12 @@ export function LinkUrlPicker({ initialUrl, onSubmit, onRemove, onClose, style, 
   }
 
   return (
-    <form ref={rootRef} className="action-field-kind-picker link-url-picker" style={style} onSubmit={handleSubmit}>
+    <form
+      ref={rootRef}
+      className="popover-surface action-field-kind-picker link-url-picker"
+      style={style}
+      onSubmit={handleSubmit}
+    >
       <InputField
         className="link-url-picker__input"
         value={url}

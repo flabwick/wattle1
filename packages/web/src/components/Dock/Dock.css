@@ -104,11 +104,10 @@
   max-height: calc(20vh - 20px);
 }
 
-/* styling.md §5/§8: the same "thick stock" card treatment (bold espresso border,
-   solid warm-offset shadow, medium rounded corners) every Card in the app already
-   uses (see CardShell.css) — a proper folio resting just above the Dock, not a flat
-   blended strip. Square bottom corners since it sits flush against the Dock's own
-   row directly beneath it, with no gap between them. */
+/* styling.md §5/§8: the same "thick stock" card treatment (bold ink border, solid
+   offset shadow — corners are square everywhere now, so no explicit squaring is
+   needed here any more) every Card in the app already uses (see CardShell.css) — a
+   proper folio resting just above the Dock, not a flat blended strip. */
 .dock__extended-panel-view {
   max-height: calc(30vh - 20px);
   overflow-y: auto;

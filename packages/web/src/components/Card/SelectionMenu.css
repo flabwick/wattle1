@@ -1,17 +1,13 @@
 /* Positioned at the selection's own bounding rect (SelectionMenu.tsx passes
    viewport-relative top/left inline) — position: fixed, not absolute, since that rect
    is already viewport-relative and the selection can be anywhere on the page,
-   independent of any single Card's own box. */
+   independent of any single Card's own box. Box treatment comes from
+   primitives/Popover.css's `.popover-surface`, composed via PopoverSurface. */
 .selection-menu {
   position: fixed;
-  z-index: 20;
+  z-index: var(--z-popover-elevated);
   transform: translate(-50%, calc(-100% - var(--space-2)));
   display: flex;
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
 }
 
 .selection-menu__actions {

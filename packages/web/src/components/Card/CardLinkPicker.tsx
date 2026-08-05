@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Card } from "@wattle/shared";
-import { Icon, InputField } from "../primitives/index.js";
+import { PopoverItem, PopoverSearch, PopoverSurface } from "../primitives/index.js";
+import { useDismiss } from "../../hooks/useDismiss.js";
 import { listCards } from "../../api/client.js";
 import { t } from "../../i18n/index.js";
 import "./CardLinkPicker.css";
@@ -31,7 +32,7 @@ interface CardLinkPickerProps {
 export function CardLinkPicker({ onSelect, onClose, style, excludeSelector }: CardLinkPickerProps) {
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<Card[]>([]);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useDismiss<HTMLDivElement>(onClose, { excludeSelector });
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -40,59 +41,28 @@ export function CardLinkPicker({ onSelect, onClose, style, excludeSelector }: Ca
     return () => clearTimeout(handle);
   }, [query]);
 
-  useEffect(() => {
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (
-        rootRef.current &&
-        !rootRef.current.contains(target) &&
-        !(excludeSelector && target.closest(excludeSelector))
-      ) {
-        onClose();
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose, excludeSelector]);
-
   return (
-    <div ref={rootRef} className="card-link-picker" style={style}>
-      <div className="card-link-picker__search-wrap">
-        <Icon name="search" className="card-link-picker__search-icon" />
-        <InputField
-          className="card-link-picker__search"
-          value={query}
-          autoFocus
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("card.linkPicker.searchPlaceholder")}
-        />
-      </div>
+    <PopoverSurface ref={rootRef} className="card-link-picker" style={style}>
+      <PopoverSearch
+        value={query}
+        autoFocus
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t("card.linkPicker.searchPlaceholder")}
+      />
       <ul className="card-link-picker__list">
         {cards.map((card) => (
           <li key={card.id}>
-            <button
-              type="button"
-              className="card-link-picker__item"
-              onClick={() => onSelect(card)}
-            >
-              <Icon name="file" className="card-link-picker__item-icon" />
+            <PopoverItem icon="file" onClick={() => onSelect(card)}>
               <span className="card-link-picker__item-title">
                 {card.title || t("common.untitled")}
               </span>
-            </button>
+            </PopoverItem>
           </li>
         ))}
         {cards.length === 0 && (
-          <li className="card-link-picker__empty">{t("card.linkPicker.empty")}</li>
+          <li className="popover-empty">{t("card.linkPicker.empty")}</li>
         )}
       </ul>
-    </div>
+    </PopoverSurface>
   );
 }

@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/core";
 import { flattenToPlainText } from "@wattle/shared";
-import { Icon } from "../primitives/index.js";
+import { Icon, PopoverSurface } from "../primitives/index.js";
 import { addQuote } from "../../lib/quotesRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./SelectionMenu.css";
@@ -152,7 +152,7 @@ export function SelectionMenu({ containerRef, editor, cardId }: SelectionMenuPro
   // above already makes it visually independent of where it sits in the tree, so the
   // portal has no positioning side effects, only fixes the nesting.
   return createPortal(
-    <div
+    <PopoverSurface
       className="selection-menu"
       style={{ top: menu.top, left: menu.left }}
       onPointerDown={(e) => e.stopPropagation()}
@@ -189,7 +189,7 @@ export function SelectionMenu({ containerRef, editor, cardId }: SelectionMenuPro
           <Icon name="close" />
         </button>
       </div>
-    </div>,
+    </PopoverSurface>,
     document.body,
   );
 }

@@ -1,32 +1,12 @@
-/* A dismissible backdrop behind the overlay card — click anywhere outside the card
-   itself to close (same effect the old click-outside listener had, now visible as an
-   actual scrim instead of invisible document-level tracking). */
-.annotation-detail__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: rgba(46, 33, 23, 0.45);
-}
-
-/* The overlay itself — full card treatment (border/shadow/radius match CardShell.css)
-   rather than a small anchored popover: that made the textarea too cramped to
-   comfortably read or edit a longer footnote. */
+/* Extends primitives/Overlay.css's `.overlay__box` — full card treatment (border/
+   shadow already come from there) rather than a small anchored popover: that made
+   the textarea too cramped to comfortably read or edit a longer footnote. Just the
+   size/background/radius that differ from Overlay's own plain-Card defaults. */
 .annotation-detail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
   width: min(520px, 92vw);
   max-height: min(70vh, 640px);
-  padding: var(--space-4);
   background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  cursor: default;
 }
 
 .annotation-detail__header {

@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
 import type { ActionFieldKind } from "@wattle/shared";
-import { InputField } from "../../primitives/index.js";
+import { InputField, PopoverSurface } from "../../primitives/index.js";
+import { useDismiss } from "../../../hooks/useDismiss.js";
 import { t } from "../../../i18n/index.js";
 import "./ActionNodes.css";
 
@@ -42,25 +42,10 @@ export function ActionFieldConfigPopover({
   onChange,
   onClose,
 }: ActionFieldConfigPopoverProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handlePointerDown(e: PointerEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  const rootRef = useDismiss<HTMLDivElement>(onClose);
 
   return (
-    <div ref={rootRef} className="action-field-popover" onClick={(e) => e.stopPropagation()}>
+    <PopoverSurface ref={rootRef} className="action-field-popover" onClick={(e) => e.stopPropagation()}>
       {(kind === "text" || kind === "textarea" || kind === "number" || kind === "select") && (
         <InputField
           value={placeholder}
@@ -111,6 +96,6 @@ export function ActionFieldConfigPopover({
           onChange={(e) => onChange({ options: e.target.value.split("\n").map((o) => o.trim()).filter(Boolean) })}
         />
       )}
-    </div>
+    </PopoverSurface>
   );
 }

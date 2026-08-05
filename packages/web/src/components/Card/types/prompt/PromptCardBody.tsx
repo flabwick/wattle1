@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { PageCardWithCard, PromptCardContextMode } from "@wattle/shared";
-import { Button, Icon, InputField } from "../../../primitives/index.js";
+import { Button, Icon, InputField, PopoverSurface } from "../../../primitives/index.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { useDismiss } from "../../../../hooks/useDismiss.js";
 import { editCard, getCachedCard } from "../../../../lib/cardStore.js";
 import { usePromptGeneration } from "../../../../hooks/usePromptGeneration.js";
 import { CardRichText } from "../../richtext/CardRichText.js";
@@ -41,7 +42,6 @@ export function PromptCardBody({ pageCard }: { pageCard: PageCardWithCard }) {
 
   const [flipped, setFlipped] = useState(() => iterations.length > 0);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
-  const contextWrapRef = useRef<HTMLDivElement>(null);
   const generation = usePromptGeneration();
 
   // One shared dismiss boundary for the whole context-settings popover (mode buttons
@@ -50,23 +50,9 @@ export function PromptCardBody({ pageCard }: { pageCard: PageCardWithCard }) {
   // popupWrap), kept here rather than inside ContextCardPicker itself since nesting
   // two independent dismiss boundaries would fight each other (see that component's
   // doc comment).
-  useEffect(() => {
-    if (!contextPopoverOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (contextWrapRef.current && !contextWrapRef.current.contains(e.target as Node)) {
-        setContextPopoverOpen(false);
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setContextPopoverOpen(false);
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [contextPopoverOpen]);
+  const contextWrapRef = useDismiss<HTMLDivElement>(() => setContextPopoverOpen(false), {
+    enabled: contextPopoverOpen,
+  });
 
   function patchPrompt(patch: Partial<typeof prompt>) {
     editCard(pageCard.card.id, { metadata: { ...canonicalCard.metadata, prompt: { ...prompt, ...patch } } });
@@ -138,7 +124,7 @@ export function PromptCardBody({ pageCard }: { pageCard: PageCardWithCard }) {
                 <Icon name="settings" />
               </Button>
               {contextPopoverOpen && (
-                <div className="prompt-card__context-popover">
+                <PopoverSurface className="prompt-card__context-popover">
                   <div className="prompt-card__context-modes">
                     {CONTEXT_MODES.map((mode) => (
                       <button
@@ -160,7 +146,7 @@ export function PromptCardBody({ pageCard }: { pageCard: PageCardWithCard }) {
                       onDone={() => setContextPopoverOpen(false)}
                     />
                   )}
-                </div>
+                </PopoverSurface>
               )}
             </div>
             {iterations.length > 0 && (

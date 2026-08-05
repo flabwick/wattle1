@@ -8,21 +8,19 @@
   min-width: 96px;
 }
 
+/* Box treatment (background/border/radius/shadow) comes from
+   primitives/Popover.css's `.popover-surface`, composed via PopoverSurface. */
 .action-button-popover {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 20;
+  z-index: var(--z-popover-elevated);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   width: min(320px, 90vw);
   margin-top: var(--space-1);
   padding: var(--space-3);
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
 }
 
 .action-button-popover select {
@@ -123,21 +121,19 @@ select.action-field-node__control {
   color: var(--color-text);
 }
 
+/* Box treatment comes from primitives/Popover.css's `.popover-surface`, composed
+   via PopoverSurface. */
 .action-field-popover {
   position: absolute;
   top: 100%;
   right: 0;
-  z-index: 20;
+  z-index: var(--z-popover-elevated);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   width: min(280px, 90vw);
   margin-top: var(--space-1);
   padding: var(--space-3);
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
 }
 
 .action-field-popover__row {
@@ -148,18 +144,17 @@ select.action-field-node__control {
 /* position: fixed with left/bottom computed in Dock.tsx from the trigger button's
    own rect, not CSS-anchored — same reasoning as ProcessPicker.css: .dock__row
    scrolls horizontally (overflow-x: auto), which would clip an absolutely-
-   positioned popover. */
+   positioned popover. Box treatment comes from primitives/Popover.css's
+   `.popover-surface` — composed via PopoverSurface (ActionFieldKindPicker.tsx/
+   CalloutKindPicker.tsx) or applied directly (LinkUrlPicker.tsx's `<form>`, which
+   can't use the div-only PopoverSurface component). */
 .action-field-kind-picker {
   position: fixed;
-  z-index: 20;
+  z-index: var(--z-popover-elevated);
   display: flex;
   flex-direction: column;
   width: max-content;
   padding: var(--space-1);
-  background: var(--color-surface-raised);
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
 }
 
 .action-field-kind-picker__item {

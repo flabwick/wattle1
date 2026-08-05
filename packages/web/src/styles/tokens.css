@@ -3,12 +3,48 @@
  * vocabulary components reference instead of hardcoded pixel values, so the visual
  * language transfers cleanly to a future React Native port.
  *
- * Color/border/shadow/type values implement docs/styling.md ("Olive Styling: Refined
- * Neo-Brutalism") — see docs/step4-design-system.md for how each token maps back to
- * that spec's sections. Nothing in components/ should hardcode a color, border width,
- * shadow, or font stack that isn't one of these variables.
+ * "Paper & Wood Brutalism" (docs/styling.md) — hard structural bones (thick ink
+ * borders, zero radius, monospace labels) carrying warm, worn materials that
+ * respond to touch the way real objects would. The palette is authored as a small
+ * set of named MATERIALS (paper, wood, leather, ink — see the block below), not as
+ * semantic hex roles: every --color-* token is a `var()` reference onto a
+ * --material-*, so retinting the app for a new mode or mood means changing the
+ * materials once, not chasing hex codes through every role. Nothing in components/
+ * should hardcode a color, border width, shadow, radius, or font stack that isn't
+ * one of these variables.
  */
 :root {
+  /* ============================================================
+     MATERIALS — the palette IS the object. Each one has an inherent
+     color the way real cardstock, oak, or leather does; semantic
+     roles below just point at one. Retinting the app means editing
+     this block (and its dark-mode twin further down), never a role.
+     ============================================================ */
+  --material-linen: #ded1b2; /* the desk itself — page canvas */
+  --material-cardstock: #eee4cd; /* a card's own surface */
+  --material-cardstock-raised: #f6efdd; /* a card lifted off the stack */
+  --material-parchment: #e6d8b8; /* a secondary panel/tray */
+  --material-oak: #9c744b; /* mid wood — secondary accent */
+  --material-walnut: #5c3d26; /* dark wood — tertiary accent */
+  --material-leather: #7a4324; /* primary accent — buttons, selection */
+  --material-leather-dark: #5a3018; /* pressed leather — active/toggled-on */
+  --material-ink: #241a12; /* borders, text, shadows — never pure black */
+  --material-oxblood: #8c2f22; /* stamp-pad red — danger */
+  --material-brass: #a67c3d; /* hardware/stamp accent — Badge, emphasis */
+  --material-slate: #6b5c46; /* faded pencil — muted text, thin dividers */
+  --material-highlighter: #e8d34a; /* marker-pen tint — text selection only */
+
+  /* Text color paired with a material fill, for the few cases contrast flips
+     between light/dark mode (a light-mode-dark material needs light text; the
+     same material often turns light in dark mode and needs dark text back) —
+     kept as explicit pairs rather than derived, since "which way the contrast
+     goes" is a legibility call, not a material property. */
+  --on-leather: var(--material-cardstock-raised);
+  --on-oak: var(--material-ink);
+  --on-walnut: var(--material-cardstock-raised);
+  --on-oxblood: var(--material-cardstock-raised);
+  --on-brass: var(--material-ink);
+
   /* Spacing scale */
   --space-1: 4px;
   --space-2: 8px;
@@ -35,72 +71,77 @@
   --line-height-base: 1.5;
   --font-weight-bold: 600;
 
-  /* styling.md §4: a humanist/geometric sans for UI text, paired with a warm serif
-     for headlines/labels, and monospace reserved for "retro terminal" readouts. */
+  /* A clean humanist sans for UI text, a warm serif for headlines/card titles,
+     monospace reserved for structural labels (Badge, section eyebrows, stamps)
+     and "retro terminal" readouts — the one place type itself carries the
+     "structural bones" half of the brief. */
   --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-family-heading: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype", serif;
   --font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* styling.md §4: "tracking is slightly increased" — applied to the all-caps
-     "bespoke label / archive stamp" text (Badge, Page's section label). */
+  /* Tracking is slightly increased for all-caps mono labels — "bespoke label /
+     archive stamp" text (Badge, Page's section label, section eyebrows). */
   --tracking-wide: 0.04em;
 
-  /* Radius — styling.md §5: "rounded corners are medium" */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  /* Radius — zero throughout. Hard structural bones, not soft digital corners;
+     the three names stay (rather than collapsing to one token) purely so every
+     existing `var(--radius-sm|md|lg)` call site keeps working unchanged. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
 
-  /* Border widths — styling.md §5: thin rules for dividers, "2px warm charcoal or
-     espresso" for card/button edges. Two widths, one semantic pair (border/border-strong
-     color roles below) rather than one width doing both jobs. */
+  /* Border widths — thin rules for dividers, bold ink for the edge of anything
+     that reads as an object (card/button/input). */
   --border-width-thin: 1px;
   --border-width-bold: 2px;
 
-  /* Color roles — light: styling.md §2 "warm parchment, raw linen, soft oak, cream" */
-  --color-bg: #f1e8d6;
-  --color-surface: #faf3e4;
-  --color-surface-raised: #fff8ea;
-  --color-border: #d8c9ab;
-  --color-border-strong: #2e2117;
-  --color-text: #241a12;
-  --color-text-muted: #7a6a55;
+  /* ============================================================
+     Semantic roles — assigned FROM materials above. Components only
+     ever reference these, never --material-* directly, so a future
+     retint changes nothing here.
+     ============================================================ */
+  --color-bg: var(--material-linen);
+  --color-surface: var(--material-cardstock);
+  --color-surface-raised: var(--material-cardstock-raised);
+  --color-border: color-mix(in srgb, var(--material-ink) 35%, var(--material-linen));
+  --color-border-strong: var(--material-ink);
+  --color-text: var(--material-ink);
+  --color-text-muted: var(--material-slate);
 
-  /* A hidden Card, shown via the Dock's "reveal hidden cards" toggle (Apps feature
-     spec §2) — dashed rather than solid, so it reads as "not normally part of the
-     page" at a glance even while revealed. */
-  --color-hidden-border: #9c8a68;
+  /* A hidden Card, shown via the Dock's "reveal hidden cards" toggle (Apps
+     feature spec §2) — dashed rather than solid, so it reads as "not normally
+     part of the page" at a glance even while revealed. */
+  --color-hidden-border: var(--material-slate);
 
-  /* Heritage brights — styling.md §2 "amber, oxblood/terracotta, deep aubergine,
-     muted teal", used per §2's usage rule: one dominant accent per screen (accent),
-     the others reserved for secondary/tertiary emphasis rather than mixed freely. */
-  --color-accent: #bb4d28;
-  --color-accent-text: #fff6e8;
-  --color-accent-secondary: #3f6f63;
-  --color-accent-secondary-text: #fff6e8;
-  --color-accent-tertiary: #5c3a52;
-  --color-accent-tertiary-text: #fff6e8;
-  --color-highlight: #b9812a;
-  --color-highlight-text: #2e2117;
-  --color-danger: #8a3327;
-  --color-danger-text: #fff6e8;
+  /* One dominant accent per screen (styling.md §2's usage rule): leather for the
+     primary action/selection color, oak/walnut held in reserve for secondary/
+     tertiary emphasis rather than mixed in freely. */
+  --color-accent: var(--material-leather);
+  --color-accent-text: var(--on-leather);
+  --color-accent-secondary: var(--material-oak);
+  --color-accent-secondary-text: var(--on-oak);
+  --color-accent-tertiary: var(--material-walnut);
+  --color-accent-tertiary-text: var(--on-walnut);
+  --color-highlight: var(--material-brass);
+  --color-highlight-text: var(--on-brass);
+  --color-danger: var(--material-oxblood);
+  --color-danger-text: var(--on-oxblood);
 
-  /* Shadows — styling.md §8: "structural outlines and warm, material-aware shadows
-     rather than heavy blur" — solid offsets, no blur radius. */
-  --color-shadow: #2e2117;
+  /* Shadows — structural outlines and warm ink shadows, solid offsets, no blur.
+     --shadow-card-lifted is the "picked up off the stack" state (CardShell's
+     hover) — same ink, a longer throw. */
+  --color-shadow: var(--material-ink);
   --shadow-card: 3px 3px 0 var(--color-shadow);
+  --shadow-card-lifted: 5px 6px 0 var(--color-shadow);
   --shadow-button: 2px 2px 0 var(--color-shadow);
   --shadow-button-pressed: 0 0 0 var(--color-shadow);
 
-  /* Retro terminal — styling.md §2 "dark walnut or deep peat backgrounds with amber,
-     warm green, or cream monospace text". Deliberately constant across light/dark
-     app theme: a terminal readout is a screen-within-a-screen, not a themed surface. */
+  /* Retro terminal — a dark walnut/peat screen with amber, warm green, or cream
+     monospace text. Deliberately constant across light/dark app theme: a
+     terminal readout is a screen-within-a-screen, not a themed surface. */
   --color-terminal-bg: #241c14;
   --color-terminal-text: #d9a441;
   --color-terminal-border: #4a3a26;
-  /* Syntax-highlighting accents for code blocks (FileView.tsx's markdown preview) —
-     same "amber, warm green, or cream monospace" retro-terminal trio as above, just
-     split into three roles instead of one flat color, so highlight.js token classes
-     (.hljs-keyword etc.) read as distinct without reaching for an unrelated theme. */
   --color-terminal-text-green: #8fae6b;
   --color-terminal-text-cream: #e8dcc0;
   --color-terminal-text-muted: #8a7550;
@@ -114,10 +155,52 @@
 
   --dock-height: 48px;
 
-  /* Highlight annotation palette (lib/highlightColors.ts) — fixed marker-pen colors a
-     user/model picks per highlight, independent of the app's own accent tokens above:
-     these mark content, they don't theme chrome. Muted/warm to sit inside the
-     parchment palette rather than fighting it. */
+  /* Layering scale — a documented z-index vocabulary in place of ad-hoc numbers
+     per component. --z-popover-elevated exists only because SelectionMenu/
+     ActionNode config popovers already floated above ordinary anchored popovers
+     before this scale existed; --z-modal covers the app's centered dialogs
+     (Overlay), which are mutually exclusive so one shared value is enough. */
+  --z-raised: 1;
+  --z-popover: 10;
+  --z-popover-elevated: 20;
+  --z-modal: 100;
+
+  /* Modal backdrop scrim (Overlay primitive) — derived from --color-shadow
+     rather than a separate hardcoded rgba(), so it automatically follows ink. */
+  --color-overlay: color-mix(in srgb, var(--color-shadow) 45%, transparent);
+
+  /* Text/multi-select tint (global.css's ::selection, AnnotatedText.css's own
+     "selected" wash) — a highlighter pen dragged over paper, not the browser's
+     default blue. Deliberately its own material, not --color-highlight: marking
+     content and choosing/emphasizing UI are different acts and shouldn't share a
+     color language. */
+  --color-selection-tint: color-mix(in srgb, var(--material-highlighter) 55%, transparent);
+
+  /* Grain — a tiled, grayscale SVG fractal-noise data URI (no image asset),
+     applied via a `::after`/`::before` at low opacity with multiply blend on
+     card-like surfaces (CardShell, Overlay) and the page canvas (global.css).
+     ~5%: present at a glance, never a distraction; components that want it
+     opt in explicitly rather than inheriting it, so it stays rare enough to
+     read as texture instead of noise. */
+  --texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --texture-grain-opacity: 0.05;
+
+  /* Motion — four physical answers, not a library of easing curves. Every
+     animation has to earn its keep by acting like the material it's on:
+     LIFT (a card rising off the stack on hover, then settling back), STRIKE (a
+     stamp hitting paper — primary button press), BLEED (ink spreading into
+     paper fiber — a quiet hover cue on text/icon-only controls). TINT (the
+     highlighter selection above) needs no motion token, it's just a color. */
+  --ease-settle: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-strike: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-lift: 160ms;
+  --duration-strike: 110ms;
+  --duration-bleed: 420ms;
+
+  /* Highlight annotation palette (lib/highlightColors.ts) — fixed marker-pen
+     colors a user/model picks per highlight, independent of the app's own
+     material/accent tokens above: these mark content, they don't theme chrome.
+     Muted/warm to sit inside the paper palette rather than fighting it. */
   --annot-highlight-yellow: #e8d477;
   --annot-highlight-green: #a8c98a;
   --annot-highlight-blue: #93bcd6;
@@ -127,34 +210,72 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #1c1712;
-    --color-surface: #241d17;
-    --color-surface-raised: #2c2319;
-    --color-border: #4a3c2c;
-    --color-border-strong: #f0e4c8;
-    --color-text: #f2e6cf;
-    --color-text-muted: #ab9b82;
-    --color-hidden-border: #7a6a4c;
+    /* Only the materials themselves change — every semantic role above
+       re-resolves automatically since each is a `var()` onto one of these. */
+    --material-linen: #17120b;
+    --material-cardstock: #241b12;
+    --material-cardstock-raised: #2c2116;
+    --material-parchment: #1e170e;
+    --material-oak: #c99a66;
+    --material-walnut: #d9b98c;
+    --material-leather: #c1783f;
+    --material-leather-dark: #e0935a;
+    --material-ink: #f0e4c8;
+    --material-oxblood: #d9614a;
+    --material-brass: #d4a857;
+    --material-slate: #ab9b82;
+    --material-highlighter: #a68f2c;
 
-    --color-accent: #e08a4a;
-    --color-accent-text: #201810;
-    --color-accent-secondary: #74a99c;
-    --color-accent-secondary-text: #14201d;
-    --color-accent-tertiary: #a97ea0;
-    --color-accent-tertiary-text: #201018;
-    --color-highlight: #d9a441;
-    --color-highlight-text: #201810;
-    --color-danger: #d9614a;
-    --color-danger-text: #201810;
+    /* Contrast flips: a material that was dark-on-light in light mode is
+       usually light-on-dark here, so its paired text color flips too. */
+    --on-leather: #201810;
+    --on-oak: #201810;
+    --on-walnut: #201810;
+    --on-oxblood: #201810;
+    --on-brass: #201810;
 
-    --color-shadow: #0e0b08;
-
-    /* Darker/more muted than the light-mode set so --color-text (light in dark mode)
-       stays readable on top of them. */
-    --annot-highlight-yellow: #6b5f2a;
-    --annot-highlight-green: #3f5c37;
-    --annot-highlight-blue: #345267;
-    --annot-highlight-pink: #5c3c47;
-    --annot-highlight-orange: #6a4a2a;
+    --color-hidden-border: var(--material-slate);
   }
+}
+:root[data-theme="dark"] {
+  --material-linen: #17120b;
+  --material-cardstock: #241b12;
+  --material-cardstock-raised: #2c2116;
+  --material-parchment: #1e170e;
+  --material-oak: #c99a66;
+  --material-walnut: #d9b98c;
+  --material-leather: #c1783f;
+  --material-leather-dark: #e0935a;
+  --material-ink: #f0e4c8;
+  --material-oxblood: #d9614a;
+  --material-brass: #d4a857;
+  --material-slate: #ab9b82;
+  --material-highlighter: #a68f2c;
+  --on-leather: #201810;
+  --on-oak: #201810;
+  --on-walnut: #201810;
+  --on-oxblood: #201810;
+  --on-brass: #201810;
+  --color-hidden-border: var(--material-slate);
+}
+:root[data-theme="light"] {
+  --material-linen: #ded1b2;
+  --material-cardstock: #eee4cd;
+  --material-cardstock-raised: #f6efdd;
+  --material-parchment: #e6d8b8;
+  --material-oak: #9c744b;
+  --material-walnut: #5c3d26;
+  --material-leather: #7a4324;
+  --material-leather-dark: #5a3018;
+  --material-ink: #241a12;
+  --material-oxblood: #8c2f22;
+  --material-brass: #a67c3d;
+  --material-slate: #6b5c46;
+  --material-highlighter: #e8d34a;
+  --on-leather: var(--material-cardstock-raised);
+  --on-oak: var(--material-ink);
+  --on-walnut: var(--material-cardstock-raised);
+  --on-oxblood: var(--material-cardstock-raised);
+  --on-brass: var(--material-ink);
+  --color-hidden-border: var(--material-slate);
 }

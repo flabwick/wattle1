@@ -1,0 +1,27 @@
+.overlay__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-overlay);
+}
+
+/* Same "thick stock" box treatment CardShell.css gives a Card — a modal reads as
+   the same kind of physical object, just centered over a dimmed backdrop instead of
+   stacked in the page flow. Background/radius are the plain-Card defaults; callers
+   needing the Card-detail/AnnotationDetail look (surface-raised, radius-lg) or a
+   specific width/max-height override those via their own `className`. */
+.overlay__box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  cursor: default;
+}

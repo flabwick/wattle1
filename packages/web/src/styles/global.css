@@ -20,6 +20,43 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The desk itself: grain on the page canvas, fainter than a card's own (a card
+   sits ON the desk, so it reads as the more present surface) and drifting a
+   couple of px over most of a minute — "alive without asking for attention". */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: var(--texture-grain);
+  opacity: calc(var(--texture-grain-opacity) * 0.6);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  animation: grain-drift 46s ease-in-out infinite alternate;
+}
+
+@keyframes grain-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 6px 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+}
+
+/* A highlighter dragged over paper, not the browser's default blue — see
+   tokens.css's own doc comment on why this is a separate material from
+   --color-highlight. */
+::selection {
+  background: var(--color-selection-tint);
+  color: var(--color-text);
+}
+
 button {
   font: inherit;
   color: inherit;

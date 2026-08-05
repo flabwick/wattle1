@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { cardTypeUiRegistry } from "../../registries/cardTypeUi.js";
 import { Icon } from "../primitives/index.js";
+import { useDismiss } from "../../hooks/useDismiss.js";
 import { t } from "../../i18n/index.js";
 import "./FeedInputButton.css";
 
@@ -92,7 +93,6 @@ export function FeedInputButton({
   const [text, setText] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
 
   function collapse() {
     setExpanded(false);
@@ -102,17 +102,12 @@ export function FeedInputButton({
 
   // The picker box replaces the whole line in document flow rather than floating over
   // the page, but still needs its own click-outside-to-close — same convention
-  // CardLinkPicker/ProcessPicker use for their own floating popups.
-  useEffect(() => {
-    if (!pickerOpen) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [pickerOpen]);
+  // CardLinkPicker/ProcessPicker use for their own floating popups. No Escape here
+  // (unlike those): deliberately unchanged from before this used useDismiss.
+  const wrapRef = useDismiss<HTMLDivElement>(() => setPickerOpen(false), {
+    enabled: pickerOpen,
+    escape: false,
+  });
 
   function handleCircleClick() {
     if (generating) {

@@ -72,7 +72,7 @@
   width: 100%;
   margin-bottom: var(--space-3);
   padding: var(--space-2);
-  border: 2px dashed var(--color-border);
+  border: var(--border-width-bold) dashed var(--color-border);
   border-radius: var(--radius-md);
   background: none;
   color: var(--color-text-muted);

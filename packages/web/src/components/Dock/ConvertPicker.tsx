@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
-import { Icon } from "../primitives/index.js";
+import { PopoverItem, PopoverSurface } from "../primitives/index.js";
+import { useDismiss } from "../../hooks/useDismiss.js";
 import { t } from "../../i18n/index.js";
 import "./ConvertPicker.css";
 
@@ -17,32 +17,13 @@ interface ConvertPickerProps {
  *  selection into. Standard Wattle Card (a plain Note) is the only working target
  *  today; every other Card type is a later stage of development. */
 export function ConvertPicker({ style, onPickStandardCard, onClose }: ConvertPickerProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handlePointerDown(e: PointerEvent) {
-      const target = e.target as Element;
-      if (rootRef.current && !rootRef.current.contains(target) && !target.closest(".dock__convert-wrap")) {
-        onClose();
-      }
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  const rootRef = useDismiss<HTMLDivElement>(onClose, { excludeSelector: ".dock__convert-wrap" });
 
   return (
-    <div ref={rootRef} className="convert-picker" style={style}>
-      <button type="button" className="convert-picker__item" onClick={onPickStandardCard}>
-        <Icon name="convert" className="convert-picker__item-icon" />
+    <PopoverSurface ref={rootRef} className="convert-picker" style={style}>
+      <PopoverItem variant="menu" icon="convert" onClick={onPickStandardCard}>
         <span>{t("dock.convert.standardCard")}</span>
-      </button>
-    </div>
+      </PopoverItem>
+    </PopoverSurface>
   );
 }
