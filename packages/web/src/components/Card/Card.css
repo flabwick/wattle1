@@ -1,13 +1,92 @@
 /* Box styling (background/border/radius/selection) now lives in
    components/primitives/CardShell.css — this file only has Card-specific layout. */
 
-/* The info flip mechanic — same convention as PromptCard.css's own
-   .prompt-card__flip: both faces (this Card's normal content, and its
-   CardInfoPanel.tsx back face) are always mounted, grid-stacked into the same
-   cell, and `showingInfo` just toggles which one is rotated toward the viewer. */
+/* Card.tsx's own header only (`.card__header` itself is shared by every
+   CardType's own header row — StackBody.tsx, FileView.tsx, etc. — this modifier
+   is additional, opted into only there): sticky within the Card's own bounds (its
+   nearest scrolling ancestor is .app__main, global.css) so a tall Card's header
+   stays reachable the whole time you're scrolled through its content, only
+   scrolling away once the Card's own bottom edge passes the sticky point. Needs
+   its own background (matching whichever of the modifiers below is active) so
+   scrolling content doesn't show through, and enough z-index to sit above both
+   this Card's own content and the next Card's as they scroll underneath. */
+.card__header--pinned {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--color-surface);
+  /* Negative top/side margins escape CardShell.css's own padding (so the sticky
+     header's background can reach the shell's actual top/left/right edges once
+     stuck, rather than showing a gap around it), then this same amount is re-added
+     as this element's own padding to keep the *visual* inset identical to before
+     when it's just sitting in normal flow, not yet stuck. Overrides the shared
+     .card__header rule's own margin-bottom (same value, just folded into this
+     shorthand alongside the new top/side values). */
+  margin: calc(var(--space-3) * -1) calc(var(--space-4) * -1) var(--space-1);
+  padding: var(--space-3) var(--space-4) 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.card-shell--selected .card__header--pinned {
+  background-color: color-mix(in srgb, var(--color-highlight) 20%, var(--color-surface));
+}
+
+.card-shell--hidden .card__header--pinned {
+  background-color: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface));
+}
+
+/* The header's own select button (beside the fold caret) — a small inline
+ * checkbox rather than a full-height rail: toggles this Card's membership in the
+ * current selection, entirely independent of the always-editable content below. */
+.card__select-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.card__select-btn:hover .card__select-box {
+  border-color: var(--color-accent);
+}
+
+.card__select-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.card__select-box .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.card__select-btn--selected .card__select-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+/* The info flip mechanic — both faces (this Card's normal content, and its
+   CardInfoPanel.tsx back face) are always mounted, and `showingInfo` toggles
+   which one is rotated toward the viewer. Only the front face sizes the Card —
+   the back face is absolutely positioned over the same box (`inset: 0` against
+   this `position: relative` parent) rather than grid-stacked, so a short note
+   isn't stretched out to match CardInfoPanel's own (often taller, several
+   sections) height; the back face scrolls internally instead if it doesn't fit
+   the box the note's own content established. */
 .card__flip {
   position: relative;
-  display: grid;
   transform-style: preserve-3d;
   transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
 }
@@ -17,13 +96,14 @@
 }
 
 .card__face {
-  grid-row: 1;
-  grid-column: 1;
   min-width: 0;
   backface-visibility: hidden;
 }
 
 .card__face--back {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
   transform: rotateY(180deg);
 }
 
@@ -71,12 +151,6 @@
 
 .card__caret-btn:hover {
   color: var(--color-text);
-}
-
-/* The editing view's non-interactive stand-in for the caret (same slot, not
-   clickable — see Card.tsx). */
-.card__caret-btn--static {
-  cursor: default;
 }
 
 /* The fold caret is the "down" chevron, rotated and shrunk well below the standard
@@ -134,6 +208,43 @@
   height: var(--icon-size-sm);
 }
 
+/* The header's Save/"open in Vault" button (Card.tsx) — a quiet icon like every
+   other header action (the rule above already strips background/border/
+   box-shadow from every .button here), distinguished only by its own icon shape
+   (bookmark vs. tick), not a loud color treatment; a faint tint on hover/focus is
+   the one hint that this one does something rather than just toggling a view. */
+.card__save-btn:hover:not(:disabled),
+.card__save-btn:focus-visible {
+  color: var(--color-accent);
+}
+
+/* Once saved (the tick state) — same faint-tint convention as above, just its own
+   quiet green rather than the accent color, so "this is saved" and "this needs
+   saving" read as two different colors at a glance without either one shouting. */
+.card__save-btn--saved:hover:not(:disabled),
+.card__save-btn--saved:focus-visible {
+  color: var(--color-accent-secondary);
+}
+
+/* Tapped with no title set (Card.tsx's handleSaveClick) — the button can't
+   actually save yet, so it flashes red in place of doing anything, the one time
+   this row deviates from "quiet" on purpose: this is the one case where staying
+   silent would be actively misleading (looks like nothing happened). */
+@keyframes card-save-error-flash {
+  0%,
+  100% {
+    color: var(--color-text-muted);
+  }
+  20%,
+  60% {
+    color: var(--color-danger);
+  }
+}
+
+.card__save-btn--error {
+  animation: card-save-error-flash 0.6s ease-in-out 2;
+}
+
 .card__title {
   font-family: var(--font-family-heading);
   font-weight: var(--font-weight-bold);
@@ -165,12 +276,12 @@
   white-space: pre-wrap;
 }
 
-/* Inline editing — box styling (border/shadow/bg) for the *card itself* comes from
-   CardShell.css's .card-shell/.card-shell--editing. The title/content inputs below
-   strip InputField.css's own bordered-box look (border, background, padding) so they
-   render flush with the card instead of a form field floating inside a form field —
-   same type, size, and position as the static .card__title/.card__preview they
-   replace, so entering/leaving edit mode doesn't shift or re-box anything. */
+/* Always-editable title (only a frozen Card falls back to the static
+   .card__title span instead — see Card.tsx) — strips InputField.css's own
+   bordered-box look (border, background, padding) so it renders flush with the
+   card instead of a form field floating inside a form field, same type/size/
+   position as that static span so a Card doesn't shift or re-box when it freezes
+   or unfreezes. */
 .input-field.card__title-input {
   border: none;
   background: transparent;

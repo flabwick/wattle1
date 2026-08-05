@@ -190,8 +190,8 @@ export const movePageCardToDock = (pageCardId: string) =>
 /** Freezes a vault Card — read-only from here on (Open/Frozen). */
 export const freezeCard = (cardId: string) => request<Card>(`/cards/${cardId}/freeze`, { method: "POST" });
 /** Forks the Frozen Card a PageCard/DockCard occurrence points at and repoints that
- *  one occurrence at the fork — App.tsx's handleEditSelected calls this before
- *  entering edit mode on a Frozen Card. */
+ *  one occurrence at the fork — App.tsx's activatePageCardEditor calls this before
+ *  marking a Frozen Card as the Dock's formatting-toolbar target. */
 export const forkPageCardOccurrence = (pageCardId: string) =>
   request<PageCard>(`/page-cards/${pageCardId}/fork`, { method: "POST" });
 export const forkDockCardOccurrence = (dockCardId: string) =>

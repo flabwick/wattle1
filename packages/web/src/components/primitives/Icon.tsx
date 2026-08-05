@@ -36,6 +36,7 @@ export type IconName =
   | "stackAdd"
   | "back"
   | "save"
+  | "bookmark"
   | "bold"
   | "italic"
   | "heading"
@@ -259,6 +260,11 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M8 14h8v5H8v-5z" />
     </>
   ),
+  // The classic ribbon/bookmark glyph (a rectangle notched at the bottom) most
+  // social apps use for "save this" — Card.tsx's own header Save button, shown
+  // while there's something not yet in the vault; swaps to "done" once it is
+  // (see that button's own doc comment).
+  bookmark: <path d="M6 4h12v16l-6-4.5L6 20V4z" />,
   // Standard "B" glyph — the Dock formatting toolbar's bold toggle.
   bold: (
     <path d="M7 4h6a3.5 3.5 0 0 1 0 7H7V4z M7 11h7a3.5 3.5 0 0 1 0 7H7v-7z" />

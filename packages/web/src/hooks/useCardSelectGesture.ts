@@ -68,7 +68,11 @@ function isSelectionWithin(selection: Selection | null, container: Element): boo
   return !!selection && selection.rangeCount > 0 && container.contains(selection.getRangeAt(0).commonAncestorContainer);
 }
 
-function isInteractiveTarget(target: EventTarget | null): boolean {
+/** Exported for Card.tsx's own escalate-into-edit gesture (a plain tap on an
+ *  already-selected span of note prose), which needs the same "never on an
+ *  interactive/portal element" exclusion but otherwise doesn't go through this
+ *  hook at all — see Card.tsx's own pointer handlers. */
+export function isInteractiveTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null;
 }
 

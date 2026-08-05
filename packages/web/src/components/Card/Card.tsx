@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
 import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
@@ -12,32 +13,45 @@ import "./Card.css";
 interface CardProps {
   pageCard: PageCardWithCard;
   selected: boolean;
-  /** Whether this Card's inline editor is open — controlled from above (App.tsx). */
+  /** Whether this Card is currently the Dock's own formatting-toolbar target — set
+   *  by focusing its title or its rich text (onActivateEditor below), cleared by
+   *  clicking away (onCloseEditor calls App.tsx's exitEditPageCard). Purely Dock
+   *  bookkeeping now: this Card's content is always editable (unless frozen)
+   *  regardless of this flag, so it doesn't change anything about how the Card
+   *  itself renders — it only gates the click-away listener below. */
   editing: boolean;
-  /** A tap anywhere on the Card body toggles its own membership in the current
-   *  (possibly multi-Card) selection — tapping it in adds it, tapping it again
-   *  removes it (App.tsx's toggleSelectPageCard). Resolved by CardShell's own
-   *  pointer gesture (selectGesture="prose-aware" below) rather than called
-   *  straight from a click: a double-click/drag selects text for a Quote instead
-   *  (native browser selection + SelectionMenu.tsx), and shouldn't touch selection
-   *  at all, not even a brief flicker from its first tap. Everything else (Edit,
-   *  Save, Move, Hide, remove) is reached from the Dock instead of a per-Card
-   *  popup. */
+  /** Tapping this Card's own header select button (the checkbox beside the fold
+   *  caret) toggles its membership in the current (possibly multi-Card) selection,
+   *  in if not already selected, out again if it was (App.tsx's
+   *  toggleSelectPageCard). Move/Hide/remove are still reached from the Dock
+   *  instead of a per-Card popup; Save has its own header button now too (see
+   *  onSave below). */
   onSelect: () => void;
-  /** The click-outside-to-close effect below calls this instead of onSelect —
-   *  fully exits editing *and* deselects this one Card (App.tsx's
-   *  exitEditPageCard), same net effect a second tap has once this Card is no
-   *  longer editing, without onSelect itself doing double duty as both "tap" and
-   *  "click away". */
+  /** Marks this Card as the Dock's own formatting-toolbar target (App.tsx's
+   *  activatePageCardEditor, which also forks first if this Card is frozen —
+   *  though a frozen Card's title/content aren't focusable to begin with, since
+   *  neither renders editable below) — wired to this Card's own onFocus, so simply
+   *  clicking into the title or the rich text to start typing is what "enters"
+   *  editing now, not a separate gesture or mode. */
+  onActivateEditor: () => void;
+  /** The click-outside-to-close effect below calls this to drop this Card back out
+   *  of the Dock's formatting-toolbar target (App.tsx's exitEditPageCard) — same
+   *  net effect losing focus would have, but resolved via pointerdown-outside
+   *  instead so a Dock button click (which blurs the editor a beat before its own
+   *  onClick runs) doesn't yank the toolbar out from under itself. */
   onCloseEditor: () => void;
-  /** Jump straight into editing this Card — only ever the Dock's own Edit action
-   *  now (shown while exactly one Card is selected). Used to also be reachable via
-   *  double-click/long-press directly on the Card, but both gestures were
-   *  repurposed for text-selection/Quote instead (see onSelect above) — a
-   *  double-click briefly toggling selection off then back on to enter editing,
-   *  and a hold gesture stealing the browser's own long-press-to-select behavior,
-   *  made picking a word to quote unreliable. */
-  onRequestEdit: () => void;
+  /** The header's own bookmark-shaped Save button (App.tsx's handleSavePageCard)
+   *  — called while there's still something pending (see hasUnsavedChanges
+   *  below): a not-yet-vaulted Card's draft title/content, or a still-page-local
+   *  Card that's never been saved at all. Once nothing's pending, the same button
+   *  slot switches to a tick instead (onOpenInVault below) rather than
+   *  disappearing outright. */
+  onSave: () => void;
+  /** The same header button once there's nothing left to save — a tick in place
+   *  of the bookmark, same "you're done, here's where it lives" convention
+   *  Spotify's own saved-track checkmark uses. Opens the Vault panel searching
+   *  for this Card by its current title (App.tsx's handleOpenCardInVault). */
+  onOpenInVault: (title: string) => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   /** Every embedded Card independently selected (App.tsx state) — see
    *  CardContent.tsx's doc comment. Wired into both render branches below now: an
@@ -45,9 +59,8 @@ interface CardProps {
    *  being edited, and several embeds can be selected at once. */
   selectedEmbedIds?: ReadonlySet<string>;
   onSelectEmbed?: (cardId: string, onRemove: () => void) => void;
-  /** Double-click / long-press an embedded Card to jump straight into editing it —
-   *  same convention as onRequestEdit above, just for an embed instead of this Card
-   *  itself (see CardEmbed.tsx). */
+  /** Double-click / long-press an embedded Card to jump straight into editing it
+   *  (see CardEmbed.tsx). */
   onRequestEditEmbed?: (cardId: string, onRemove: () => void) => void;
   /** Embedded Cards (any depth, any number) currently in their own inline edit mode
    *  — independent of `editing` above, so this Card and any combination of its
@@ -88,22 +101,25 @@ interface CardProps {
 }
 
 /**
- * A Card rendered inside a Page. Editing happens inline, in place on the page — the
- * Dock's Edit action (only shown for a single selected Card) is the only way in now;
- * a plain click/tap instead just selects the Card (toggling its membership in the
- * current selection, wherever on the Card body it lands), and a double-click/
- * long-press instead selects text for a Quote (SelectionMenu.tsx) rather than
- * jumping into editing — swaps this Card's own body for a title input + textarea
- * right where it sits, rather than a separate editor elsewhere.
+ * A Card rendered inside a Page. Content is always directly editable in place —
+ * there's no separate "view" vs "edit" mode to enter or exit any more, only frozen
+ * Cards (Open/Frozen — Wattle vault plan) stay read-only, since they're meant to be
+ * stable, safe-to-reference context rather than something to change in place.
+ * Selecting the Card (for the Dock's batch Save/Move/Hide/Remove actions) is a
+ * completely separate gesture from editing its text: the header's own select button
+ * (beside the fold caret) toggles selection regardless of anything else going on;
+ * clicking into the title or the rich text body to type is all "entering editing"
+ * takes now, and it only affects the Dock's own formatting-toolbar targeting
+ * (onActivateEditor/onCloseEditor below), not this Card's own appearance.
  *
  * Once a Card has been saved to the vault at least once (`card.savedToVault`),
- * there's no explicit "Done"/close button and no "unsaved" indicator any more:
  * every keystroke commits straight to the vault Card, live, through the same shared
  * cardStore CardEmbed.tsx uses (see editCard/useCard) — so any other open instance
  * of this same Card, on this Page or any other, updates immediately too, and
- * there's nothing left to save or lose. Clicking anywhere outside the Card while
- * it's editing just deselects it, which closes the editor as a side effect (App.tsx
- * resets `editing` whenever the selected Card changes).
+ * there's nothing left to save. The header's own bookmark/tick button (onSave/
+ * onOpenInVault below) reflects this either way: a bookmark while there's still
+ * something page-local or draft to commit, a tick once there isn't — tapping the
+ * tick doesn't do anything to the Card itself, it just opens the Vault to it.
  *
  * A Card that has *never* been saved to the vault yet is still page-local scratch
  * content (schema.prisma's Card.savedToVault doc comment) — those edits go through
@@ -115,8 +131,10 @@ export function CardView({
   selected,
   editing,
   onSelect,
+  onActivateEditor,
   onCloseEditor,
-  onRequestEdit,
+  onSave,
+  onOpenInVault,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -140,10 +158,14 @@ export function CardView({
   // Whether this Card is showing its info back-face (title/dates/links/relationships,
   // CardInfoPanel.tsx) instead of its own content — same "flip" mechanic as the
   // prompt CardType's own front/back faces (PromptCardBody.tsx), just for a static
-  // info view here rather than input-vs-output. Only reachable from the static
-  // (non-editing) view below — editing has its own dedicated layout and nothing to
-  // flip away from.
+  // info view here rather than input-vs-output.
   const [showingInfo, setShowingInfo] = useState(false);
+  // Briefly true right after tapping Save with no title set — flashes the button
+  // red instead of actually saving (see handleSaveClick below), since a still-
+  // untitled Card can't be saved yet (pageCardService.saveToVault's own guard) and
+  // silently doing nothing would just look broken. Cleared by the animation's own
+  // onAnimationEnd rather than a timer, so it can't outlive or race the CSS.
+  const [showSaveError, setShowSaveError] = useState(false);
 
   const savedToVault = pageCard.card.savedToVault;
   // Once saved, `pageCard.card` (only as fresh as the last listPages fetch) stops
@@ -157,11 +179,22 @@ export function CardView({
   // Only relevant while the Dock's "reveal hidden cards" toggle is on — see
   // PageStack.tsx's PageCardSlot, which doesn't render this Card at all otherwise.
   const isHidden = Boolean(canonicalCard.metadata.hidden);
-  // Frozen (Open/Frozen — Wattle vault plan): read-only, safe as stable context.
-  // Editing one always forks instead — see App.tsx's handleEditSelected, which forks
-  // *before* ever entering `editing`, so this component never has to reconcile a
-  // frozen `canonicalCard` with a live edit itself.
+  // Frozen (Open/Frozen — Wattle vault plan): read-only, safe as stable context —
+  // the one case content still isn't directly editable (title stays a static span,
+  // CardRichText stays non-editable below), same as everywhere else Frozen already
+  // means "not directly editable" (embeds, Dock Cards).
   const isFrozen = Boolean(canonicalCard.frozenAt);
+  // Whether there's anything for the header's own Save button to do — any
+  // not-yet-vaulted Card (the common case: freshly created, still page-local
+  // scratch content) or a pending draft. Deliberately not also gated on having a
+  // title here (unlike the actual save, still enforced by App.tsx's
+  // handleSavePageCard/pageCardService.saveToVault's own guard): most fresh Cards
+  // get typed into (content first) before ever getting a title, and hiding the
+  // button entirely until one exists made it look like Save had disappeared
+  // rather than "add a title first" — the button staying visible (tapping it
+  // while still untitled flashes red instead — handleSaveClick below) reads
+  // clearer than it not being there at all.
+  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !savedToVault;
 
   function handleTitleChange(value: string) {
     if (isFrozen) return;
@@ -179,6 +212,14 @@ export function CardView({
     } else {
       onChangeDraft({ content: value });
     }
+  }
+
+  function handleSaveClick() {
+    if (title.trim() === "") {
+      setShowSaveError(true);
+      return;
+    }
+    onSave();
   }
 
   // Injects this Card's own `pageCard.id` as the trailing pageCardId whenever the
@@ -199,20 +240,33 @@ export function CardView({
         onAcceptDiff(cardId, annotationId, cardId === pageCard.card.id ? pageCard.id : undefined)
     : undefined;
 
-  const editorRef = useRef<HTMLDivElement>(null);
+  // Click-outside-to-close: only listens while this Card is the Dock's own
+  // formatting-toolbar target, and only acts on presses outside the Card itself
+  // (so clicking the title/content, or the caret/select button, never drops it).
+  // Also excludes the Dock: it's a toolbar *for* this editing session (Save/
+  // Remove/Move/formatting buttons), physically outside cardRef in the DOM but not
+  // an "away" click — without this, pointerdown on any Dock button would drop this
+  // Card out of `editing` a beat before the Dock's own onClick (which fires later,
+  // on "click") ever got to run.
+  const cardRef = useRef<HTMLDivElement>(null);
 
-  // Click-outside-to-close: only listens while editing, and only acts on presses
-  // outside the editor itself (so clicking the title/content inputs, or the caret,
-  // never closes it). Also excludes the Dock: it's a toolbar *for* this editing
-  // session (Save/Remove/Move/an embed's own Edit button, etc.), physically outside
-  // editorRef in the DOM but not an "away" click — without this, pointerdown on any
-  // Dock button would close/deselect this Card a beat before the Dock's own onClick
-  // (which fires later, on "click") ever got to run.
+  // Clicking a <button> (the caret, the select button, or a header action) also
+  // focuses it in most browsers, and CardShell's own outer div is itself a
+  // tabbable `role="button"` (primitives/CardShell.tsx) — without these guards,
+  // either would incorrectly mark this Card as the Dock's formatting-toolbar
+  // target too, even though nothing about the title or the rich text itself was
+  // actually touched.
+  function handleFocus(e: FocusEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget) return;
+    if ((e.target as Element).closest("button")) return;
+    onActivateEditor();
+  }
+
   useEffect(() => {
     if (!editing) return;
     function handlePointerDown(e: PointerEvent) {
       const target = e.target as Element;
-      if (editorRef.current && !editorRef.current.contains(target) && !target.closest(".dock")) {
+      if (cardRef.current && !cardRef.current.contains(target) && !target.closest(".dock")) {
         onCloseEditor();
       }
     }
@@ -220,43 +274,130 @@ export function CardView({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [editing, onCloseEditor]);
 
-  // `includeInfo` is only ever true from the static (non-editing) view below —
-  // there's no info back-face to flip to while editing (see `showingInfo` above).
-  function renderHeaderActions(includeInfo: boolean) {
-    if (!onOpenFullscreen && !onTurnIntoStack && !includeInfo) return null;
-    return (
-      <div className="card__header-actions">
-        {onTurnIntoStack && (
-          <Button
-            iconOnly
-            aria-label={t("card.addCard")}
-            title={t("card.addCard")}
+  return (
+    <CardShell
+      selected={selected}
+      className={isHidden ? "card-shell--hidden" : undefined}
+      ref={cardRef}
+      // Marks this Card as the Dock's formatting-toolbar target the moment either
+      // the title input or the rich text gains focus — React's onFocus bubbles
+      // (via the native focusin event), so one handler here catches both without
+      // needing to wire each individually (handleFocus above excludes the header's
+      // own buttons, which also receive focus on click). Frozen Cards render
+      // neither the title nor the content as focusable in the first place (see
+      // below), so this never fires for one.
+      onFocus={isFrozen ? undefined : handleFocus}
+    >
+      <div className="card__header card__header--pinned">
+        <div className="card__header-start">
+          <button
+            type="button"
+            className="card__caret-btn"
+            aria-label={collapsed ? t("card.expand") : t("card.collapse")}
+            title={collapsed ? t("card.expand") : t("card.collapse")}
             onClick={(e) => {
               e.stopPropagation();
-              onTurnIntoStack();
+              setCollapsed((c) => !c);
             }}
             onDoubleClick={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            <Icon name="plus" />
-          </Button>
-        )}
-        {onOpenFullscreen && (
-          <Button
-            iconOnly
-            aria-label={t("card.openFullscreen")}
-            title={t("card.openFullscreen")}
+            <Icon name="down" className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`} />
+          </button>
+          <button
+            type="button"
+            className={`card__select-btn${selected ? " card__select-btn--selected" : ""}`}
+            aria-label={selected ? t("card.deselect") : t("card.select")}
+            title={selected ? t("card.deselect") : t("card.select")}
+            aria-pressed={selected}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenFullscreen();
+              onSelect();
             }}
             onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
           >
-            <Icon name="expand" />
-          </Button>
-        )}
-        {includeInfo && (
+            <span className="card__select-box" aria-hidden="true">
+              {selected && <Icon name="done" />}
+            </span>
+          </button>
+          {isFrozen ? (
+            title && <span className="card__title">{title}</span>
+          ) : (
+            // No placeholder: an untitled Card just shows blank space here, not a
+            // ghost "Untitled" — the input itself (flex: 1, Card.css) already
+            // fills the whole header-start row up to the frozen badge/header
+            // actions, so clicking anywhere in that blank space still focuses it.
+            <InputField className="card__title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} />
+          )}
+          {isFrozen && (
+            <span className="card__frozen-badge" title={t("card.frozen")} aria-label={t("card.frozen")}>
+              <Icon name="lock" />
+            </span>
+          )}
+        </div>
+        <div className="card__header-actions">
+          {hasUnsavedChanges ? (
+            <Button
+              iconOnly
+              className={`card__save-btn${showSaveError ? " card__save-btn--error" : ""}`}
+              aria-label={showSaveError ? t("card.saveTitleRequired") : t("dock.action.save")}
+              title={showSaveError ? t("card.saveTitleRequired") : t("dock.action.save")}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSaveClick();
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onAnimationEnd={() => setShowSaveError(false)}
+            >
+              <Icon name="bookmark" />
+            </Button>
+          ) : (
+            <Button
+              iconOnly
+              className="card__save-btn card__save-btn--saved"
+              aria-label={t("card.openInVault")}
+              title={t("card.openInVault")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInVault(title);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="done" />
+            </Button>
+          )}
+          {onTurnIntoStack && (
+            <Button
+              iconOnly
+              aria-label={t("card.addCard")}
+              title={t("card.addCard")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTurnIntoStack();
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="plus" />
+            </Button>
+          )}
+          {onOpenFullscreen && (
+            <Button
+              iconOnly
+              aria-label={t("card.openFullscreen")}
+              title={t("card.openFullscreen")}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFullscreen();
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <Icon name="expand" />
+            </Button>
+          )}
           <Button
             iconOnly
             aria-label={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
@@ -270,120 +411,15 @@ export function CardView({
           >
             <Icon name="info" />
           </Button>
-        )}
-      </div>
-    );
-  }
-
-  if (editing) {
-    return (
-      <div
-        ref={editorRef}
-        className={`card-shell card-shell--editing card-shell--selected${isHidden ? " card-shell--hidden" : ""}`}
-      >
-
-        <div className="card__header">
-          <div className="card__header-start">
-            {/* Same slot the caret occupies in the static view, so the title lines
-                up exactly the same either way — not interactive here: collapsing
-                the very editor you're typing into wouldn't mean anything. */}
-            <span className="card__caret-btn card__caret-btn--static" aria-hidden="true">
-              <Icon name="down" className="card__caret" />
-            </span>
-            <InputField
-              className="card__title-input"
-              value={title}
-              placeholder={t("card.titlePlaceholder")}
-              autoFocus
-              onChange={(e) => handleTitleChange(e.target.value)}
-            />
-          </div>
-          {renderHeaderActions(false)}
         </div>
-        <CardRichText
-          content={content}
-          onChangeContent={handleContentChange}
-          editable
-          cardId={pageCard.card.id}
-          annotations={canonicalCard.metadata.annotations}
-          ancestorIds={new Set([pageCard.card.id])}
-          depth={0}
-          ownerPageCard={pageCard}
-          onRunActionJob={onRunActionJob}
-          generatingPageCardId={generatingPageCardId}
-          pageSiblings={pageSiblings}
-          selectedEmbedIds={selectedEmbedIds}
-          onSelectEmbed={onSelectEmbed}
-          onRequestEditEmbed={onRequestEditEmbed}
-          editingEmbedIds={editingEmbedIds}
-          onToggleEmbedEdit={onToggleEmbedEdit}
-          onRunProcess={wrappedOnRunProcess}
-          onCreateManualHighlight={wrappedOnCreateManualHighlight}
-          onAcceptDiff={wrappedOnAcceptDiff}
-          onRemoveAnnotation={onRemoveAnnotation}
-          onUpdateAnnotationText={onUpdateAnnotationText}
-        />
       </div>
-    );
-  }
-
-  return (
-    <CardShell
-      selected={selected}
-      className={isHidden ? "card-shell--hidden" : undefined}
-      // selectGesture="prose-aware": a tap in the rich-text body below waits to see
-      // whether a second tap follows (a double-click, selecting a word to quote)
-      // before toggling selection, cancelling outright rather than ever toggling at
-      // all if one does (useCardSelectGesture.ts). Nothing extra needed for the
-      // "select text instead" half — this Card used to also wire onDoubleClick to
-      // onRequestEdit and run a long-press timer that did the same on touch;
-      // dropping both entirely just gets out of the way and lets native browser
-      // double-click/long-press text selection (and SelectionMenu.tsx, which is
-      // always listening) happen on its own.
-      onSelect={onSelect}
-      selectGesture="prose-aware"
-      // The 3D rotateY on .card__flip below needs `perspective` set on its own
-      // parent to render as a flip rather than a flat squash (same reason
-      // PromptCard.css sets it on .prompt-card, the equivalent parent there) — set
-      // inline here rather than in the shared CardShell.css primitive, since it's
-      // only meaningful for this one flipping child.
-      style={{ perspective: "1600px" }}
-    >
-      <div className={`card__flip${showingInfo ? " card__flip--flipped" : ""}`}>
-        <div className={`card__face card__face--front${showingInfo ? " card__face--hidden" : ""}`}>
-          <div className="card__header">
-            <div className="card__header-start">
-              <button
-                type="button"
-                className="card__caret-btn"
-                aria-label={collapsed ? t("card.expand") : t("card.collapse")}
-                title={collapsed ? t("card.expand") : t("card.collapse")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCollapsed((c) => !c);
-                }}
-                onDoubleClick={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-              >
-                <Icon
-                  name="down"
-                  className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`}
-                />
-              </button>
-              {title && <span className="card__title">{title}</span>}
-              {isFrozen && (
-                <span className="card__frozen-badge" title={t("card.frozen")} aria-label={t("card.frozen")}>
-                  <Icon name="lock" />
-                </span>
-              )}
-            </div>
-            {renderHeaderActions(true)}
-          </div>
-          {!collapsed && (
+      {!collapsed && (
+        <div className={`card__flip${showingInfo ? " card__flip--flipped" : ""}`}>
+          <div className={`card__face card__face--front${showingInfo ? " card__face--hidden" : ""}`}>
             <CardRichText
               content={content}
               onChangeContent={handleContentChange}
-              editable={false}
+              editable={!isFrozen}
               cardId={pageCard.card.id}
               annotations={canonicalCard.metadata.annotations}
               ancestorIds={new Set([pageCard.card.id])}
@@ -403,21 +439,12 @@ export function CardView({
               generatingPageCardId={generatingPageCardId}
               pageSiblings={pageSiblings}
             />
-          )}
+          </div>
+          <div className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}>
+            <CardInfoPanel card={canonicalCard} onClose={() => setShowingInfo(false)} />
+          </div>
         </div>
-        <div
-          className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}
-          // Blocks CardShell's own select gesture (pointerdown/pointerup, not
-          // click) from seeing any tap here — this info back-face has plenty of
-          // blank space between CardPropertyRow entries that isn't itself an
-          // interactive control, which would otherwise fall through to an instant
-          // card-select.
-          onPointerDown={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-        >
-          <CardInfoPanel card={canonicalCard} onClose={() => setShowingInfo(false)} />
-        </div>
-      </div>
+      )}
     </CardShell>
   );
 }

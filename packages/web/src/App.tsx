@@ -42,9 +42,14 @@ export function App() {
   /** Which Page fills the screen right now (Step 7: Pages are full-screen, navigated
    *  with the up/down arrows, one visible at a time — not a click-to-select thing). */
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
-  /** Which selected Cards are in their own inline edit mode — always a subset of
-   *  `selectedPageCardIds` (toggleSelectPageCard below drops a deselected Card from
-   *  this set too). Independent per-Card, same convention as editingEmbedIds. */
+  /** Which top-level Card is in its own inline edit mode — independent of
+   *  `selectedPageCardIds` now (Card Feed Interaction plan): a Card can be the
+   *  active editor without being selected at all, and rail-selecting/deselecting a
+   *  Card never touches this. At most one entry at a time for a note Card
+   *  (activatePageCardEditor always replaces rather than adds), though a non-note
+   *  CardType reached via the Dock's own Edit action still lands here too — see
+   *  isEditingActive's own doc comment for why only "note" ones drive the
+   *  formatting toolbar. */
   const [editingPageCardIds, setEditingPageCardIds] = useState<Set<string>>(new Set());
   /** The one Card currently open full-screen (a Card's own "expand" corner button —
    *  see Card.tsx/StackBody.tsx), or null the rest of the time. Independent of
@@ -263,37 +268,38 @@ export function App() {
     }
   }, [sortedPages, currentPageId]);
 
-  /** A plain tap toggles a Card's own membership in the current (possibly
-   *  multi-Card) selection — tapping a not-yet-selected Card adds it, tapping an
-   *  already-selected one removes it again (via exitEditPageCard, so it drops out
-   *  of editingPageCardIds too if it was mid-edit) — same click-to-select/
-   *  click-to-deselect model Dock.tsx's own Quote highlights use, everything else
-   *  (Edit, Save, Move, Hide, remove) reached from the Dock instead of a per-Card
-   *  popup. Cards and embeds can coexist in the selection now — only Dock Card
-   *  selection stays its own separate single-select mechanism, untouched by this. */
+  /** A tap on a Card's own selection rail toggles its membership in the current
+   *  (possibly multi-Card) selection — tapping a not-yet-selected Card adds it,
+   *  tapping an already-selected one removes it again. Independent of
+   *  editingPageCardIds now (Card Feed Interaction plan): rail-selection and the
+   *  active text editor are two separate, orthogonal states — deselecting a Card
+   *  here doesn't stop it from being edited if it happens to be the active editor
+   *  (see exitEditPageCard below for that), and a Card can be the active editor
+   *  without ever being selected here at all. Cards and embeds can coexist in the
+   *  selection now — only Dock Card selection stays its own separate single-select
+   *  mechanism, untouched by this. */
   function toggleSelectPageCard(id: string) {
-    if (selectedPageCardIds.has(id)) {
-      exitEditPageCard(id);
-      return;
-    }
-    setSelectedPageCardIds((prev) => new Set(prev).add(id));
+    setSelectedPageCardIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
     // Mutually exclusive with Dock Card selection (see toggleSelectDockCard) — the
     // Dock's action row only ever shows one *kind* of selection's actions at a time.
     setSelectedDockCardIds(new Set());
   }
 
-  /** Exits editing and drops this one Card out of the current (possibly
-   *  multi-Card) selection, leaving every other selected Card untouched — the
-   *  click-outside-to-close effect (Card.tsx's onCloseEditor) and each selected
-   *  Card's own header "deselect" icon (headerActions) both call this. */
+  /** Exits editing for this one Card, leaving rail-selection (selectedPageCardIds)
+   *  entirely untouched — editing and selection are independent state now (Card
+   *  Feed Interaction plan), so closing the editor never implicitly deselects
+   *  anything, and never needs to: this Card may not have been selected at all.
+   *  The click-outside-to-close effect (Card.tsx's onCloseEditor) calls this. */
   function exitEditPageCard(id: string) {
     setEditingPageCardIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    setSelectedPageCardIds((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
       next.delete(id);
@@ -321,18 +327,22 @@ export function App() {
 
   /** The formatting toolbar's own back-caret (Dock.tsx) — ends editing the same way
    *  each surface's own click-outside-to-close gesture already does: a Page Card
-   *  fully deselects (exitEditPageCard), same as an editing selected embed
-   *  (deselectOneEmbed — only that one, leaving any other selected Cards/embeds
-   *  alone); a Dock Card just drops out of edit mode and stays selected
-   *  (toggleEditEmbed), same as CardEmbed.tsx's own click-outside effect does for it.
-   *  Checked in the same priority order isEditingActive uses. */
+   *  just exits editing (exitEditPageCard — independent of selection now, see its
+   *  own doc comment), same as an editing selected embed (deselectOneEmbed — only
+   *  that one, leaving any other selected Cards/embeds alone); a Dock Card just
+   *  drops out of edit mode and stays selected (toggleEditEmbed), same as
+   *  CardEmbed.tsx's own click-outside effect does for it. Checked in the same
+   *  priority order isEditingActive uses. editingPageCardIds is always at most one
+   *  Card now (activatePageCardEditor never adds a second without first replacing
+   *  the first), so there's nothing to disambiguate by intersecting with selection
+   *  the way this used to. */
   function exitEditing() {
     const editingSelectedEmbedId = [...selectedEmbedIds.keys()].find((id) => editingEmbedIds.has(id));
     if (editingSelectedEmbedId) {
       deselectOneEmbed(editingSelectedEmbedId);
       return;
     }
-    const editingPageCardId = [...selectedPageCardIds].find((id) => editingPageCardIds.has(id));
+    const editingPageCardId = [...editingPageCardIds][0];
     if (editingPageCardId) {
       exitEditPageCard(editingPageCardId);
       return;
@@ -459,6 +469,28 @@ export function App() {
     setSelectedPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setEditingPageCardIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setSelectedDockCardIds(new Set());
+  }
+
+  /** Marks a Card as the Dock's own formatting-toolbar target — forks first if it's
+   *  frozen (Open/Frozen — Wattle vault plan; not that this ever actually happens
+   *  today, since a frozen Card's title/content don't render as focusable to begin
+   *  with — see Card.tsx), then makes it the sole entry in editingPageCardIds.
+   *  Deliberately does NOT touch selectedPageCardIds either way: this and
+   *  rail-selection are independent state — a Card can be the Dock's formatting
+   *  target without being selected at all, while a completely different batch of
+   *  Cards stays selected for Dock's own Save/Move/Hide/Remove actions the whole
+   *  time. Called by Card.tsx's own onActivateEditor prop, wired to that Card's
+   *  onFocus (its title or its rich text — content is always directly editable
+   *  now, there's no separate mode to "enter"). Only one Card can be the Dock's
+   *  target at once — entering here always replaces whichever Card held it
+   *  before. */
+  async function activatePageCardEditor(id: string) {
+    const pageCard = currentPage?.pageCards.find((pc) => pc.id === id);
+    if (pageCard?.card.frozenAt) {
+      await api.forkPageCardOccurrence(id);
+      await refresh();
+    }
+    setEditingPageCardIds(new Set([id]));
   }
 
   /** Selects an embedded Card independently of whatever top-level Card contains it —
@@ -634,21 +666,20 @@ export function App() {
     await refresh();
   }
 
-  /** True while whatever's currently selected (a Page Card, a Dock Card, or an embed)
-   *  is also in its own inline edit mode *and* actually has rich text to format —
-   *  Dock.tsx swaps its action row for the formatting toolbar (bold/italic/heading/
-   *  lists) for exactly this long. A Page Card whose CardType isn't "note" (e.g.
-   *  "action") has nothing there to format, so editing one of those does *not* count
-   *  here — the Dock keeps showing that Card's ordinary selection actions
-   *  (Move/Remove/Save/etc., same as while merely selected) instead of a toolbar
+  /** True while a Page Card, a Dock Card, or an embed is in its own inline edit mode
+   *  *and* actually has rich text to format — Dock.tsx swaps its action row for the
+   *  formatting toolbar (bold/italic/heading/lists) for exactly this long. A Page
+   *  Card whose CardType isn't "note" (e.g. "action") has nothing there to format,
+   *  so editing one of those does *not* count here — the Dock keeps showing that
+   *  Card's ordinary selection actions (Move/Remove/Save/etc.) instead of a toolbar
    *  with nothing relevant to do. Embeds and Dock Cards are always "note"-shaped
-   *  content, so those two clauses are unconditional. */
-  const editingSelectedPageCard = currentPage?.pageCards.find(
-    (pc) => selectedPageCardIds.has(pc.id) && editingPageCardIds.has(pc.id),
-  );
+   *  content, so those two clauses are unconditional. Independent of
+   *  selectedPageCardIds now (Card Feed Interaction plan) — a Page Card can be the
+   *  active editor without being selected at all, and this still reacts to it. */
+  const editingPageCard = currentPage?.pageCards.find((pc) => editingPageCardIds.has(pc.id));
   const isEditingActive =
     [...selectedEmbedIds.keys()].some((cardId) => editingEmbedIds.has(cardId)) ||
-    (editingSelectedPageCard ? getCardTypeId(editingSelectedPageCard.card) === "note" : false) ||
+    (editingPageCard ? getCardTypeId(editingPageCard.card) === "note" : false) ||
     selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
 
   // Selection Lock (Step 6 spec §4.3): Page navigation arrows are disabled the whole
@@ -711,10 +742,10 @@ export function App() {
   // Nearby's live rank (Wattle vault plan) — re-scored against the current Page's
   // open Cards plus whatever's actually being typed right now, if anything is being
   // edited. Only fetches while the Nearby panel is actually open (useNearby.ts).
-  const nearbyFocusedCard = editingSelectedPageCard ?? singleSelectedCard;
-  const nearbyDraftText = editingSelectedPageCard
-    ? `${editingSelectedPageCard.draftTitle ?? editingSelectedPageCard.card.title}\n${
-        editingSelectedPageCard.draftContent ?? editingSelectedPageCard.card.content
+  const nearbyFocusedCard = editingPageCard ?? singleSelectedCard;
+  const nearbyDraftText = editingPageCard
+    ? `${editingPageCard.draftTitle ?? editingPageCard.card.title}\n${
+        editingPageCard.draftContent ?? editingPageCard.card.content
       }`
     : "";
   const nearby = useNearby(currentPage?.id ?? null, nearbyFocusedCard?.card.id ?? null, nearbyDraftText, openPanel === "nearby");
@@ -828,25 +859,6 @@ export function App() {
     );
   }
 
-  /** The Dock's Edit action (only ever shown for a single selected Card) — opens its
-   *  inline editor the same way double-click/long-press used to before Card.tsx
-   *  repurposed both gestures for text-selection/Quote instead. */
-  // Editing a Frozen Card always forks (Open/Frozen — Wattle vault plan): the fork
-  // happens *before* entering `editing`, so Card.tsx never has to reconcile a still-
-  // frozen `canonicalCard` with a live edit. The PageCard id itself doesn't change —
-  // pageCardService.forkOccurrence just repoints its `cardId` at the new fork — so
-  // requestEditPageCard still targets the same id either way; refresh() (called by
-  // every mutating api.* call's caller elsewhere) isn't needed here since usePages'
-  // own polling/refresh picks up the repointed cardId before the editor next reads it.
-  async function handleEditSelected() {
-    if (!singleSelectedCard) return;
-    if (singleSelectedCard.card.frozenAt) {
-      await api.forkPageCardOccurrence(singleSelectedCard.id);
-      await refresh();
-    }
-    requestEditPageCard(singleSelectedCard.id);
-  }
-
   async function handleFreezeSelected() {
     if (!singleSelectedCard) return;
     await api.freezeCard(singleSelectedCard.card.id);
@@ -871,6 +883,33 @@ export function App() {
     // one directly rather than relying on subscribeToSaves to fire on its own.
     for (const pc of toSave) notifySaved(pc.card.id);
     await refresh();
+  }
+
+  /** Card.tsx's own header Save button — same save-a-not-yet-vaulted-draft flow as
+   *  handleSaveSelected above (same title-required guard too), just for one
+   *  specific PageCard regardless of whether it's currently selected — a note's
+   *  header always shows this while it has something pending, independent of the
+   *  Dock's own batch Save (still reachable for a selection of several Cards at
+   *  once via the Dock, unaffected by this). */
+  async function handleSavePageCard(pageCardId: string) {
+    const pc = currentPage?.pageCards.find((p) => p.id === pageCardId);
+    if (!pc) return;
+    if ((pc.draftTitle ?? pc.card.title).trim() === "") return;
+    await api.savePageCardToVault(pageCardId);
+    notifySaved(pc.card.id);
+    await refresh();
+  }
+
+  /** Card.tsx's header button once there's nothing left to save (the tick state) —
+   *  opens the Vault panel and searches for this Card by its own title
+   *  (cardService.listCards' title/content substring match), the closest thing to
+   *  "jump straight to this Card" the Vault has today, since it's a flat search or
+   *  a folder browse rather than anything keyed by id. Good enough for a title
+   *  that's actually somewhat distinctive; a very generic or duplicate title may
+   *  surface more than just this one Card among the results. */
+  function handleOpenCardInVault(title: string) {
+    setOpenPanel("vault");
+    vault.setQuery(title);
   }
 
   /** The Dock's "Hide"/"Show" action (selectedCards row, Dock.tsx) — flips
@@ -1330,6 +1369,9 @@ export function App() {
           onTogglePageCard={toggleSelectPageCard}
           onCloseEditor={exitEditPageCard}
           onRequestEditPageCard={requestEditPageCard}
+          onActivatePageCardEditor={activatePageCardEditor}
+          onSavePageCard={handleSavePageCard}
+          onOpenPageCardInVault={handleOpenCardInVault}
           onChangeDraft={handleChangeDraft}
           selectedEmbedIds={selectedEmbedIdSet}
           onSelectEmbed={selectEmbed}
@@ -1380,6 +1422,9 @@ export function App() {
             onTogglePageCard={toggleSelectPageCard}
             onCloseEditor={exitEditPageCard}
             onRequestEditPageCard={requestEditPageCard}
+            onActivatePageCardEditor={activatePageCardEditor}
+            onSavePageCard={handleSavePageCard}
+            onOpenPageCardInVault={handleOpenCardInVault}
             onChangeDraft={handleChangeDraft}
             selectedEmbedIds={selectedEmbedIdSet}
             onSelectEmbed={selectEmbed}
@@ -1447,7 +1492,6 @@ export function App() {
         onDismissGenerationNotice={generation.dismissNotice}
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
-        onEditSelected={handleEditSelected}
         onFreezeSelected={handleFreezeSelected}
         onSaveSelected={handleSaveSelected}
         onRemoveSelected={handleRemoveSelected}

@@ -23,6 +23,20 @@ interface PageCardSlotProps {
   onSelect: () => void;
   onCloseEditor: () => void;
   onRequestEdit: () => void;
+  /** Marks this Card as the Dock's own formatting-toolbar target (App.tsx's
+   *  activatePageCardEditor) — only consumed by the "note" branch below
+   *  (CardView/Card.tsx), which wires this to its own onFocus; see Card.tsx's own
+   *  onActivateEditor doc comment. Every other CardType stays on its existing
+   *  interaction model regardless. */
+  onActivateEditor: () => void;
+  /** Card.tsx's own header Save button (App.tsx's handleSavePageCard) — only
+   *  consumed by the "note" branch below, same scoping as onActivateEditor
+   *  above. */
+  onSave: () => void;
+  /** Card.tsx's own header button once there's nothing left to save (App.tsx's
+   *  handleOpenCardInVault, takes this Card's own live title) — same "note"
+   *  branch-only scoping as onSave above. */
+  onOpenInVault: (title: string) => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
@@ -83,6 +97,9 @@ function PageCardSlot({
   onSelect,
   onCloseEditor,
   onRequestEdit,
+  onActivateEditor,
+  onSave,
+  onOpenInVault,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -120,7 +137,9 @@ function PageCardSlot({
         editing={editing}
         onSelect={onSelect}
         onCloseEditor={onCloseEditor}
-        onRequestEdit={onRequestEdit}
+        onActivateEditor={onActivateEditor}
+        onSave={onSave}
+        onOpenInVault={onOpenInVault}
         onChangeDraft={onChangeDraft}
         selectedEmbedIds={selectedEmbedIds}
         onSelectEmbed={onSelectEmbed}
@@ -190,10 +209,20 @@ interface PageStackProps {
   /** A tap on a not-yet-selected Card adds it to the selection; a no-op on an
    *  already-selected one (App.tsx's toggleSelectPageCard). */
   onTogglePageCard: (id: string) => void;
-  /** The click-outside-to-close effect (Card.tsx) calls this instead — fully exits
-   *  editing and deselects just this one Card (App.tsx's exitEditPageCard). */
+  /** The click-outside-to-close effect (Card.tsx) calls this instead — drops this
+   *  one Card back out of being the Dock's formatting-toolbar target, leaving
+   *  selection untouched (App.tsx's exitEditPageCard). */
   onCloseEditor: (id: string) => void;
   onRequestEditPageCard: (id: string) => void;
+  /** See PageCardSlotProps.onActivateEditor above — "note" branch only. */
+  onActivatePageCardEditor: (id: string) => void;
+  /** See PageCardSlotProps.onSave above — "note" branch only. */
+  onSavePageCard: (id: string) => void;
+  /** See PageCardSlotProps.onOpenInVault above — "note" branch only. Passed
+   *  straight through unwrapped (unlike the id-keyed callbacks above): Card.tsx
+   *  already knows its own live title, so there's nothing to bind per-PageCard
+   *  here. */
+  onOpenPageCardInVault: (title: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
   selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
@@ -312,6 +341,9 @@ export function PageStack({
   onTogglePageCard,
   onCloseEditor,
   onRequestEditPageCard,
+  onActivatePageCardEditor,
+  onSavePageCard,
+  onOpenPageCardInVault,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -382,6 +414,9 @@ export function PageStack({
                   onSelect={() => onTogglePageCard(pageCard.id)}
                   onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
+                  onActivateEditor={() => onActivatePageCardEditor(pageCard.id)}
+                  onSave={() => onSavePageCard(pageCard.id)}
+                  onOpenInVault={onOpenPageCardInVault}
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
                   selectedEmbedIds={selectedEmbedIds}
                   onSelectEmbed={onSelectEmbed}

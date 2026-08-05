@@ -131,14 +131,6 @@ interface DockProps {
    *  they're two independent features that can each be mid-action at once. */
   annotationError: string | null;
   onDismissAnnotationError: () => void;
-  /** Opens a single selected Card's inline editor (App.tsx's handleEditSelected →
-   *  requestEditPageCard) — the only way to enter it now that a plain tap/click
-   *  selects the Card instead and a double-click/long-press selects text for a Quote
-   *  instead of jumping into editing (Card.tsx no longer wires either gesture to
-   *  onRequestEdit). Only ever shown for exactly one selected Card, same
-   *  single-target scoping onRewriteSelected/isStackSelected below already use —
-   *  editing several Cards' inline editors open at once isn't a case this covers. */
-  onEditSelected: () => void;
   /** Freezes the single selected Card (Open/Frozen — Wattle vault plan) — read-only
    *  from here on; only shown once it's savedToVault, still Open, and has nothing
    *  unsaved pending (see this action's own gating above). */
@@ -404,7 +396,6 @@ export function Dock({
   onDismissGenerationNotice,
   annotationError,
   onDismissAnnotationError,
-  onEditSelected,
   onFreezeSelected,
   onSaveSelected,
   onRemoveSelected,
@@ -1532,24 +1523,6 @@ export function Dock({
             },
           ]
         : []),
-      // The only way to open a single selected Card's inline editor now — a plain
-      // tap/click selects the Card instead of editing it, and a double-click/
-      // long-press selects text for a Quote instead of jumping into editing (see
-      // Card.tsx's onSelect/onDoubleClick). Same single-target scoping as
-      // generateSelected above, plus operationId "card.edit" so it disappears
-      // entirely for a CardType that doesn't support editing at all (a File Card —
-      // see fileCardType.ts's own doc comment).
-      ...(selectedCards.length === 1
-        ? [
-            {
-              key: "editSelected",
-              operationId: "card.edit",
-              icon: "edit" as const,
-              label: t("dock.action.edit"),
-              onClick: onEditSelected,
-            },
-          ]
-        : []),
       // Freeze (Open/Frozen — Wattle vault plan): only offered for a single, already-
       // saved, still-Open Card — nothing to freeze yet if it's still page-local
       // scratch content or a draft is pending (hasUnsavedDraft), and freezing an
@@ -2032,10 +2005,10 @@ export function Dock({
                 onClick: () => setVaultMoving(null),
               },
             ]
-          : isEditingActive
-            ? formattingActions
-            : embedOrPageCardSelected
-              ? (vaultModeActions ?? modeActions)
+          : embedOrPageCardSelected
+            ? (vaultModeActions ?? modeActions)
+            : isEditingActive
+              ? formattingActions
               : [vaultAction, dockCardsAction, nearbyAction, ...(vaultModeActions ?? modeActions)];
 
   const rowActions: DockAction[] = actions;
