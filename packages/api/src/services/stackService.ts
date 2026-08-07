@@ -191,20 +191,15 @@ export async function updateMemberDraft(
 }
 
 /** Persists a member's draft edits back to its own vault Card — the "children can be
- *  saved individually" half of the Stack concept. Mirrors
- *  pageCardService.saveToVault exactly, just scoped to a StackMember row instead of a
- *  PageCard one — including its title-required check (removeMember/closeStack's own
- *  auto-promotions below deliberately don't enforce it, same reasoning as
- *  pageCardService.removeFromPage). */
+ *  saved individually" half of the Stack concept. Mirrors pageCardService.saveToVault
+ *  exactly, just scoped to a StackMember row instead of a PageCard one — no title
+ *  required, same as that path (see cardService.createCard's own doc comment). */
 export async function saveMemberToVault(memberId: string): Promise<StackMember> {
   const member = await prisma.stackMember.findUniqueOrThrow({
     where: { id: memberId },
     include: { card: true },
   });
   const title = member.draftTitle ?? member.card.title;
-  if (title.trim() === "") {
-    throw new Error("A title is required to save a Card to the vault");
-  }
   await prisma.card.update({
     where: { id: member.cardId },
     data: {

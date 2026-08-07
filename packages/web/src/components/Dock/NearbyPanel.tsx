@@ -32,7 +32,7 @@ export function NearbyPanel({ items, loading, onOpenCard }: NearbyPanelProps) {
           className="nearby-panel__item"
           onClick={() => onOpenCard(item.cardId)}
         >
-          <span className="nearby-panel__item-title">{item.title || t("common.untitled")}</span>
+          <span className="nearby-panel__item-title">{item.title}</span>
           {item.summary && item.summary !== item.title && (
             <span className="nearby-panel__item-summary">{item.summary}</span>
           )}

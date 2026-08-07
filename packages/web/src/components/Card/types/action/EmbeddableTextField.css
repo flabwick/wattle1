@@ -27,12 +27,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: var(--touch-target-sm);
-  min-height: var(--touch-target-sm);
+  min-width: 22px;
+  min-height: 22px;
   background: none;
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
+}
+
+.action-card-editor__link-btn .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .action-card-editor__link-btn:hover {

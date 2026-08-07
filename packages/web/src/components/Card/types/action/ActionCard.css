@@ -9,22 +9,11 @@
   width: 100%;
 }
 
-/* ActionCardEditor.tsx — the label input plus ActionJobFields' select/input rows,
-   stacked with the same rhythm a note Card's editing view uses. */
-.action-card-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.action-card-editor select,
-.action-card-editor input:not(.input-field) {
-  min-height: var(--touch-target-sm);
-  padding: 0 var(--space-2);
-  background: var(--color-surface);
-  border: var(--border-width-thin) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  font-family: var(--font-family-base);
-  font-size: var(--font-size-base);
+/* The first failing step's own error message, shown below the Run button —
+   ActionCardView.tsx's own runSteps doc comment explains why only one, not a full
+   per-step list (that lives in the flip panel's own step list instead). */
+.action-card__run-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
 }

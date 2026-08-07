@@ -35,37 +35,27 @@ cardsRouter.get("/:id/file", async (req, res) => {
 });
 
 cardsRouter.post("/", async (req, res) => {
-  const { title, content, folderId } = req.body ?? {};
+  const { title, content } = req.body ?? {};
   if (typeof title !== "string" || typeof content !== "string") {
     return res.status(400).json({ error: "title and content are required strings" });
   }
-  res.status(201).json(
-    await cardService.createCard({
-      title,
-      content,
-      folderId: typeof folderId === "string" ? folderId : null,
-    }),
-  );
+  res.status(201).json(await cardService.createCard({ title, content }));
 });
 
-// POST /api/cards/files  multipart/form-data, field "file", optional field
-// "folderId" — the Vault panel's own Upload action (see cardService.createFileCard),
-// as opposed to POST /api/pages/:pageId/files (page-local) or
-// POST /api/dock-cards/files (Dock-local).
+// POST /api/cards/files  multipart/form-data, field "file" — the Vault panel's own
+// Upload action (see cardService.createFileCard), as opposed to
+// POST /api/pages/:pageId/files (page-local) or POST /api/dock-cards/files
+// (Dock-local).
 cardsRouter.post("/files", fileUpload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "file is required" });
   }
-  const folderId = typeof req.body?.folderId === "string" ? req.body.folderId : null;
-  const card = await cardService.createFileCard(
-    {
-      storedName: req.file.filename,
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-    },
-    folderId,
-  );
+  const card = await cardService.createFileCard({
+    storedName: req.file.filename,
+    originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+  });
   res.status(201).json(card);
 });
 
@@ -79,13 +69,6 @@ cardsRouter.patch("/:id", async (req, res) => {
 cardsRouter.delete("/:id", async (req, res) => {
   await runOperation<void>("card.delete", { id: req.params.id });
   res.status(204).end();
-});
-
-// PATCH /api/cards/:id/move  { folderId: string | null } — move a vault Card into a
-// different Folder (null = vault root). Wraps the "card.move" Operation.
-cardsRouter.patch("/:id/move", async (req, res) => {
-  const payload = { id: req.params.id, folderId: req.body?.folderId ?? null };
-  res.json(await runOperation<Card>("card.move", payload));
 });
 
 // POST /api/cards/:id/freeze — read-only from here on (Wattle vault plan's

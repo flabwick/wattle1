@@ -4,12 +4,9 @@ import type {
   Card,
   CalloutKind,
   DockCardWithCard,
-  Folder,
-  FolderContents,
   NearbyItem,
   PageCardWithCard,
-  PageWithCards,
-  Tab,
+  PageSummary,
 } from "@wattle/shared";
 import { cardTypeRegistry, flattenToPlainText, htmlToDoc, operationRegistry } from "@wattle/shared";
 import type { Editor } from "@tiptap/core";
@@ -21,10 +18,10 @@ import { VaultView } from "../Vault/VaultView.js";
 import { DockCardsPanel } from "./DockCardsPanel.js";
 import { NearbyPanel } from "./NearbyPanel.js";
 import { PagesPanel } from "./PagesPanel.js";
-import { TabsPanel } from "./TabsPanel.js";
 import { ProcessPicker } from "./ProcessPicker.js";
 import { ConvertPicker } from "./ConvertPicker.js";
 import { CardLinkPicker } from "../Card/CardLinkPicker.js";
+import { PageLinkPicker } from "../Card/PageLinkPicker.js";
 import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js";
 import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
 import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
@@ -56,7 +53,7 @@ function escapeHtml(text: string): string {
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
  *  independent booleans so that's structurally guaranteed, not just convention. */
-export type DockPanel = "vault" | "dockCards" | "pages" | "tabs" | "nearby";
+export type DockPanel = "vault" | "dockCards" | "pages" | "nearby";
 
 interface DockProps {
   /** Every currently-selected Card — multiple Cards can be selected at once now
@@ -209,29 +206,20 @@ interface DockProps {
   nearbyLoading: boolean;
   onOpenNearbyCard: (cardId: string) => void;
   vaultSearchResults: Card[];
+  /** Page title matches (Pages + Links + Search rebuild, Phase 2) — the Vault panel's
+   *  own "Search finds Pages/Cards" half, shown above vaultSearchResults. */
+  vaultPageResults: PageSummary[];
+  onOpenPageFromSearch: (id: string) => void;
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
-  /** The currently browsed Folder's contents (subfolders, its Cards, and its
-   *  breadcrumb) — null only until the first fetch lands. Browsing the vault root
-   *  looks the same as any other Folder here, just with `folder: null`. */
-  vaultFolderContents: FolderContents | null;
-  onOpenVaultFolder: (id: string | null) => void;
-  /** Create a new blank Card directly in the vault, in whichever Folder is currently
-   *  open — IDE-"new file" style, like the Page-oriented action this replaced.
-   *  Returns the created Card so the Dock can select it immediately. Null while
-   *  search is active (there's no single Folder to create into). */
+  /** Create a new blank Card directly in the vault — IDE-"new file" style. Returns
+   *  the created Card so the Dock can select it immediately. */
   onCreateVaultCard: (() => Promise<Card>) | null;
-  onCreateVaultFolder: ((title: string) => Promise<Folder>) | null;
-  /** Uploads a file straight into the vault, in whichever Folder is currently open —
-   *  the Vault panel's own Upload action (cardService.createFileCard), same
-   *  "null while search is active" gating as onCreateVaultCard/onCreateVaultFolder. */
+  /** Uploads a file straight into the vault — the Vault panel's own Upload action
+   *  (cardService.createFileCard). */
   onUploadVaultFile: ((file: File) => void) | null;
   onRenameVaultCard: (id: string, title: string) => void;
-  onRenameVaultFolder: (id: string, title: string) => void;
-  onMoveVaultCard: (id: string, folderId: string | null) => void;
-  onMoveVaultFolder: (id: string, parentId: string | null) => void;
   onDeleteVaultCard: (id: string) => void;
-  onDeleteVaultFolder: (id: string) => void;
   /** Add a vault Card to the current Page, if one exists. */
   onAddVaultCardToPage: ((cardId: string) => void) | null;
   /** The Dock Cards toggle's own repurposed behavior while a vault Card is selected
@@ -277,41 +265,45 @@ interface DockProps {
    *  destination Page/Tab/position is picked afterward by navigating there and
    *  tapping a drop zone, not by this action itself. */
   onMoveSelectedDockCardsToPage: () => void;
-  /** The Pages panel (Step 6 spec §3.5) — top-to-bottom stack order, same indexing as
-   *  App.tsx's sortedPages. */
-  sortedPages: PageWithCards[];
-  currentPageIndex: number;
-  onSelectPage: (index: number) => void;
-  /** The compact Page nav cluster (up/down/add + the Pages panel toggle, merged into
-   *  one bottom-right control in the Dock's base bar — formerly the standalone
-   *  PageNav component). Already false/true-computed by App.tsx the same way
-   *  PageNav's own props were. */
+  /** The compact Page nav cluster (up/down/add + Home + pin + the Pages panel toggle,
+   *  merged into one bottom-right control in the Dock's base bar — formerly the
+   *  standalone PageNav component). Up/down now walk `siblingGroupId` (Phase 3's
+   *  optional next/prev trail), not a Tab's stack — App.tsx's useSiblingPages. */
+  siblingIndex: number;
+  siblingCount: number;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
   onNavigateUp: () => void;
   onNavigateDown: () => void;
   onAddPage: () => void;
+  /** Recent-Pages back/forward (Phase 2's nav-chrome) — App.tsx's pageHistory/
+   *  pageForwardHistory. */
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onGoBack: () => void;
+  onGoForward: () => void;
+  /** Home + the scarce pin rail (Phase 4) — App.tsx's usePagesNav. */
+  homePageId: string | null;
+  currentPageId: string | null;
+  onGoHome: () => void;
+  pinnedPages: PageSummary[];
+  isCurrentPagePinned: boolean;
+  onTogglePinCurrent: () => void;
+  onOpenPage: (id: string) => void;
   /** The base row's "reveal hidden cards" toggle (Apps feature spec §2) — while on,
    *  every hidden Card (Card.metadata.hidden) on the current Page renders inline
    *  with a dashed border instead of being excluded. Purely a display preference,
    *  independent of selection/Move Mode. */
   revealHidden: boolean;
   onToggleRevealHidden: () => void;
-  /** The Tabs panel (Step 6 spec §3.4) — left-to-right order, same indexing as
-   *  App.tsx's sortedTabs/swipe gesture. */
-  tabs: Tab[];
-  currentTabIndex: number;
-  onSelectTab: (index: number) => void;
-  onCreateTab: () => void;
-  /** "Save as App" (Apps feature spec §5) — scope "tab" from the Tabs panel, scope
-   *  "page" from the Pages panel (the closest existing analogues to "a Tab/Page has
-   *  focus", since neither is a real tracked concept elsewhere in the app). */
-  onSaveAsAppFromTab: () => void;
-  onSaveAsAppFromPage: () => void;
-  /** The App currently being edited (Apps feature spec §5's editingAppId), or null —
-   *  shown as a small badge while set; tapping it clears back to null. */
-  editingAppName: string | null;
-  onStopEditingApp: () => void;
+  /** "Save as Template", scope "page" — Tab is gone (see schema.prisma's Tab doc
+   *  comment), so Template creation is page-scoped only now; a scope "tab"/hub
+   *  Template can still be *opened*, just not newly authored from the UI. */
+  onSaveAsTemplateFromPage: () => void;
+  /** The Template currently being edited (editingTemplateId), or null — shown as a
+   *  small badge while set; tapping it clears back to null. */
+  editingTemplateName: string | null;
+  onStopEditingTemplate: () => void;
 }
 
 interface DockAction {
@@ -421,17 +413,10 @@ export function Dock({
   vaultSearchResults,
   vaultQuery,
   onVaultQueryChange,
-  vaultFolderContents,
-  onOpenVaultFolder,
   onCreateVaultCard,
-  onCreateVaultFolder,
   onUploadVaultFile,
   onRenameVaultCard,
-  onRenameVaultFolder,
-  onMoveVaultCard,
-  onMoveVaultFolder,
   onDeleteVaultCard,
-  onDeleteVaultFolder,
   onAddVaultCardToPage,
   onAddVaultCardToDock,
   dockCards,
@@ -446,29 +431,35 @@ export function Dock({
   onDeselectDockCards,
   onCloseSelectedDockCards,
   onMoveSelectedDockCardsToPage,
-  sortedPages,
-  currentPageIndex,
-  onSelectPage,
+  siblingIndex,
+  siblingCount,
   canNavigateUp,
   canNavigateDown,
   onNavigateUp,
   onNavigateDown,
   onAddPage,
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  homePageId,
+  currentPageId,
+  onGoHome,
+  pinnedPages,
+  isCurrentPagePinned,
+  onTogglePinCurrent,
+  onOpenPage,
+  vaultPageResults,
+  onOpenPageFromSearch,
   revealHidden,
   onToggleRevealHidden,
-  tabs,
-  currentTabIndex,
-  onSelectTab,
-  onCreateTab,
-  onSaveAsAppFromTab,
-  onSaveAsAppFromPage,
-  editingAppName,
-  onStopEditingApp,
+  onSaveAsTemplateFromPage,
+  editingTemplateName,
+  onStopEditingTemplate,
 }: DockProps) {
   const vaultOpen = openPanel === "vault";
   const dockCardsOpen = openPanel === "dockCards";
   const pagesOpen = openPanel === "pages";
-  const tabsOpen = openPanel === "tabs";
   const nearbyOpen = openPanel === "nearby";
 
   // Content stays mounted one tick behind `openPanel` going to null, so the slide-
@@ -501,14 +492,11 @@ export function Dock({
       setRewriteText("");
     }
   }, [selectedCards, isEditingActive]);
-  /** Which vault Card or Folder is selected — clicking one selects it instead of
-   *  acting on it immediately, so the Dock can show what to do with it (see
-   *  vaultModeActions below). Selecting a Folder is deliberately independent of
-   *  browsing it (see VaultView.tsx's doc comment): the Folder currently open and
-   *  the Folder currently selected can be different, or the same, at once. */
-  const [selectedVaultItem, setSelectedVaultItem] = useState<{ type: "card" | "folder"; id: string } | null>(
-    null,
-  );
+  /** Which vault Card is selected — clicking one selects it instead of acting on it
+   *  immediately, so the Dock can show what to do with it (see vaultModeActions
+   *  below). The Vault is search-only now (Pages + Links + Search rebuild): no
+   *  Folder browsing/selection to disambiguate from any more. */
+  const [selectedVaultCardId, setSelectedVaultCardId] = useState<string | null>(null);
   /** Non-null while the selected vault Card's click-through detail view (links +
    *  Nearby — VaultCardDetail.tsx) is open. Deliberately independent of selection
    *  itself: selecting a Card (a plain click/tap, IDE-file-manager style) only ever
@@ -516,21 +504,15 @@ export function Dock({
    *  (vaultModeActions below) is the one explicit way in, same as Add to Page/Add to
    *  Dock are the explicit ways to actually open it *somewhere*. */
   const [vaultDetailId, setVaultDetailId] = useState<string | null>(null);
-  /** Non-null while a vault Card/Folder row shows an inline rename input in place of
-   *  its label (VaultView.tsx's ItemLabel) — set by the Rename action below. */
-  const [vaultRenaming, setVaultRenaming] = useState<{ type: "card" | "folder"; id: string } | null>(
-    null,
-  );
+  /** Non-null while a vault Card row shows an inline rename input in place of its
+   *  label (VaultView.tsx's ItemLabel) — set by the Rename action below. */
+  const [vaultRenaming, setVaultRenaming] = useState<string | null>(null);
   /** The Card id "New Card" (vaultNewCard below) most recently created, from the
    *  moment it's created until its very first naming is committed or abandoned —
    *  never touched again after that (a later rename of the same Card is a normal
-   *  rename, revert-on-blank like any other). Drives VaultView.tsx's
-   *  renamingIsNewCard (blank rename input, no "Untitled" default) and this file's
-   *  own onCommitRename/onCancelRename below (delete-on-blank instead of keep). */
+   *  rename). Drives VaultView.tsx's renamingIsNewCard (blank rename input, no
+   *  "Untitled" default). */
   const [vaultNewCardId, setVaultNewCardId] = useState<string | null>(null);
-  /** Non-null while a vault Card/Folder is "in transit" waiting for a destination
-   *  Folder to be picked — the vault-panel equivalent of movingPageCardIds/Move Mode. */
-  const [vaultMoving, setVaultMoving] = useState<{ type: "card" | "folder"; id: string } | null>(null);
   /** The magic button's rewrite-in-place text box (onRewriteSelected above) — open
    *  while the selectedCards row shows the instruction input instead of its normal
    *  actions. Reset below whenever the selection changes or editing starts, so it
@@ -650,6 +632,11 @@ export function Dock({
    *  processPickerPos/processButtonRef above. */
   const [linkPickerPos, setLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const linkButtonRef = useRef<HTMLDivElement>(null);
+  /** "Insert Page link" (Pages + Links + Search rebuild, Phase 2) — same
+   *  anchored-popover convention as linkPickerPos/linkButtonRef above, just for a
+   *  `pageLink` node (a destination) instead of a `cardEmbed` (composed content). */
+  const [pageLinkPickerPos, setPageLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
+  const pageLinkButtonRef = useRef<HTMLDivElement>(null);
   const [fieldKindPickerPos, setFieldKindPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const fieldButtonRef = useRef<HTMLDivElement>(null);
   /** "Insert link" (a plain `<a href>` mark, distinct from "insert card link"'s
@@ -707,27 +694,13 @@ export function Dock({
   });
 
   /** Clears every piece of vault-panel-local selection state — used whenever the
-   *  panel closes, so reopening it starts fresh rather than resuming mid-rename or
-   *  mid-move at some Card/Folder that may not even be in view any more. */
+   *  panel closes, so reopening it starts fresh rather than resuming mid-rename at
+   *  some Card that may not even be in the results any more. */
   function closeVaultSelection() {
-    setSelectedVaultItem(null);
+    setSelectedVaultCardId(null);
     setVaultDetailId(null);
     setVaultRenaming(null);
-    setVaultMoving(null);
   }
-
-  /** Navigating to a different Folder invalidates whatever was selected (a selected
-   *  Card may not even be in the new list; a selected Folder's Rename/Move/Delete
-   *  actions should disappear once you've navigated away from the reason you picked
-   *  it) — but deliberately leaves `vaultMoving` alone, since browsing *is* how a
-   *  Move destination gets picked (see VaultView.tsx's "Move Here" row). */
-  function handleOpenVaultFolder(id: string | null) {
-    setSelectedVaultItem(null);
-    setVaultRenaming(null);
-    onOpenVaultFolder(id);
-  }
-
-  const currentVaultFolder = vaultFolderContents?.folder ?? null;
 
   /** Same "never during Move Mode" reasoning showLookupRow below also uses — the
    *  convert output/error panel. Computed first so showLookupRow can hide itself
@@ -741,16 +714,14 @@ export function Dock({
     (convertOutput !== null || convertError !== null || convertLoading) &&
     !moving &&
     !dockCardMoving &&
-    !embedMoving &&
-    !vaultMoving;
+    !embedMoving;
 
   /** Never shown during Move Mode (of any kind) — otherwise a stray leftover text
    *  selection from before the move started would strand the user with no visible
    *  way to cancel it (the row would show the lookup UI instead of Cancel). Also
    *  never shown alongside the convert output panel (showConvertPanel above) — see
    *  its own doc comment for why. */
-  const showLookupRow =
-    lookupActive && !showConvertPanel && !moving && !dockCardMoving && !embedMoving && !vaultMoving;
+  const showLookupRow = lookupActive && !showConvertPanel && !moving && !dockCardMoving && !embedMoving;
 
   /** The panel's own explicit close button — the *only* thing that clears the
    *  underlying selection (every Quote, via clearQuotes; selectedCards/
@@ -1055,7 +1026,7 @@ export function Dock({
   const vaultAction: DockAction = {
     key: "vault",
     operationId: null,
-    icon: vaultOpen ? "close" : "vault",
+    icon: vaultOpen ? "close" : "search",
     label: vaultLabel,
     onClick: () => {
       if (vaultOpen) {
@@ -1079,8 +1050,6 @@ export function Dock({
     onClick: onToggleRevealHidden,
     active: revealHidden,
   };
-
-  const tabsLabel = tabsOpen ? t("dock.tabs.close") : t("dock.tabs.open");
 
   // Same convention as the Vault toggle: stays in the row and just changes what it
   // shows/does, rather than disappearing or replacing the row's other buttons —
@@ -1107,8 +1076,8 @@ export function Dock({
         onMoveToDock();
       } else if (embedMoving) {
         onMoveEmbedToDock();
-      } else if (vaultOpen && selectedVaultItem?.type === "card") {
-        onAddVaultCardToDock(selectedVaultItem.id);
+      } else if (vaultOpen && selectedVaultCardId) {
+        onAddVaultCardToDock(selectedVaultCardId);
         closeVaultSelection();
       } else if (selectedDockCardIds.size > 0) {
         onClosePanel();
@@ -1138,108 +1107,66 @@ export function Dock({
         query={vaultQuery}
         onQueryChange={onVaultQueryChange}
         searchResults={vaultSearchResults}
-        folder={currentVaultFolder}
-        breadcrumb={vaultFolderContents?.breadcrumb ?? []}
-        subfolders={vaultFolderContents?.folders ?? []}
-        cards={vaultFolderContents?.cards ?? []}
-        onOpenFolder={handleOpenVaultFolder}
-        selectedCardId={selectedVaultItem?.type === "card" ? selectedVaultItem.id : null}
-        onSelectCard={(id) =>
-          setSelectedVaultItem((prev) =>
-            prev?.type === "card" && prev.id === id ? null : { type: "card", id },
-          )
-        }
+        pageResults={vaultPageResults}
+        onOpenPage={onOpenPageFromSearch}
+        selectedCardId={selectedVaultCardId}
+        onSelectCard={(id) => setSelectedVaultCardId((prev) => (prev === id ? null : id))}
         // Only non-null once selection and the explicit "Preview" action
         // (vaultModeActions above) agree on the same Card — selecting a different
-        // Card (or Folder, or nothing) implicitly closes whatever was previewed,
-        // same as Move starting does (see vaultModeActions' vaultMove/vaultRename,
-        // which clear this too for the same reason).
-        detailCardId={
-          !vaultMoving && selectedVaultItem?.type === "card" && vaultDetailId === selectedVaultItem.id
-            ? vaultDetailId
-            : null
-        }
+        // Card (or nothing) implicitly closes whatever was previewed, same as Rename
+        // starting does (see vaultModeActions' vaultRename, which clears this too
+        // for the same reason).
+        detailCardId={selectedVaultCardId && vaultDetailId === selectedVaultCardId ? vaultDetailId : null}
         // A link/Nearby row *within* the detail view drilling into another Card —
         // unlike onSelectCard (a plain row click, select-only), this both selects
         // *and* keeps the detail view open on the new Card, so "click through them"
         // stays one click each rather than select-then-Preview-again per hop.
         onOpenCardDetail={(id) => {
-          setSelectedVaultItem({ type: "card", id });
+          setSelectedVaultCardId(id);
           setVaultDetailId(id);
         }}
         onCloseCardDetail={() => setVaultDetailId(null)}
-        selectedFolderId={selectedVaultItem?.type === "folder" ? selectedVaultItem.id : null}
-        onSelectFolder={(id) =>
-          setSelectedVaultItem((prev) =>
-            prev?.type === "folder" && prev.id === id ? null : { type: "folder", id },
-          )
-        }
-        renamingId={vaultRenaming?.id ?? null}
-        renamingIsNewCard={vaultRenaming?.type === "card" && vaultRenaming.id === vaultNewCardId}
+        renamingId={vaultRenaming}
+        renamingIsNewCard={vaultRenaming !== null && vaultRenaming === vaultNewCardId}
         onCommitRename={(title) => {
           if (!vaultRenaming) return;
-          const { type, id } = vaultRenaming;
-          const isNewCard = type === "card" && id === vaultNewCardId;
+          const id = vaultRenaming;
           setVaultRenaming(null);
           setVaultNewCardId(null);
-          if (title.trim() === "" && isNewCard) {
-            // Never named — this placeholder title was never a real choice the user
-            // made (see vaultNewCard's own onClick), so leaving it blank means "never
-            // mind" rather than "keep the placeholder". No confirmation: same
-            // low-stakes, freely-reversible territory as a blank Page/Dock Card
-            // getting silently deleted when removed unsaved (pageCardService.
-            // removeFromPage's sibling for scratch content).
-            onDeleteVaultCard(id);
-            setSelectedVaultItem(null);
-            return;
-          }
-          if (type === "folder") onRenameVaultFolder(id, title);
-          // A vault Card's title is required (cardService.updateCard rejects blank
-          // for an already-saved Card) — rather than surfacing that as an error,
-          // blank just reverts to whatever title it already had (an *established*
-          // Card's title, unlike the new-Card case above, which is always something
-          // the user actually chose at some point).
-          else if (title.trim() !== "") onRenameVaultCard(id, title);
+          // No title required — a Card can have no title by default (see
+          // cardService.createCard's own doc comment), so committing blank just sets
+          // it, same as any other value, for both a fresh Card and an established one.
+          onRenameVaultCard(id, title);
         }}
         onCancelRename={() => {
-          if (vaultRenaming?.type === "card" && vaultRenaming.id === vaultNewCardId) {
-            // Escape abandons a new Card's naming the same way submitting it blank
-            // does — never leaves it sitting there under its placeholder title.
-            onDeleteVaultCard(vaultRenaming.id);
-            setSelectedVaultItem(null);
+          if (vaultRenaming !== null && vaultRenaming === vaultNewCardId) {
+            // Escape explicitly abandons a just-created Card — a deliberate "never
+            // mind" gesture, independent of title policy (unlike committing blank,
+            // which now just leaves the Card untitled — see onCommitRename above).
+            onDeleteVaultCard(vaultRenaming);
+            setSelectedVaultCardId(null);
           }
           setVaultRenaming(null);
           setVaultNewCardId(null);
-        }}
-        moving={vaultMoving}
-        onPickMoveTarget={() => {
-          if (!vaultMoving) return;
-          const targetId = currentVaultFolder?.id ?? null;
-          if (vaultMoving.type === "card") onMoveVaultCard(vaultMoving.id, targetId);
-          else onMoveVaultFolder(vaultMoving.id, targetId);
-          setVaultMoving(null);
-          setSelectedVaultItem(null);
         }}
       />
     </div>
   );
 
   /**
-   * Actions for the Vault panel itself — either whatever's selected *within* it (a
-   * Card or Folder row), or, once nothing is selected and there's no search active,
-   * the panel's own creation actions (New Folder/New Card/Upload — VaultView.tsx no
-   * longer has a toolbar of its own for these, same "everything reachable from the
-   * Dock" convention every other action already follows). Takes priority over
-   * selectedEmbedId/selectedCards below while the panel's open, since that's the more
-   * specific, more recent thing the user pointed at. Falls through to the usual
-   * Page/Card row only while the panel is closed or actively searching, so opening
-   * the panel over an already-selected Page Card doesn't blank the row out. A
-   * selected Folder needn't be the one currently browsed — see VaultView.tsx's doc
-   * comment — so Delete only navigates out if they happen to be the same one.
+   * Actions for the Vault panel itself — either whatever Card is selected *within*
+   * it, or, once nothing is selected and there's no search active, the panel's own
+   * creation actions (New Card/Upload — VaultView.tsx no longer has a toolbar of its
+   * own for these, same "everything reachable from the Dock" convention every other
+   * action already follows). Takes priority over selectedEmbedId/selectedCards below
+   * while the panel's open, since that's the more specific, more recent thing the
+   * user pointed at. Falls through to the usual Page/Card row only while the panel
+   * is closed or actively searching, so opening the panel over an already-selected
+   * Page Card doesn't blank the row out.
    */
   let vaultModeActions: DockAction[] | null = null;
-  if (vaultOpen && selectedVaultItem?.type === "card") {
-    const cardId = selectedVaultItem.id;
+  if (vaultOpen && selectedVaultCardId) {
+    const cardId = selectedVaultCardId;
     vaultModeActions = [
       ...(onAddVaultCardToPage
         ? [
@@ -1280,19 +1207,7 @@ export function Dock({
         label: t("dock.action.rename"),
         onClick: () => {
           setVaultDetailId(null);
-          setVaultMoving(null);
-          setVaultRenaming({ type: "card", id: cardId });
-        },
-      },
-      {
-        key: "vaultMove",
-        operationId: null,
-        icon: "move" as const,
-        label: t("dock.action.move"),
-        onClick: () => {
-          setVaultDetailId(null);
-          setVaultRenaming(null);
-          setVaultMoving({ type: "card", id: cardId });
+          setVaultRenaming(cardId);
         },
       },
       {
@@ -1303,84 +1218,23 @@ export function Dock({
         danger: true,
         onClick: () => {
           onDeleteVaultCard(cardId);
-          setSelectedVaultItem(null);
+          setSelectedVaultCardId(null);
           setVaultDetailId(null);
         },
       },
     ];
-  } else if (vaultOpen && selectedVaultItem?.type === "folder") {
-    const folderId = selectedVaultItem.id;
+  } else if (vaultOpen && !selectedVaultCardId && !vaultQuery && !selectedEmbedId && selectedCards.length === 0) {
+    // Nothing selected, no search active — creation actions move down into this
+    // same row rather than living as buttons inside VaultView's own toolbar, same
+    // "everything reachable from the Dock" convention every other action in this
+    // app already follows. Each is left out entirely (rather than shown disabled)
+    // when its creator prop is absent, same convention onAddVaultCardToPage above
+    // already uses. Gated on nothing being selected on the Page either (same as
+    // this variable's own doc comment above), so opening Vault over an
+    // already-selected Page Card still falls through to that Card's own row
+    // instead of stealing it — the reason vaultModeActions can be null even while
+    // vaultOpen is true.
     vaultModeActions = [
-      {
-        key: "vaultRenameFolder",
-        operationId: null,
-        icon: "edit" as const,
-        label: t("dock.action.rename"),
-        onClick: () => {
-          setVaultMoving(null);
-          setVaultRenaming({ type: "folder", id: folderId });
-        },
-      },
-      {
-        key: "vaultMoveFolder",
-        operationId: null,
-        icon: "move" as const,
-        label: t("dock.action.move"),
-        onClick: () => {
-          setVaultRenaming(null);
-          setVaultMoving({ type: "folder", id: folderId });
-        },
-      },
-      {
-        key: "vaultDeleteFolder",
-        operationId: null,
-        icon: "delete" as const,
-        label: t("dock.action.delete"),
-        danger: true,
-        onClick: () => {
-          onDeleteVaultFolder(folderId);
-          // Only step back out to the parent if the Folder just deleted was the one
-          // currently browsed — deleting a merely-selected subfolder leaves the view
-          // exactly where it was, minus that row.
-          if (currentVaultFolder && folderId === currentVaultFolder.id) {
-            onOpenVaultFolder(currentVaultFolder.parentId);
-          }
-          setSelectedVaultItem(null);
-        },
-      },
-    ];
-  } else if (
-    vaultOpen &&
-    !selectedVaultItem &&
-    !vaultQuery &&
-    !selectedEmbedId &&
-    selectedCards.length === 0
-  ) {
-    // Just browsing (nothing selected in the vault or on the Page, not searching) —
-    // creation actions move down into this same row rather than living as buttons
-    // inside VaultView's own toolbar, same "everything reachable from the Dock"
-    // convention every other action in this app already follows. Each is left out
-    // entirely (rather than shown disabled) when its creator prop is absent, same
-    // convention onAddVaultCardToPage above already uses. Gated on nothing being
-    // selected on the Page either (same as this variable's own doc comment above),
-    // so opening Vault over an already-selected Page Card still falls through to
-    // that Card's own row instead of stealing it — the reason vaultModeActions can
-    // be null even while vaultOpen is true.
-    vaultModeActions = [
-      ...(onCreateVaultFolder
-        ? [
-            {
-              key: "vaultNewFolder",
-              operationId: null,
-              icon: "folder" as const,
-              label: t("vault.createFolder"),
-              onClick: async () => {
-                const folder = await onCreateVaultFolder(t("vault.untitledFolder"));
-                setVaultRenaming({ type: "folder", id: folder.id });
-              },
-            },
-          ]
-        : []),
       ...(onCreateVaultCard
         ? [
             {
@@ -1390,10 +1244,9 @@ export function Dock({
               label: t("vault.create"),
               onClick: async () => {
                 const card = await onCreateVaultCard();
-                setSelectedVaultItem({ type: "card", id: card.id });
+                setSelectedVaultCardId(card.id);
                 setVaultNewCardId(card.id);
-                setVaultMoving(null);
-                setVaultRenaming({ type: "card", id: card.id });
+                setVaultRenaming(card.id);
               },
             },
           ]
@@ -1464,13 +1317,10 @@ export function Dock({
     // content from creation/generation — see schema.prisma's Card.savedToVault doc
     // comment) — the Save action below batches over every selected Card that
     // matches, not just a single one.
-    // A title is required to actually save to the vault (pageCardService.saveToVault),
-    // so a draft with no title yet doesn't count as "ready to save" — it stays
-    // page-local scratch content until it's given one.
+    // No title required to save (a Card can have no title by default — see
+    // cardService.createCard's own doc comment).
     const hasUnsavedDraft = selectedCards.some(
-      (pc) =>
-        (pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault) &&
-        (pc.draftTitle ?? pc.card.title).trim() !== "",
+      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
     );
     // Only show an action every selected Card's own CardType actually supports —
     // the intersection, not the union, since e.g. Save shouldn't appear at all if
@@ -1905,6 +1755,21 @@ export function Dock({
       disabled: !activeEditor,
     },
     {
+      key: "insertPageLink",
+      operationId: null,
+      icon: "pages" as const,
+      label: t("card.insertPageLink"),
+      onClick: () => {
+        setPageLinkPickerPos((open) => {
+          if (open) return null;
+          const rect = pageLinkButtonRef.current?.getBoundingClientRect();
+          if (!rect) return null;
+          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+        });
+      },
+      disabled: !activeEditor,
+    },
+    {
       key: "insertActionButton",
       operationId: null,
       icon: "insertButton" as const,
@@ -1956,13 +1821,12 @@ export function Dock({
     ...(activeEditorFocused ? formatToolActions : []),
   ];
 
-  // While a Card is in transit (Move Mode, or the vault panel's own equivalent), the
-  // Dock collapses to just a Cancel action — no Vault toggle, no other actions — so
-  // the only thing to do is tap a drop target (PageStack.tsx, or VaultView's "Move
-  // Here" row) or back out. Page Card/embed Move also keeps dockCardsAction in the
-  // row alongside Cancel — its own repurposed "drop onto the Dock" destination (see
-  // dockCardsAction above); a Dock Card mid-Move has nowhere to drop back onto the
-  // Dock, so dockCardMoving doesn't get it.
+  // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
+  // action — no Vault toggle, no other actions — so the only thing to do is tap a
+  // drop target (PageStack.tsx) or back out. Page Card/embed Move also keeps
+  // dockCardsAction in the row alongside Cancel — its own repurposed "drop onto the
+  // Dock" destination (see dockCardsAction above); a Dock Card mid-Move has nowhere
+  // to drop back onto the Dock, so dockCardMoving doesn't get it.
   const actions: DockAction[] = moving
     ? [
         {
@@ -1995,21 +1859,11 @@ export function Dock({
             },
             dockCardsAction,
           ]
-        : vaultMoving
-          ? [
-              {
-                key: "cancelVaultMove",
-                operationId: null,
-                icon: "close" as const,
-                label: t("dock.action.cancelMove"),
-                onClick: () => setVaultMoving(null),
-              },
-            ]
-          : embedOrPageCardSelected
-            ? (vaultModeActions ?? modeActions)
-            : isEditingActive
-              ? formattingActions
-              : [vaultAction, dockCardsAction, nearbyAction, ...(vaultModeActions ?? modeActions)];
+        : embedOrPageCardSelected
+          ? (vaultModeActions ?? modeActions)
+          : isEditingActive
+            ? formattingActions
+            : [vaultAction, dockCardsAction, nearbyAction, ...(vaultModeActions ?? modeActions)];
 
   const rowActions: DockAction[] = actions;
 
@@ -2020,7 +1874,7 @@ export function Dock({
   // its buttons overflow, and this toggle needs to stay reachable without scrolling
   // to it every time.
   const showRevealHiddenButton =
-    !moving && !dockCardMoving && !embedMoving && !vaultMoving && !isEditingActive && !embedOrPageCardSelected;
+    !moving && !dockCardMoving && !embedMoving && !isEditingActive && !embedOrPageCardSelected;
 
   const dockCardsViewContent = renderedPanel === "dockCards" && (
     <div className="dock__extended-panel-view">
@@ -2055,38 +1909,30 @@ export function Dock({
   const pagesViewContent = renderedPanel === "pages" && (
     <div className="dock__extended-panel-view">
       <PagesPanel
-        pages={sortedPages}
-        currentIndex={currentPageIndex}
-        onSelectPage={(index) => {
-          onSelectPage(index);
+        homePageId={homePageId}
+        currentPageId={currentPageId}
+        onGoHome={() => {
+          onGoHome();
           onClosePanel();
         }}
-        onSaveAsApp={onSaveAsAppFromPage}
+        pinned={pinnedPages}
+        isCurrentPagePinned={isCurrentPagePinned}
+        onTogglePinCurrent={onTogglePinCurrent}
+        onOpenPage={(id) => {
+          onOpenPage(id);
+          onClosePanel();
+        }}
+        onSaveAsTemplate={onSaveAsTemplateFromPage}
       />
     </div>
   );
 
-  const tabsViewContent = renderedPanel === "tabs" && (
-    <div className="dock__extended-panel-view">
-      <TabsPanel
-        tabs={tabs}
-        currentIndex={currentTabIndex}
-        onSelectTab={(index) => {
-          onSelectTab(index);
-          onClosePanel();
-        }}
-        onCreateTab={onCreateTab}
-        onSaveAsApp={onSaveAsAppFromTab}
-      />
-    </div>
-  );
-
-  // Pages/Tabs are short lists — cap them noticeably smaller than Dock Cards (which
-  // can hold a lot more), so they don't take up more space than they need. Vault
-  // joins them now that its own toolbar moved down into this row (VaultView.tsx is
-  // just a search bar + flat rows these days) — a quieter, quicker-glance drawer
-  // even though it can still hold as many Cards as before.
-  const isCompactPanel = renderedPanel === "pages" || renderedPanel === "tabs" || renderedPanel === "vault";
+  // Pages/Vault are short-to-medium lists — cap them noticeably smaller than Dock
+  // Cards (which can hold a lot more), so they don't take up more space than they
+  // need. Vault joins them now that its own toolbar moved down into this row
+  // (VaultView.tsx is just a search bar + flat rows these days) — a quieter,
+  // quicker-glance drawer even though it can still hold as many Cards as before.
+  const isCompactPanel = renderedPanel === "pages" || renderedPanel === "vault";
 
   // The Extended Panel (Step 6 spec §3.2) — a single slide-up drawer floating over
   // the page content, whichever of the four views above is currently open. Reachable
@@ -2110,7 +1956,6 @@ export function Dock({
       {dockCardsViewContent}
       {nearbyViewContent}
       {pagesViewContent}
-      {tabsViewContent}
     </div>
   );
 
@@ -2167,15 +2012,15 @@ export function Dock({
           vault-item Move, and Selection Lock (Step 6 spec §4.3) all take priority —
           `actions` itself already resolves to just Cancel / the selected-card row in
           those states, so this only ever shows once nothing else claims the row. */}
-      {editingAppName !== null && (
+      {editingTemplateName !== null && (
         <button
           type="button"
-          className="dock__editing-app-badge"
-          onClick={onStopEditingApp}
-          title={t("apps.stopEditing")}
+          className="dock__editing-template-badge"
+          onClick={onStopEditingTemplate}
+          title={t("templates.stopEditing")}
         >
-          {t("apps.editingBadgePrefix")}
-          {editingAppName}
+          {t("templates.editingBadgePrefix")}
+          {editingTemplateName}
         </button>
       )}
       {/* The quick-lookup panel — an *addition* above the row, not a replacement of
@@ -2457,11 +2302,11 @@ export function Dock({
             </>
           ) : (
             rowActions.map((action, index) => {
-            // Vault-specific actions (New Folder/New Card/Upload while just
-            // browsing; Add to Page/Rename/Move/Delete once something in the vault
-            // is selected — vaultModeActions above) get a visibly different
-            // treatment and a divider ahead of the first one, so they read as their
-            // own cluster rather than blending into the row's other actions — the
+            // Vault-specific actions (New Card/Upload with nothing selected;
+            // Add to Page/Rename/Delete once a Card in the vault is selected —
+            // vaultModeActions above) get a visibly different treatment and a
+            // divider ahead of the first one, so they read as their own cluster
+            // rather than blending into the row's other actions — the
             // exact toggle button itself (key "vault") is excluded, since that one
             // belongs with dockCardsAction/nearbyAction as a plain panel toggle, not
             // a vault-content action. Same `key.startsWith(...)` convention the
@@ -2510,6 +2355,19 @@ export function Dock({
               </div>
             ) : action.key === "insertCardLink" ? (
               <div key="insertCardLink" className="dock__insert-wrap" ref={linkButtonRef}>
+                <Button
+                  iconOnly
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  aria-label={action.label}
+                  title={action.label}
+                >
+                  <Icon name={action.icon} />
+                </Button>
+              </div>
+            ) : action.key === "insertPageLink" ? (
+              <div key="insertPageLink" className="dock__insert-wrap" ref={pageLinkButtonRef}>
                 <Button
                   iconOnly
                   onMouseDown={(e) => e.preventDefault()}
@@ -2592,52 +2450,94 @@ export function Dock({
             })
           )}
         </div>
-        {/* The Page nav cluster (formerly the standalone PageNav component,
-            merged here per feedback) — up/down/add plus the Pages panel toggle,
-            pinned to the bottom-right corner of the Dock. (The hidden-Cards reveal
-            toggle used to live here too — it's its own DockAction in the default
-            row now, revealHiddenAction above, alongside Vault/Dock Cards.) The Tabs
-            toggle sits
-            further right still, deliberately styled much more subtly
-            (dock__page-nav-tabs) — it's page manipulation's more minor sibling,
-            not an equally-weighted action. Hidden while vault-item Move is active,
-            or while a Page Card/embed is selected and NOT mid-move (Selection Lock,
-            Step 6 spec §4.3) — a selected *Dock* Card deliberately leaves it visible,
-            same as Vault (see embedOrPageCardSelected above). Moving either kind of
-            Card (page or Dock) is the one deliberate exception to Selection Lock:
-            reaching a destination Page/Tab that isn't the one currently in view
-            means navigating there first, so this cluster has to stay reachable the
-            whole time a move is in progress even though the selection it carries
-            forward (handleEnterMoveMode/handleEnterDockCardMoveMode) is still
-            technically non-empty. */}
-        {!vaultMoving && (!embedOrPageCardSelected || moving || dockCardMoving) && (
+        {/* The Page nav cluster (formerly the standalone PageNav component, merged
+            here per feedback) — up/down (the optional sibling trail, Phase 3) /add,
+            Home, pin, and the Pages panel toggle, pinned to the bottom-right corner
+            of the Dock. (The hidden-Cards reveal toggle used to live here too — it's
+            its own DockAction in the default row now, revealHiddenAction above,
+            alongside Vault/Dock Cards.) Hidden while a Page Card/embed is selected
+            and NOT mid-move (Selection Lock, Step 6 spec §4.3) — a selected *Dock*
+            Card deliberately leaves it visible, same as Vault (see
+            embedOrPageCardSelected above). Moving either kind of Card (page or Dock)
+            is the one deliberate exception to Selection Lock: reaching a destination
+            Page that isn't the one currently in view means navigating there first
+            (via Search/Home/pins), so this cluster has to stay reachable the whole
+            time a move is in progress even though the selection it carries forward
+            (handleEnterMoveMode/handleEnterDockCardMoveMode) is still technically
+            non-empty. */}
+        {(!embedOrPageCardSelected || moving || dockCardMoving) && (
           <div className="dock__page-nav">
             <button
               type="button"
-              disabled={!canNavigateUp}
-              onClick={onNavigateUp}
-              aria-label={t("pageStack.up")}
-              title={t("pageStack.up")}
+              disabled={!canGoBack}
+              onClick={onGoBack}
+              aria-label={t("pageStack.back")}
+              title={t("pageStack.back")}
             >
-              <Icon name="up" />
+              <Icon name="back" />
             </button>
             <button
               type="button"
-              onClick={canNavigateDown ? onNavigateDown : onAddPage}
-              aria-label={canNavigateDown ? t("pageStack.down") : t("pageStack.addPage")}
-              title={canNavigateDown ? t("pageStack.down") : t("pageStack.addPage")}
+              className="dock__page-nav-forward"
+              disabled={!canGoForward}
+              onClick={onGoForward}
+              aria-label={t("pageStack.forward")}
+              title={t("pageStack.forward")}
             >
-              <Icon name={canNavigateDown ? "down" : "plus"} />
+              <Icon name="chevronRight" />
             </button>
-            {/* Which Page, of how many, is currently in view — same
-                position-in-the-stack info the up/down arrows and the divider at the
-                bottom of a Page's content (PageStack.tsx) let you feel your way
-                through, just spelled out as a number. */}
-            {currentPageIndex !== -1 && (
-              <span className="dock__page-nav-count" aria-hidden="true">
-                {currentPageIndex + 1}/{sortedPages.length}
-              </span>
+            {siblingCount > 1 && (
+              <>
+                <button
+                  type="button"
+                  disabled={!canNavigateUp}
+                  onClick={onNavigateUp}
+                  aria-label={t("pageStack.up")}
+                  title={t("pageStack.up")}
+                >
+                  <Icon name="up" />
+                </button>
+                <button
+                  type="button"
+                  disabled={!canNavigateDown}
+                  onClick={onNavigateDown}
+                  aria-label={t("pageStack.down")}
+                  title={t("pageStack.down")}
+                >
+                  <Icon name="down" />
+                </button>
+                {/* Position within the sibling trail — same "1/N" convention the old
+                    Tab-stack indicator used, now scoped to former stack-mates only. */}
+                {siblingIndex !== -1 && (
+                  <span className="dock__page-nav-count" aria-hidden="true">
+                    {siblingIndex + 1}/{siblingCount}
+                  </span>
+                )}
+              </>
             )}
+            <button type="button" onClick={onAddPage} aria-label={t("pageStack.addPage")} title={t("pageStack.addPage")}>
+              <Icon name="plus" />
+            </button>
+            <button
+              type="button"
+              className={currentPageId === homePageId ? "button--pressed" : undefined}
+              onClick={onGoHome}
+              disabled={!homePageId || currentPageId === homePageId}
+              aria-label={t("pages.home")}
+              title={t("pages.home")}
+            >
+              <Icon name="home" />
+            </button>
+            <button
+              type="button"
+              className={isCurrentPagePinned ? "button--pressed" : undefined}
+              onClick={onTogglePinCurrent}
+              disabled={!currentPageId}
+              aria-label={isCurrentPagePinned ? t("pages.unpin") : t("pages.pin")}
+              title={isCurrentPagePinned ? t("pages.unpin") : t("pages.pin")}
+            >
+              <Icon name="pin" />
+            </button>
             <button
               type="button"
               onClick={() => (pagesOpen ? onClosePanel() : onOpenPanel("pages"))}
@@ -2646,20 +2546,6 @@ export function Dock({
             >
               <Icon name={pagesOpen ? "close" : "pages"} />
             </button>
-            <button
-              type="button"
-              className="dock__page-nav-tabs"
-              onClick={() => (tabsOpen ? onClosePanel() : onOpenPanel("tabs"))}
-              aria-label={tabsLabel}
-              title={tabsLabel}
-            >
-              <Icon name={tabsOpen ? "close" : "tabs"} />
-            </button>
-            {currentTabIndex !== -1 && tabs.length > 1 && (
-              <span className="dock__page-nav-count dock__page-nav-count--tabs" aria-hidden="true">
-                {currentTabIndex + 1}/{tabs.length}
-              </span>
-            )}
           </div>
         )}
       </div>
@@ -2695,6 +2581,27 @@ export function Dock({
             setLinkPickerPos(null);
           }}
           onClose={() => setLinkPickerPos(null)}
+        />
+      )}
+      {pageLinkPickerPos && (
+        <PageLinkPicker
+          style={{
+            position: "fixed",
+            top: "auto",
+            right: "auto",
+            left: pageLinkPickerPos.left,
+            bottom: pageLinkPickerPos.bottom,
+          }}
+          excludeSelector=".dock__insert-wrap"
+          onSelect={(page) => {
+            activeEditor
+              ?.chain()
+              .focus()
+              .insertContent({ type: "pageLink", attrs: { pageId: page.id, title: page.title ?? "" } })
+              .run();
+            setPageLinkPickerPos(null);
+          }}
+          onClose={() => setPageLinkPickerPos(null)}
         />
       )}
       {fieldKindPickerPos && (

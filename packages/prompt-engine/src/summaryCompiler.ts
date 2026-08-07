@@ -1,11 +1,6 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// Same PACKAGE_ROOT/PROMPTS_DIR reasoning as promptCompiler.ts/annotationCompiler.ts —
-// this file lives in <package root>/src, prompts/ is a sibling of src/.
-const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PROMPTS_DIR = join(PACKAGE_ROOT, "prompts");
+import { join } from "node:path";
+import { PROMPTS_DIR } from "./promptsDir.js";
 
 export interface CompiledSummaryPrompt {
   systemPrompt: string;

@@ -37,33 +37,28 @@ export type GenerationTarget =
   | { type: "stackMember"; memberId: string };
 
 /**
- * The Generation Rule (spec1.md Part 2 "Generation Rule (Context Visibility)" and
- * Part 3 MVP spec): everything in Pages above the target's Page, plus everything above
- * the target within its own Page. Nothing below.
+ * The Generation Rule, redefined for the single-Page world (Pages + Links + Search
+ * rebuild, Phase 3's "Redefine generation context" risk item): everything above the
+ * target within its own Page. Nothing below, and nothing from any other Page —
+ * "everything below in the Tab stack" no longer means anything once a Page isn't
+ * scoped to one (the rebuild plan calls this "a deliberate cut… pick a simple v1
+ * (current Page only, then expand)"; a linked-neighborhood expansion is future work,
+ * not a v1 requirement).
  *
- * Page.order and PageCard.order both ascend from 0. A larger Page.order is a Page
- * higher in the stack ("above"); a larger PageCard.order is a Card further down the
- * page's own list, so "above" within a page means a *smaller* order value. A page-level
- * target (nothing selected, appending at the bottom of the Page) has no order of its
- * own to be "above" — every existing Card in that Page counts as context, same as a
- * card-level target whose own order is greater than all of them.
+ * PageCard.order ascends from 0, so "above" within a Page means a *smaller* order
+ * value. A page-level target (nothing selected, appending at the bottom of the Page)
+ * has no order of its own to be "above" — every existing Card on that Page counts as
+ * context, same as a card-level target whose own order is greater than all of them.
  */
 async function assembleContextForTarget(
   target: GenerationTarget,
 ): Promise<GenerationContextEntry[]> {
   let pageId: string;
-  let tabId: string;
-  let pageOrder: number;
   let withinPageCutoff: number | null;
 
   if (target.type === "card") {
-    const trigger = await prisma.pageCard.findUniqueOrThrow({
-      where: { id: target.pageCardId },
-      include: { page: true },
-    });
+    const trigger = await prisma.pageCard.findUniqueOrThrow({ where: { id: target.pageCardId } });
     pageId = trigger.pageId;
-    tabId = trigger.page.tabId;
-    pageOrder = trigger.page.order;
     withinPageCutoff = trigger.order;
   } else if (target.type === "stackMember") {
     // Same cutoff a card-level target at the *container's* own PageCard would use —
@@ -73,40 +68,22 @@ async function assembleContextForTarget(
     // container's own contribution — moot here since a target's own PageCard is
     // always excluded from its context regardless).
     const member = await prisma.stackMember.findUniqueOrThrow({ where: { id: target.memberId } });
-    const containerPageCard = await prisma.pageCard.findFirstOrThrow({
-      where: { cardId: member.stackCardId },
-      include: { page: true },
-    });
+    const containerPageCard = await prisma.pageCard.findFirstOrThrow({ where: { cardId: member.stackCardId } });
     pageId = containerPageCard.pageId;
-    tabId = containerPageCard.page.tabId;
-    pageOrder = containerPageCard.page.order;
     withinPageCutoff = containerPageCard.order;
   } else {
-    const page = await prisma.page.findUniqueOrThrow({ where: { id: target.pageId } });
-    pageId = page.id;
-    tabId = page.tabId;
-    pageOrder = page.order;
+    pageId = target.pageId;
     withinPageCutoff = null;
   }
 
-  const [withinPage, cardsInPagesAbove] = await Promise.all([
-    prisma.pageCard.findMany({
-      where: { pageId, ...(withinPageCutoff !== null ? { order: { lt: withinPageCutoff } } : {}) },
-      orderBy: { order: "asc" },
-      include: { card: true, page: true },
-    }),
-    // Scoped to this same Tab — Tabs don't share generation context with each other
-    // (Step 6 spec §1.1), so a higher-order Page in a *different* Tab must never
-    // leak in here just because Page.order values aren't unique across Tabs.
-    prisma.pageCard.findMany({
-      where: { page: { tabId, order: { gt: pageOrder } } },
-      orderBy: [{ page: { order: "asc" } }, { order: "asc" }],
-      include: { card: true, page: true },
-    }),
-  ]);
+  const withinPage = await prisma.pageCard.findMany({
+    where: { pageId, ...(withinPageCutoff !== null ? { order: { lt: withinPageCutoff } } : {}) },
+    orderBy: { order: "asc" },
+    include: { card: true, page: true },
+  });
 
   const entries = await Promise.all(
-    [...cardsInPagesAbove, ...withinPage].map(async (pc): Promise<GenerationContextEntry> => {
+    withinPage.map(async (pc): Promise<GenerationContextEntry> => {
       const { title, content } = await resolveContextContent(pc);
       return {
         pageId: pc.pageId,
@@ -119,7 +96,6 @@ async function assembleContextForTarget(
     }),
   );
 
-  entries.sort((a, b) => a.pageOrder - b.pageOrder || a.pageCardOrder - b.pageCardOrder);
   return entries;
 }
 
@@ -322,10 +298,14 @@ export function streamGenerationForStackMember(
 
 /** The "prompt" CardType's own four context modes (cardMetadata.ts's
  *  `prompt.context`) — deliberately *not* the directional Generation Rule every other
- *  generation in the app follows (assembleContextForTarget above): "page"/"tab" here
- *  mean *every* Card on the current Page/Tab, regardless of position, since a Prompt
- *  Card is asking a question about its surroundings, not continuing from a fixed point
- *  in them. "cards" is an explicit, order-independent list picked by the user
+ *  generation in the app follows (assembleContextForTarget above): "page" here means
+ *  *every* Card on the current Page, regardless of position, since a Prompt Card is
+ *  asking a question about its surroundings, not continuing from a fixed point in
+ *  them. "tab" (kept as a PromptCardContextMode value for backward compatibility, but
+ *  no longer Tab-scoped now that Tab isn't a place — see schema.prisma's own doc
+ *  comment) means every Card across this Page's `siblingGroupId` — the former Tab
+ *  stack, or any explicit next/prev trail — falling back to just this Page when it
+ *  has no group. "cards" is an explicit, order-independent list picked by the user
  *  (PromptCardBody.tsx's context-settings popover); "none" (the default) matches this
  *  CardType's original standalone-only behavior. Returns the minimal {title, content}
  *  shape compilePrompt actually consumes, not the heavier GenerationContextEntry (which
@@ -348,9 +328,13 @@ async function assemblePromptCardContext(
     where: { id: pageCardId },
     include: { page: true },
   });
+  const scopeWhere =
+    mode === "page" || !trigger.page.siblingGroupId
+      ? { pageId: trigger.pageId }
+      : { page: { siblingGroupId: trigger.page.siblingGroupId } };
   const pageCards = await prisma.pageCard.findMany({
-    where: mode === "page" ? { pageId: trigger.pageId } : { page: { tabId: trigger.page.tabId } },
-    orderBy: [{ page: { order: "asc" } }, { order: "asc" }],
+    where: scopeWhere,
+    orderBy: [{ page: { orderInGroup: "asc" } }, { order: "asc" }],
     include: { card: true, page: true },
   });
   // Excludes the Prompt Card's own PageCard — it has nothing useful to say about

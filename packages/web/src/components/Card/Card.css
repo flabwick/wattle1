@@ -1,6 +1,48 @@
 /* Box styling (background/border/radius/selection) now lives in
    components/primitives/CardShell.css — this file only has Card-specific layout. */
 
+/* A native <select>, styled to match the app's own bordered "cardstock" control
+   language instead of the browser's default appearance — a plain unstyled select
+   reads as a generic web form control next to every other hand-styled control in
+   the "action" step editor (CardInfoPanel.css, ActionStepFields.css) and elsewhere.
+   Kept as a real <select> rather than a custom-built dropdown component so it still
+   gets keyboard nav, screen readers, and the native mobile picker for free — this
+   only repaints its chrome. The chevron is inline SVG (not an <Icon>, which can't
+   sit inside a background-image) using the same path as Icon.tsx's own "down"
+   glyph, `currentColor` so it tracks `color` (and so light/dark themes) the same
+   way a real Icon would. */
+.app-select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: var(--touch-target-sm);
+  padding: 0 calc(var(--space-1) * 2 + 14px) 0 var(--space-2);
+  background-color: var(--color-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-1) center;
+  background-size: 14px;
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.app-select:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.app-select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.app-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Card.tsx's own header only (`.card__header` itself is shared by every
    CardType's own header row — StackBody.tsx, FileView.tsx, etc. — this modifier
    is additional, opted into only there): sticky within the Card's own bounds (its
@@ -79,12 +121,15 @@
 
 /* The info flip mechanic — both faces (this Card's normal content, and its
    CardInfoPanel.tsx back face) are always mounted, and `showingInfo` toggles
-   which one is rotated toward the viewer. Only the front face sizes the Card —
-   the back face is absolutely positioned over the same box (`inset: 0` against
-   this `position: relative` parent) rather than grid-stacked, so a short note
-   isn't stretched out to match CardInfoPanel's own (often taller, several
-   sections) height; the back face scrolls internally instead if it doesn't fit
-   the box the note's own content established. */
+   which one is rotated toward the viewer. Whichever face is actually showing sizes
+   the Card — the other one is pulled out of flow (`position: absolute`, `inset: 0`
+   against this `position: relative` parent) so it doesn't hold the box open at its
+   own height. This is why the rule is split by `.card__flip--flipped` rather than
+   fixed per face: flipping to CardInfoPanel's own (often taller, several sections)
+   content grows the Card to fit it — and everything below reflows around the new
+   height, same as any other height change in the Page's own normal flow — instead
+   of leaving the box pinned to the front face's height with the back scrolling
+   internally. */
 .card__flip {
   position: relative;
   transform-style: preserve-3d;
@@ -101,10 +146,18 @@
 }
 
 .card__face--back {
-  position: absolute;
-  inset: 0;
   overflow-y: auto;
   transform: rotateY(180deg);
+}
+
+.card__flip:not(.card__flip--flipped) .card__face--back {
+  position: absolute;
+  inset: 0;
+}
+
+.card__flip--flipped .card__face--front {
+  position: absolute;
+  inset: 0;
 }
 
 /* Whichever face is rotated away is still in the DOM (see above) but shouldn't be
@@ -179,19 +232,26 @@
   flex-shrink: 0;
 }
 
+/* Small physical buttons — the same tactile press language the app-wide .button
+   default uses (styling.md §7: bold outline, offset shadow, a press that flattens
+   the shadow to read as sinking to the surface), just scaled down (thin border,
+   tight shadow offset, a smaller box) so a row of four still reads as buttons you
+   press rather than a bar of plain icons, without eating into the header's own
+   horizontal space the way full-size buttons would. */
 .card__header-actions .button {
   flex-shrink: 0;
-  min-height: var(--touch-target-sm);
-  min-width: var(--touch-target-sm);
+  min-height: 26px;
+  min-width: 26px;
   padding: 0;
-  background: none;
-  border: none;
-  box-shadow: none;
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: 1px 1px 0 var(--color-shadow);
   color: var(--color-text-muted);
 }
 
 .card__header-actions .button.button--icon {
-  width: var(--touch-target-sm);
+  width: 26px;
 }
 
 .card__header-actions .button:hover:not(:disabled) {
@@ -199,8 +259,19 @@
 }
 
 .card__header-actions .button:active:not(:disabled) {
-  transform: none;
-  box-shadow: none;
+  box-shadow: 0 0 0 var(--color-shadow);
+  transform: translate(1px, 1px);
+}
+
+/* The info button's own "currently flipped" state (CardHeaderActions.tsx) — needs
+   its own override since the plain .card__header-actions .button rule above
+   already sets background/box-shadow/color at equal specificity, which would
+   otherwise silently cancel .button--pressed's own accent/sunk look. */
+.card__header-actions .button.button--pressed {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  box-shadow: 0 0 0 var(--color-shadow);
+  transform: translate(1px, 1px);
 }
 
 .card__header-actions .icon {
@@ -224,25 +295,6 @@
 .card__save-btn--saved:hover:not(:disabled),
 .card__save-btn--saved:focus-visible {
   color: var(--color-accent-secondary);
-}
-
-/* Tapped with no title set (Card.tsx's handleSaveClick) — the button can't
-   actually save yet, so it flashes red in place of doing anything, the one time
-   this row deviates from "quiet" on purpose: this is the one case where staying
-   silent would be actively misleading (looks like nothing happened). */
-@keyframes card-save-error-flash {
-  0%,
-  100% {
-    color: var(--color-text-muted);
-  }
-  20%,
-  60% {
-    color: var(--color-danger);
-  }
-}
-
-.card__save-btn--error {
-  animation: card-save-error-flash 0.6s ease-in-out 2;
 }
 
 .card__title {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Icon, InputField } from "../../../primitives/index.js";
+import { Icon, InputField } from "../../../primitives/index.js";
 import { CardRichText } from "../../richtext/CardRichText.js";
 import { GhostCard } from "../../GhostCard.js";
 import { FeedInputButton } from "../../../FeedInputButton/FeedInputButton.js";
@@ -7,6 +7,8 @@ import { CardStackRail } from "../../../CardStack/CardStackRail.js";
 import { useCardStack } from "../../../../hooks/useCardStack.js";
 import { useGeneration } from "../../../../hooks/useGeneration.js";
 import { getActiveStackControls, setActiveStackControls } from "../../../../lib/activeStackRegistry.js";
+import { CardHeaderActions } from "../../CardHeaderActions.js";
+import { CardFlippableBody } from "../../CardFlippableBody.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
 
@@ -31,12 +33,15 @@ import "../../Card.css";
  * whichever of GhostCard/FeedInputButton/CardRichText below is currently showing —
  * folds away.
  *
- * Save for the active alternate lives in the Dock, not as an inline button here
- * (Dock.tsx's isStackSelected row) — this only publishes the callback it needs
- * (activeStackRegistry.ts) while `selected` is true. A tap toggles the container's
- * own selection in/out (StackView.tsx's onClick); removing the whole Stack from the
- * Page is the Dock's bulk "Remove" action
- * (App.tsx's handleRemoveSelected).
+ * Save for the active alternate also lives in the Dock (Dock.tsx's isStackSelected
+ * row) — this still publishes the same callback it needs (activeStackRegistry.ts)
+ * while `selected` is true — but the header's own CardHeaderActions row now offers
+ * the same save/open-in-vault/fullscreen/info actions inline too, same as every other
+ * CardType's View. "Turn into stack" is the one action deliberately left out: a Stack
+ * already has its own way to add an alternate (CardStackRail's own "+"). A tap
+ * toggles the container's own selection in/out (StackView.tsx's onClick); removing
+ * the whole Stack from the Page is the Dock's bulk "Remove" action (App.tsx's
+ * handleRemoveSelected).
  *
  * A blank alternate (added via the rail's "+", never touched since) shows its own
  * Feed Input Button — Generate + a typed guide, same as a blank Page — instead of
@@ -55,6 +60,7 @@ export function StackBody({
   stackCardId,
   selected,
   onOpenFullscreen,
+  onOpenInVault,
 }: {
   stackCardId: string;
   selected: boolean;
@@ -62,21 +68,28 @@ export function StackBody({
    *  name; StackView/StackEditor forward this down from the generic CardTypeUi
    *  props (registries/cardTypeUi.ts). */
   onOpenFullscreen?: () => void;
+  /** The header's Save button once the active alternate has nothing left to save —
+   *  opens the Vault panel searching for it (App.tsx's handleOpenCardInVault, same
+   *  as Card.tsx's own onOpenInVault). Saving itself still goes through
+   *  useCardStack's own saveActive below, not this — a Stack's own PageCard row
+   *  never carries a draft, only its active member does. */
+  onOpenInVault?: (title: string) => void;
 }) {
   const stack = useCardStack(stackCardId);
   const data = stack.data;
   const active = data && data.members.length > 0 ? data.members[data.activeIndex] : undefined;
-  // Same title-required gate as the Dock's own hasUnsavedDraft (stackService.
-  // saveMemberToVault rejects a blank title) — an untitled alternate isn't
-  // "ready to save" yet.
+  // No title required to save (a Card — including a Stack alternate — can have no
+  // title by default; see cardService.createCard's own doc comment).
   const hasUnsavedDraft =
-    !!active &&
-    (active.draftTitle !== null || active.draftContent !== null || !active.card.savedToVault) &&
-    (active.draftTitle ?? active.card.title).trim() !== "";
+    !!active && (active.draftTitle !== null || active.draftContent !== null || !active.card.savedToVault);
   const generation = useGeneration(stack.refresh);
   // Purely a display preference, not app state — same "doesn't need to be lifted"
   // reasoning as Card.tsx's own `collapsed`.
   const [collapsed, setCollapsed] = useState(false);
+  // Same "flip to a read-only info back-face" mechanic Card.tsx's own note render
+  // uses — flips to the *active alternate's* own Card, matching whatever's actually
+  // in view, not the container "stack"-typed Card itself.
+  const [showingInfo, setShowingInfo] = useState(false);
 
   async function generateNewAlternate() {
     const created = await stack.addMember();
@@ -155,46 +168,40 @@ export function StackBody({
           onAdd={stack.addMember}
           disabled={generation.isStreaming}
         />
-        <div className="card__header-actions">
-          {onOpenFullscreen && (
-            <Button
-              iconOnly
-              aria-label={t("card.openFullscreen")}
-              title={t("card.openFullscreen")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenFullscreen();
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="expand" />
-            </Button>
-          )}
-        </div>
+        <CardHeaderActions
+          hasUnsavedChanges={hasUnsavedDraft}
+          onSave={() => stack.saveActive()}
+          onOpenInVault={() => onOpenInVault?.(active.card.title)}
+          onOpenFullscreen={onOpenFullscreen}
+          showingInfo={showingInfo}
+          onToggleInfo={() => setShowingInfo((v) => !v)}
+        />
       </div>
-      {!collapsed &&
-        (generation.isStreaming && generation.rootId !== null ? (
-          <GhostCard nodeId={generation.rootId} nodes={generation.nodes} />
-        ) : isBlank ? (
-          <FeedInputButton
-            generating={generation.isStreaming}
-            onStopGeneration={generation.stop}
-            onGenerate={(instruction) => generation.startForStackMember(active.id, instruction)}
-            onAddCard={(next) => stack.updateActiveDraft({ content: next })}
-            showMoreOptions={false}
-            placeholder={t("feedInput.placeholder")}
-          />
-        ) : (
-          <CardRichText
-            content={content}
-            onChangeContent={(next) => stack.updateActiveDraft({ content: next })}
-            editable
-            cardId={active.card.id}
-            ancestorIds={new Set([active.card.id, stackCardId])}
-            depth={0}
-          />
-        ))}
+      {!collapsed && (
+        <CardFlippableBody card={active.card} showingInfo={showingInfo}>
+          {generation.isStreaming && generation.rootId !== null ? (
+            <GhostCard nodeId={generation.rootId} nodes={generation.nodes} />
+          ) : isBlank ? (
+            <FeedInputButton
+              generating={generation.isStreaming}
+              onStopGeneration={generation.stop}
+              onGenerate={(instruction) => generation.startForStackMember(active.id, instruction)}
+              onAddCard={(next) => stack.updateActiveDraft({ content: next })}
+              showMoreOptions={false}
+              placeholder={t("feedInput.placeholder")}
+            />
+          ) : (
+            <CardRichText
+              content={content}
+              onChangeContent={(next) => stack.updateActiveDraft({ content: next })}
+              editable
+              cardId={active.card.id}
+              ancestorIds={new Set([active.card.id, stackCardId])}
+              depth={0}
+            />
+          )}
+        </CardFlippableBody>
+      )}
     </>
   );
 }

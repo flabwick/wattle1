@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import type { App as WattleApp, Card, PageCardWithCard } from "@wattle/shared";
+import type { Template, Card, PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { Icon } from "./components/primitives/index.js";
 import type { DockPanel } from "./components/Dock/Dock.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
 import { PageStackEdges } from "./components/PageStack/PageStackEdges.js";
-import { SaveAsAppModal } from "./components/Apps/SaveAsAppModal.js";
-import { AppBrowser } from "./components/Apps/AppBrowser.js";
+import { SaveAsTemplateModal } from "./components/Templates/SaveAsTemplateModal.js";
+import { TemplateBrowser } from "./components/Templates/TemplateBrowser.js";
 import * as api from "./api/client.js";
-import { usePages } from "./hooks/usePages.js";
+import { usePage } from "./hooks/usePage.js";
+import { useSiblingPages } from "./hooks/useSiblingPages.js";
+import { usePagesNav } from "./hooks/usePagesNav.js";
 import { useVault } from "./hooks/useVault.js";
 import { useDockCards } from "./hooks/useDockCards.js";
 import { useNearby } from "./hooks/useNearby.js";
-import { useTabs } from "./hooks/useTabs.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
 import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
+import { registerPageNavHandler } from "./lib/pageNavRegistry.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
-import { runActionJob } from "./lib/actionJobs.js";
+import { runActionJob, type StepOutput } from "./lib/actionJobs.js";
 import { t } from "./i18n/index.js";
 
 /** Move Mode never applies inside the fullscreen single-Card view (App.tsx's
@@ -111,10 +112,16 @@ export function App() {
   const [editingEmbedIds, setEditingEmbedIds] = useState<Set<string>>(new Set());
   /** Move Mode (Dock's Move action) — every PageCard id currently "in transit" as one
    *  batch (Step 6 spec §4.2), or empty when not moving. Deliberately not touched by
-   *  navigateToIndex's deselectAll() call, so it persists across Page navigation (see
+   *  navigateToPage's deselectAll() call, so it persists across Page navigation (see
    *  PageStack.tsx/Dock.tsx) — moot in practice once Selection Lock (§4.3) is wired
    *  up, since Page navigation is disabled the whole time anything's selected anyway. */
   const [movingPageCardIds, setMovingPageCardIds] = useState<Set<string>>(new Set());
+  /** The same ids as `movingPageCardIds`, ordered as they were on their *source*
+   *  Page at the moment Move Mode was entered (handleEnterMoveMode) — needed because
+   *  reaching a cross-Page destination means navigating away first, at which point
+   *  `currentPage` is the destination and no longer has anything to sort these ids
+   *  by. See handleDropAt. */
+  const [movingPageCardOrder, setMovingPageCardOrder] = useState<string[]>([]);
   /** Every currently-selected Dock Card (by its own id, not cardId) — the same
    *  select-then-add-toggle model as selectedPageCardIds, but for the Dock's own
    *  scratchpad layer (DockCardsPanel.tsx). Mutually exclusive with
@@ -139,103 +146,60 @@ export function App() {
    *  Tabs, never more than one at once. Lifted here so the Dock's own toggles and the
    *  Feed Input Button's "Open" action can all reach it. */
   const [openPanel, setOpenPanel] = useState<DockPanel | null>(null);
-  /** The Dock's "reveal hidden cards" toggle (Apps feature spec §2) — purely a
-   *  display preference for the current Page, not tied to any one Card/Tab, so it
-   *  isn't reset on navigation. */
+  /** The Dock's "reveal hidden cards" toggle — purely a display preference for the
+   *  current Page, not tied to any one Card/Tab, so it isn't reset on navigation. */
   const [revealHidden, setRevealHidden] = useState(false);
-  /** Apps feature spec §5's editingAppId — set only by the App browser's Edit
-   *  action, cleared by tapping the Dock's own badge (onStopEditingApp). Paired with
-   *  its name (not just the id) so the badge doesn't need an extra fetch. */
-  const [editingAppId, setEditingAppId] = useState<string | null>(null);
-  const [editingAppName, setEditingAppName] = useState<string | null>(null);
-  /** Non-null while the "Save as App" modal is open — snapshots which Tab/Page it
-   *  was triggered from at that moment, not read live from currentTabId/currentPage,
-   *  so navigating away while the modal is still open can't change the target. */
-  const [saveAsAppRequest, setSaveAsAppRequest] = useState<{ tabId?: string; pageId?: string } | null>(null);
-  const [appBrowserOpen, setAppBrowserOpen] = useState(false);
-  /** Which Tab is currently in view (Step 6 spec §1.1) — null only during the brief
-   *  window before the bootstrap effect below picks or creates one. */
-  const [currentTabId, setCurrentTabId] = useState<string | null>(null);
+  /** editingTemplateId — set only by the Template browser's Edit action, cleared by
+   *  tapping the Dock's own badge (onStopEditingTemplate). Paired with its name
+   *  (not just the id) so the badge doesn't need an extra fetch. */
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [editingTemplateName, setEditingTemplateName] = useState<string | null>(null);
+  /** Non-null while the "Save as Template" modal is open — snapshots which Page it
+   *  was triggered from at that moment, not read live from currentPage, so
+   *  navigating away while the modal is still open can't change the target.
+   *  Page-scoped only — Tab is gone (see schema.prisma's Tab doc comment), so
+   *  Template creation no longer has a "tab" alternative. */
+  const [saveAsTemplateRequest, setSaveAsTemplateRequest] = useState<{ pageId: string } | null>(null);
+  const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
 
-  const tabs = useTabs();
+  const pagesNav = usePagesNav();
   const {
-    pages,
-    addPage,
+    page: currentPage,
+    loading: pageLoading,
     createCardInPage,
     openCardIntoPage,
     refresh,
     uploadFileToPage,
     updateDraftLocally,
-  } = usePages(currentTabId);
+  } = usePage(currentPageId);
+  const siblings = useSiblingPages(currentPageId);
   const vault = useVault();
   const dockCards = useDockCards();
 
-  const sortedTabs = useMemo(() => [...tabs.tabs].sort((a, b) => a.order - b.order), [tabs.tabs]);
-  const currentTabIndex = sortedTabs.findIndex((tb) => tb.id === currentTabId);
-
-  // Keep currentTabId pointing at a real Tab: defaults to the leftmost on first load,
-  // re-settles there if the Tab it was on gets deleted out from under it, and — since
-  // there must always be somewhere for Pages to live — creates a fresh one the moment
-  // the list would otherwise be empty (a new install, or the last Tab just got deleted).
+  // First-run / Home bootstrap (Pages + Links + Search rebuild, Phase 4): once
+  // settings have loaded, land on Home if one's set; otherwise (a brand-new install)
+  // create one and land there. Untitled — "Home" is a role (UserSettings.homePageId
+  // points at it), not a forced title; an untitled Page is a valid, common state
+  // (see schema.prisma's Page.title doc comment) and Home is no exception.
   useEffect(() => {
-    if (tabs.loading) return;
-    if (sortedTabs.some((tb) => tb.id === currentTabId)) return;
-    if (sortedTabs.length > 0) {
-      setCurrentTabId(sortedTabs[0].id);
-    } else {
-      tabs.createTab().then((tab) => setCurrentTabId(tab.id));
+    if (pagesNav.loading || currentPageId) return;
+    if (pagesNav.homePageId) {
+      setCurrentPageId(pagesNav.homePageId);
+      return;
     }
-  }, [tabs.loading, sortedTabs, currentTabId, tabs.createTab]);
+    api.createPage().then((page) => {
+      pagesNav.setHome(page.id);
+      setCurrentPageId(page.id);
+    });
+  }, [pagesNav.loading, pagesNav.homePageId, currentPageId, pagesNav.setHome]);
 
-  /** Jumps to `sortedTabs[index]` — the Tabs panel's click target and the swipe
-   *  gesture's (below) resolved action. currentPageId's own bootstrap effect further
-   *  down re-settles onto that Tab's own Pages once they've loaded; no-op at the
-   *  edges (no wraparound) or if already on that Tab. */
-  function switchToTabIndex(index: number) {
-    // Selection Lock (Step 6 spec §4.3) — the Tabs panel is already unreachable
-    // while a Card's selected (Dock.tsx hides its toggle then), but guard here too
-    // as the one shared choke point every route into switching Tabs goes through.
-    if (selectedPageCardIds.size > 0) return;
-    const target = sortedTabs[index];
-    if (!target || target.id === currentTabId) return;
-    setCurrentTabId(target.id);
-    deselectAll();
-  }
-
-  /** Swiping the main page content left/right switches Tabs (Step 6 spec §3.4) —
-   *  Pointer Events cover touch, mouse, and pen in one set of handlers, on both
-   *  mobile and desktop. Tracks the pointerdown origin and resolves the gesture on
-   *  pointerup, rather than dragging anything live, so it can't fight PageStack's own
-   *  per-Card tap/long-press/selection handling, and is easy to disable outright
-   *  while a panel is open or a Card is mid-Move.
-   *  Skips the Dock (its own horizontal scroll rows shouldn't trigger this) and any
-   *  editable element (a horizontal text-selection drag inside a Card shouldn't
-   *  either). */
-  const swipeStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
-  const SWIPE_THRESHOLD_PX = 60;
-
-  function handleSwipeAreaPointerDown(e: ReactPointerEvent) {
-    // Selection Lock (Step 6 spec §4.3): swiping between Tabs is disabled the whole
-    // time one or more Cards are selected — the user has to deselect first.
-    if (movingPageCardIds.size > 0 || openPanel || selectedPageCardIds.size > 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest(".dock") || target.closest("input, textarea, [contenteditable]")) return;
-    swipeStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
-  }
-
-  function handleSwipeAreaPointerUp(e: ReactPointerEvent) {
-    const start = swipeStart.current;
-    swipeStart.current = null;
-    if (!start || start.pointerId !== e.pointerId) return;
-    const dx = e.clientX - start.x;
-    const dy = e.clientY - start.y;
-    if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    switchToTabIndex(currentTabIndex + (dx < 0 ? 1 : -1));
-  }
-
-  function handleSwipeAreaPointerCancel() {
-    swipeStart.current = null;
-  }
+  // Re-settles onto Home if the Page currently in view was deleted out from under it
+  // elsewhere (usePage's own fetch comes back null once loading finishes).
+  useEffect(() => {
+    if (pageLoading || currentPage || !currentPageId || !pagesNav.homePageId) return;
+    if (currentPageId === pagesNav.homePageId) return;
+    setCurrentPageId(pagesNav.homePageId);
+  }, [pageLoading, currentPage, currentPageId, pagesNav.homePageId]);
 
   // Auto-saves the moment a generation lands (cleanly or via Stop) — no separate
   // review step. `refresh` re-fetches `pages` so the newly-saved Card shows up;
@@ -256,17 +220,6 @@ export function App() {
     (onChange) => (singleSelectedEmbed ? subscribeToCard(singleSelectedEmbed.cardId, onChange) : () => {}),
     () => (singleSelectedEmbed ? getCachedCard(singleSelectedEmbed.cardId) : undefined),
   );
-
-  const sortedPages = useMemo(() => [...pages].sort((a, b) => b.order - a.order), [pages]);
-
-  // Keep currentPageId pointing at a real Page: defaults to the top of the stack on
-  // first load, and re-settles there if the Page it was on gets deleted out from
-  // under it.
-  useEffect(() => {
-    if (!sortedPages.some((p) => p.id === currentPageId)) {
-      setCurrentPageId(sortedPages[0]?.id ?? null);
-    }
-  }, [sortedPages, currentPageId]);
 
   /** A tap on a Card's own selection rail toggles its membership in the current
    *  (possibly multi-Card) selection — tapping a not-yet-selected Card adds it,
@@ -638,9 +591,6 @@ export function App() {
     setDockCardToOpen(dockCard.id);
   }
 
-  const currentPageIndex = sortedPages.findIndex((p) => p.id === currentPageId);
-  const currentPage = currentPageIndex === -1 ? null : sortedPages[currentPageIndex];
-
   // A focused Card only ever makes sense while it's still actually on the current
   // Page — if it was removed, or the Page changed out from under it (e.g. Page nav,
   // still reachable from inside the fullscreen view since the Dock stays up), just
@@ -666,6 +616,16 @@ export function App() {
     await refresh();
   }
 
+  /** PageStack's own title header (Pages + Links + Search rebuild, Phase 1's "Show
+   *  Page title on the current Page (inline rename)") — commits straight to the
+   *  server; `refresh()` picks up the new title the same way any other Page mutation
+   *  does. */
+  async function handleRenamePage(title: string) {
+    if (!currentPageId) return;
+    await api.renamePage(currentPageId, title);
+    await refresh();
+  }
+
   /** True while a Page Card, a Dock Card, or an embed is in its own inline edit mode
    *  *and* actually has rich text to format — Dock.tsx swaps its action row for the
    *  formatting toolbar (bold/italic/heading/lists) for exactly this long. A Page
@@ -682,48 +642,113 @@ export function App() {
     (editingPageCard ? getCardTypeId(editingPageCard.card) === "note" : false) ||
     selectedDockCardCardIds.some((cardId) => editingEmbedIds.has(cardId));
 
-  // Selection Lock (Step 6 spec §4.3): Page navigation arrows are disabled the whole
-  // time one or more Cards are selected — the user has to deselect first. Move Mode
-  // is deliberately exempt: it carries the selection forward (handleEnterMoveMode),
-  // but moving a Card to a *different* Page (§4.2) has always worked by navigating
-  // there first and dropping at a zone on the newly-viewed Page — locking navigation
-  // during Move Mode too would make that destination unreachable entirely.
+  // Selection Lock (Step 6 spec §4.3): Page navigation is disabled the whole time one
+  // or more Cards are selected — the user has to deselect first. Move Mode is
+  // deliberately exempt: it carries the selection forward (handleEnterMoveMode), but
+  // moving a Card to a *different* Page (§4.2) has always worked by navigating there
+  // first (Search/Home/pins/the optional sibling trail) and dropping at a zone on the
+  // newly-viewed Page — locking navigation during Move Mode too would make that
+  // destination unreachable entirely.
   const navigationLocked = selectedPageCardIds.size > 0 && movingPageCardIds.size === 0;
-  const canNavigateUp = !navigationLocked && currentPageIndex > 0;
-  const canNavigateDown = !navigationLocked && currentPageIndex !== -1 && currentPageIndex < sortedPages.length - 1;
+  const canNavigateUp = !navigationLocked && siblings.canNavigateUp;
+  const canNavigateDown = !navigationLocked && siblings.canNavigateDown;
 
   /** Which way the Page transition animation should play (PageStack.tsx) — "up"
-   *  slides the new Page in from below (moving toward the top of the stack, index
-   *  decreasing), "down" from above. Set right before the Page actually changes so
-   *  PageStack's remount (keyed on the new Page's id) picks up the right direction
-   *  class on first paint. */
+   *  slides the new Page in from below, "down" from above; null (Search/Home/pins/
+   *  Page-link navigation, none of which have a spatial "direction") skips the
+   *  animation. Set right before the Page actually changes so PageStack's remount
+   *  (keyed on the new Page's id) picks up the right direction class on first paint. */
   const [navDirection, setNavDirection] = useState<"up" | "down" | null>(null);
 
-  /** Jumps straight to any Page by its position in `sortedPages` — used by both
-   *  arrow navigation and the Pages panel's jump action, so there's one place that
-   *  derives the animation direction and resets selection/refreshes. */
-  function navigateToIndex(index: number) {
-    // Selection Lock (Step 6 spec §4.3): blocks every avenue into Page navigation at
-    // this one shared choke point — the up/down arrows (already disabled via
-    // canNavigateUp/Down above) and the Pages panel's own jump action both route
-    // through here. Move Mode is exempt — see navigationLocked's doc comment.
+  /** Recent-Pages history (Pages + Links + Search rebuild, Phase 2's nav-chrome
+   *  "back/forward or recent Pages") — Home/Search/pins/Page-links/the sibling trail
+   *  don't have a spatial "up/down" relationship to each other the way former
+   *  Tab-stack neighbors did, so a browser-style back/forward stack (not another
+   *  index into some ordered list) is what lets you retrace an arbitrary path
+   *  through them. Plain ids, most-recent-last; `back`/`goForward` below are the only
+   *  things that ever read past the top. */
+  const [pageHistory, setPageHistory] = useState<string[]>([]);
+  const [pageForwardHistory, setPageForwardHistory] = useState<string[]>([]);
+
+  /** Navigates straight to any Page by id — Home/pins/Search/a Page link/the
+   *  optional sibling trail, and Move Mode's own "go there, then drop" flow, all
+   *  route through here, so there's one shared Selection Lock choke point and one
+   *  place that resets selection. usePage's own `pageId` effect handles the actual
+   *  refetch once `currentPageId` changes — no explicit refresh() needed here.
+   *  `fromHistory` is only ever set by goBack/goForward themselves, which manage
+   *  `pageHistory`/`pageForwardHistory` directly — every other caller pushes the
+   *  Page it's leaving onto `pageHistory` and clears the forward stack, same as a
+   *  browser tab's own history following a fresh navigation. */
+  function navigateToPage(
+    pageId: string,
+    direction: "up" | "down" | null = null,
+    fromHistory?: "back" | "forward",
+  ) {
+    // Selection Lock (Step 6 spec §4.3) — Move Mode is exempt, see navigationLocked's
+    // doc comment above.
     if (selectedPageCardIds.size > 0 && movingPageCardIds.size === 0) return;
-    const target = sortedPages[index];
-    if (!target || target.id === currentPageId) return;
-    setNavDirection(index < currentPageIndex ? "up" : "down");
-    setCurrentPageId(target.id);
+    if (pageId === currentPageId) return;
+    if (!fromHistory && currentPageId) {
+      setPageHistory((h) => [...h, currentPageId]);
+      setPageForwardHistory([]);
+    }
+    setNavDirection(direction);
+    setCurrentPageId(pageId);
     deselectAll();
-    refresh();
+  }
+
+  function goBack() {
+    const prev = pageHistory[pageHistory.length - 1];
+    if (!prev || !currentPageId) return;
+    setPageHistory((h) => h.slice(0, -1));
+    setPageForwardHistory((f) => [currentPageId, ...f]);
+    navigateToPage(prev, null, "back");
+  }
+
+  function goForward() {
+    const next = pageForwardHistory[0];
+    if (!next || !currentPageId) return;
+    setPageForwardHistory((f) => f.slice(1));
+    setPageHistory((h) => [...h, currentPageId]);
+    navigateToPage(next, null, "forward");
   }
 
   function navigateUp() {
-    if (!canNavigateUp) return;
-    navigateToIndex(currentPageIndex - 1);
+    if (!canNavigateUp || !siblings.previousId) return;
+    navigateToPage(siblings.previousId, "up");
   }
 
   function navigateDown() {
-    if (!canNavigateDown) return;
-    navigateToIndex(currentPageIndex + 1);
+    if (!canNavigateDown || !siblings.nextId) return;
+    navigateToPage(siblings.nextId, "down");
+  }
+
+  function handleGoHome() {
+    if (!pagesNav.homePageId) return;
+    navigateToPage(pagesNav.homePageId);
+  }
+
+  const isCurrentPagePinned = currentPageId ? pagesNav.pinned.some((p) => p.id === currentPageId) : false;
+
+  function handleTogglePinCurrent() {
+    if (!currentPageId) return;
+    void pagesNav.togglePin(currentPageId);
+  }
+
+  // Lets a `pageLink` node's click (PageLinkNodeView.tsx), anywhere in the document
+  // tree, navigate here without a prop threaded all the way down — same shape as the
+  // quickAddRegistry effect below.
+  useEffect(() => {
+    registerPageNavHandler((pageId) => navigateToPage(pageId));
+  });
+
+  /** Creates a brand-new loose Page and navigates straight to it — the "+" in the
+   *  Dock's page-nav cluster, and the "newBlankPage"/"newBlankTab" Action Card jobs
+   *  (both collapse to the same thing now that Tab isn't a place — see
+   *  schema.prisma's Tab doc comment). */
+  async function handleCreateNewPage() {
+    const page = await api.createPage();
+    navigateToPage(page.id, "down");
   }
 
   // Selection Lock (§4.3) keeps Page navigation disabled the whole time this is
@@ -866,15 +891,11 @@ export function App() {
   }
 
   /** Saves every selected Card that has something pending to the vault — a no-op for
-   *  any that don't (Step 6 spec §4.2's batched Save). */
+   *  any that don't (Step 6 spec §4.2's batched Save). No title required — a Card can
+   *  have no title by default (see cardService.createCard's own doc comment). */
   async function handleSaveSelected() {
-    // Same title-required filter as Dock.tsx's own hasUnsavedDraft — a still-untitled
-    // Card just isn't eligible to save yet, rather than erroring against
-    // pageCardService.saveToVault's guard.
     const toSave = selectedPageCards.filter(
-      (pc) =>
-        (pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault) &&
-        (pc.draftTitle ?? pc.card.title).trim() !== "",
+      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
     );
     if (toSave.length === 0) return;
     await Promise.all(toSave.map((pc) => api.savePageCardToVault(pc.id)));
@@ -886,15 +907,13 @@ export function App() {
   }
 
   /** Card.tsx's own header Save button — same save-a-not-yet-vaulted-draft flow as
-   *  handleSaveSelected above (same title-required guard too), just for one
-   *  specific PageCard regardless of whether it's currently selected — a note's
-   *  header always shows this while it has something pending, independent of the
-   *  Dock's own batch Save (still reachable for a selection of several Cards at
-   *  once via the Dock, unaffected by this). */
+   *  handleSaveSelected above, just for one specific PageCard regardless of whether
+   *  it's currently selected — a note's header always shows this while it has
+   *  something pending, independent of the Dock's own batch Save (still reachable
+   *  for a selection of several Cards at once via the Dock, unaffected by this). */
   async function handleSavePageCard(pageCardId: string) {
     const pc = currentPage?.pageCards.find((p) => p.id === pageCardId);
     if (!pc) return;
-    if ((pc.draftTitle ?? pc.card.title).trim() === "") return;
     await api.savePageCardToVault(pageCardId);
     notifySaved(pc.card.id);
     await refresh();
@@ -969,8 +988,19 @@ export function App() {
   }
 
   function handleEnterMoveMode() {
-    if (selectedPageCardIds.size === 0) return;
+    if (selectedPageCardIds.size === 0 || !currentPage) return;
     setMovingPageCardIds(new Set(selectedPageCardIds));
+    // Captured now, while `currentPage` is still the *source* Page — reaching a
+    // different destination Page means navigating away first (there's no other way
+    // to get there, see the page-nav cluster's own doc comment), at which point
+    // `currentPage` is the destination and no longer has these ids to sort by at
+    // all. handleDropAt reads this instead of re-deriving order from currentPage.
+    setMovingPageCardOrder(
+      currentPage.pageCards
+        .filter((pc) => selectedPageCardIds.has(pc.id))
+        .sort((a, b) => a.order - b.order)
+        .map((pc) => pc.id),
+    );
     // Selection carries forward (movingPageCardIds above), but editing doesn't —
     // without this, a Card whose type doesn't swap the Dock to the formatting
     // toolbar while editing (e.g. "action", see isEditingActive) could reach Move
@@ -980,6 +1010,7 @@ export function App() {
 
   function handleCancelMove() {
     setMovingPageCardIds(new Set());
+    setMovingPageCardOrder([]);
   }
 
   /** The Move Mode drop target (PageStack.tsx's DropZone) — moves the whole batch of
@@ -987,15 +1018,13 @@ export function App() {
    *  (Step 6 spec §4.2's "batch-move together"). Sequential, not parallel: each
    *  movePageCard call re-reads sibling order fresh from the DB, so doing them one
    *  at a time (rather than racing several against the same stale snapshot) is what
-   *  keeps the final order correct. */
+   *  keeps the final order correct. Order comes from `movingPageCardOrder`, captured
+   *  at handleEnterMoveMode time — see that state's own doc comment. */
   async function handleDropAt(destPageId: string, destIndex: number) {
     if (movingPageCardIds.size === 0) return;
-    const ordered = pages
-      .flatMap((p) => p.pageCards.map((pc) => ({ pc, pageOrder: p.order })))
-      .filter(({ pc }) => movingPageCardIds.has(pc.id))
-      .sort((a, b) => a.pageOrder - b.pageOrder || a.pc.order - b.pc.order)
-      .map(({ pc }) => pc.id);
+    const ordered = movingPageCardOrder;
     setMovingPageCardIds(new Set());
+    setMovingPageCardOrder([]);
     deselectAll();
     for (let i = 0; i < ordered.length; i++) {
       await api.movePageCard(ordered[i], destPageId, destIndex + i);
@@ -1049,11 +1078,13 @@ export function App() {
   }
 
   /** The Vault panel's "new file" action (Dock.tsx's onCreateVaultCard) — creates the
-   *  Card directly in the vault, in whichever Folder is currently browsed, rather
-   *  than on the current Page (that's a separate, page-oriented action — the Dock's
-   *  own "Add Card" button when a Page is selected). */
+   *  Card directly in the vault, rather than on the current Page (that's a separate,
+   *  page-oriented action — the Dock's own "Add Card" button when a Page is
+   *  selected). Untitled — a Card can have no title by default (see
+   *  cardService.createCard's own doc comment), and shows as genuinely blank
+   *  wherever its title is displayed, not a placeholder word standing in for it. */
   async function handleCreateVaultCard(): Promise<Card> {
-    return vault.createCardInCurrentFolder(t("common.untitled"));
+    return vault.createCard("");
   }
 
   /** Opening a vault Card into the current Page can 500 if the panel's cached list
@@ -1085,8 +1116,8 @@ export function App() {
   // observes reactively.
   useEffect(() => {
     registerQuickAddHandlers({
-      addToPage: (html) => {
-        if (currentPage) void createCardInPage(currentPage.id, "", html);
+      addToPage: (html, title) => {
+        if (currentPage) void createCardInPage(currentPage.id, title ?? "", html);
       },
       addToDock: (html) => {
         void dockCards.createCard("", html);
@@ -1121,7 +1152,7 @@ export function App() {
     await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "action",
-      action: { label: "", jobId: null, jobParams: {} },
+      action: { label: "", steps: [] },
     });
   }
 
@@ -1136,130 +1167,137 @@ export function App() {
     });
   }
 
-  /** "Opening" an App (Apps feature spec §5) — instantiates a fresh copy server-side,
-   *  then navigates straight to it. Reused by both an "action" Card's "openApp" job
-   *  (handleRunActionJob below) and the App browser's own Open button. A scope "tab"
-   *  App creates a brand-new Tab that `tabs` doesn't know about yet, so it needs an
-   *  explicit refresh; a scope "page" App lands in the current Tab, so `refresh()`
-   *  (usePages, already scoped to currentTabId) is what picks up its new Page — doing
-   *  both unconditionally is simplest and the redundant one is harmless. */
-  async function handleOpenApp(appId: string) {
-    const result = await api.openApp(appId, currentTabId ? { tabId: currentTabId } : {});
-    if (result.scope === "tab") {
-      await tabs.refresh();
-    }
-    setCurrentTabId(result.tabId);
-    setCurrentPageId(result.pageId);
-    await refresh();
+  /** The Feed Input Button's type-picker "Page Links" option — see
+   *  handleAddActionToCurrentPage above for the same reasoning. */
+  async function handleAddPageLinksToCurrentPage() {
+    if (!currentPage) return;
+    await createCardInPage(currentPage.id, "", "", {
+      version: 1,
+      typeId: "pageLinks",
+      pageLinks: { targets: [] },
+    });
+  }
+
+  /** The Feed Input Button's type-picker "Search" option — see
+   *  handleAddActionToCurrentPage above for the same reasoning. */
+  async function handleAddSearchToCurrentPage() {
+    if (!currentPage) return;
+    await createCardInPage(currentPage.id, "", "", {
+      version: 1,
+      typeId: "search",
+      search: { mode: "vault", query: "" },
+    });
+  }
+
+  /** "Opening" a Template — instantiates a fresh copy server-side, then navigates
+   *  straight to it. Reused by both an "action" Card's "openTemplate" job
+   *  (handleRunActionJob below) and the Template browser's own Open button. Neither
+   *  scope needs a destination Tab any more (see templateService.openTemplate) — it
+   *  always lands on exactly one Page. */
+  async function handleOpenTemplate(templateId: string) {
+    const result = await api.openTemplate(templateId);
+    navigateToPage(result.pageId, "down");
   }
 
   /** An inline actionButton node's click (ActionButtonNodeView.tsx) — dispatches to
    *  whichever of the small, fixed set of jobs (lib/actionJobs.ts) it's configured
    *  for. */
-  function handleRunActionJob(
+  async function handleRunActionJob(
     pageCard: PageCardWithCard,
     jobId: string | undefined,
     jobParams: Record<string, unknown> | undefined,
-  ) {
-    runActionJob(pageCard, jobId, jobParams, {
-      onCreateCard: (pc, title, content) => {
-        void createCardInPage(pc.pageId, title, content);
+  ): Promise<StepOutput | void> {
+    return await runActionJob(pageCard, jobId, jobParams, {
+      onCreateCard: async (pc, title, content, pageId) => {
+        const created = await createCardInPage(pageId ?? pc.pageId, title, content);
+        return { cardId: created.card.id, pageCardId: created.id };
       },
-      onOpenApp: (appId) => {
-        void handleOpenApp(appId);
+      onOpenTemplate: async (templateId) => {
+        await handleOpenTemplate(templateId);
       },
       // Anchored at the Action Card's own PageCard — same "insert directly below,
       // context is everything above" placement every other card-level generation
       // uses (generationService.ts's GenerationTarget), just triggered by this
       // button instead of the Dock's Generate action. Auto-saves on completion,
       // same as every other generation in the app today (useGeneration.ts).
-      onPromptCard: (pc, instructions, contextMode) => {
+      // generation.start itself only kicks the SSE stream off (not awaitable to
+      // completion) — a multi-step action's own run loop moves on to its next step
+      // immediately rather than waiting for the generation to finish, same as this
+      // job's existing single-job behavior always has.
+      onPromptCard: async (pc, instructions, contextMode) => {
         generation.start(pc.id, instructions, contextMode === "own");
       },
-      onNewBlankPage: () => {
-        void handleAddPageAtBottom();
+      onNewBlankPage: async () => {
+        await handleCreateNewPage();
       },
-      onNewBlankTab: () => {
-        void handleAddBlankTab();
+      onNewBlankTab: async () => {
+        // "New blank Tab" and "new blank Page" collapse to the same action now —
+        // Tab isn't a place any more (see schema.prisma's Tab doc comment).
+        await handleCreateNewPage();
       },
-      onNavigatePage: (direction) => {
+      onNavigatePage: async (direction) => {
         if (direction === "up") navigateUp();
         else navigateDown();
       },
-      onRemoveCard: (targetPageCardId) => {
-        api.removePageCardFromPage(targetPageCardId).then(refresh).catch(() => {});
+      onNavigateToPage: async (pageId) => {
+        navigateToPage(pageId);
       },
-      onSaveCard: (targetPageCardId) => {
-        api.savePageCardToVault(targetPageCardId).then(() => refresh()).catch(() => {});
+      onRemoveCard: async (targetPageCardId) => {
+        await api.removePageCardFromPage(targetPageCardId);
+        await refresh();
+      },
+      onSaveCard: async (targetPageCardId) => {
+        await api.savePageCardToVault(targetPageCardId);
+        await refresh();
       },
     });
   }
 
-  /** The "newBlankTab" Action Card job — unlike the Tabs panel's own "+"
-   *  (tabs.createTab, which stays put), this job's whole point is "go there": a
-   *  brand-new Tab with one blank Page, navigated to immediately. Built directly
-   *  from the API client rather than usePages' addPage, since that hook is bound to
-   *  whatever currentTabId already was — not the brand-new one this just created. */
-  async function handleAddBlankTab() {
-    const tab = await api.createTab();
-    const page = await api.createPage(tab.id);
-    await tabs.refresh();
-    setCurrentTabId(tab.id);
-    setCurrentPageId(page.id);
-  }
-
-  /** The Tabs panel's "Save as App" (Apps feature spec §5), scope "tab". While
-   *  editingAppId is set, this updates that same App in place instead of opening the
-   *  name/description modal — there's nothing new to ask for on a re-save. */
-  async function handleSaveAsAppFromTab() {
-    if (!currentTabId) return;
-    if (editingAppId) {
-      await api.updateAppSnapshot(editingAppId, { tabId: currentTabId });
-      return;
-    }
-    setSaveAsAppRequest({ tabId: currentTabId });
-  }
-
-  /** The Pages panel's "Save as App", scope "page" — same editingAppId short-circuit
-   *  as handleSaveAsAppFromTab above. */
-  async function handleSaveAsAppFromPage() {
+  /** "Save as Template", scope "page" — the only scope creatable from the UI now
+   *  (Tab is gone; a scope "tab"/hub Template can still be *opened*, just not newly
+   *  authored — see templateService.buildSnapshotFromTab's doc comment). While
+   *  editingTemplateId is set, this updates that same Template in place instead of
+   *  opening the name/description modal — there's nothing new to ask for on a
+   *  re-save. */
+  async function handleSaveAsTemplateFromPage() {
     if (!currentPage) return;
-    if (editingAppId) {
-      await api.updateAppSnapshot(editingAppId, { pageId: currentPage.id });
+    if (editingTemplateId) {
+      await api.updateTemplateSnapshot(editingTemplateId, { pageId: currentPage.id });
       return;
     }
-    setSaveAsAppRequest({ pageId: currentPage.id });
+    setSaveAsTemplateRequest({ pageId: currentPage.id });
   }
 
-  /** SaveAsAppModal's submit — only ever reached for a brand-new App (see the
-   *  editingAppId short-circuits above), so this always creates. */
-  async function handleSubmitSaveAsApp(name: string, description: string) {
-    if (!saveAsAppRequest) return;
-    await api.createApp({ name, description: description || null, ...saveAsAppRequest });
-    setSaveAsAppRequest(null);
+  /** SaveAsTemplateModal's submit — only ever reached for a brand-new Template (see
+   *  the editingTemplateId short-circuits above), so this always creates. */
+  async function handleSubmitSaveAsTemplate(name: string, description: string) {
+    if (!saveAsTemplateRequest) return;
+    await api.createTemplate({ name, description: description || null, ...saveAsTemplateRequest });
+    setSaveAsTemplateRequest(null);
   }
 
-  /** The App browser's Open action — also reachable from an "action" Card's
-   *  "openApp" job (handleRunActionJob above), both via handleOpenApp. */
-  function handleOpenAppFromBrowser(app: WattleApp) {
-    setAppBrowserOpen(false);
-    void handleOpenApp(app.id);
+  /** The Template browser's Open action — also reachable from an "action" Card's
+   *  "openTemplate" job (handleRunActionJob above), both via handleOpenTemplate. */
+  function handleOpenTemplateFromBrowser(template: Template) {
+    setTemplateBrowserOpen(false);
+    void handleOpenTemplate(template.id);
   }
 
-  /** The App browser's Edit action — opens a live copy exactly like Open does, but
-   *  also sets editingAppId/Name so a later "Save as App" updates this App instead
-   *  of creating a new one (Apps feature spec §5). Never offered for isCore Apps
-   *  (AppBrowser.tsx hides the button; appService.ts rejects it server-side too). */
-  function handleEditAppFromBrowser(app: WattleApp) {
-    setAppBrowserOpen(false);
-    setEditingAppId(app.id);
-    setEditingAppName(app.name);
-    void handleOpenApp(app.id);
+  /** The Template browser's Edit action — opens a live copy exactly like Open does,
+   *  but also sets editingTemplateId/Name so a later "Save as Template" updates
+   *  this Template instead of creating a new one. Never offered for isCore
+   *  Templates (TemplateBrowser.tsx hides the button; templateService.ts rejects it
+   *  server-side too). */
+  function handleEditTemplateFromBrowser(template: Template) {
+    setTemplateBrowserOpen(false);
+    setEditingTemplateId(template.id);
+    setEditingTemplateName(template.name);
+    void handleOpenTemplate(template.id);
   }
 
-  function handleStopEditingApp() {
-    setEditingAppId(null);
-    setEditingAppName(null);
+  function handleStopEditingTemplate() {
+    setEditingTemplateId(null);
+    setEditingTemplateName(null);
   }
 
   /** Removes one Card from the Page — the per-Card unit handleRemoveSelected below
@@ -1298,52 +1336,37 @@ export function App() {
     deselectAll();
   }
 
-  // Pages are only ever added at the bottom of the stack (the down arrow becomes a
-  // "+" once there's nothing below the current Page — see PageStack.tsx) — so the
-  // new Page's order goes below whatever the current bottom Page's is, rather than
-  // appending on top like `createPage`'s own default.
-  const bottomOrder = sortedPages.length ? sortedPages[sortedPages.length - 1].order : undefined;
-
-  async function handleAddPageAtBottom() {
-    const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
-    setNavDirection("down");
-    setCurrentPageId(newPageId);
-    deselectAll();
-  }
-
   /** The Dock's merged page-nav "+" control, repurposed while moving (see the
-   *  onAddPage prop below): creates a new Page at the bottom of the stack, same
-   *  placement rule as handleAddPageAtBottom, then immediately drops the moving
-   *  Card there as its first Card. */
+   *  onAddPage prop below): creates a new loose Page, navigates to it, then
+   *  immediately drops the moving Card there as its first Card. */
   async function handleDropOnNewPage() {
     if (movingPageCardIds.size === 0) return;
-    const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
-    setNavDirection("down");
-    setCurrentPageId(newPageId);
-    await handleDropAt(newPageId, 0);
+    const page = await api.createPage();
+    navigateToPage(page.id, "down");
+    await handleDropAt(page.id, 0);
   }
 
   /** Same as handleDropOnNewPage above, for a Dock Card Move in progress instead of
    *  a Page Card one. */
   async function handleDockCardDropOnNewPage() {
     if (movingDockCardIds.size === 0) return;
-    const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
-    setNavDirection("down");
-    setCurrentPageId(newPageId);
-    await handleDropDockCardAt(newPageId, 0);
+    const page = await api.createPage();
+    navigateToPage(page.id, "down");
+    await handleDropDockCardAt(page.id, 0);
   }
 
   /** Same as handleDropOnNewPage above, for an embed Move in progress instead of a
    *  Page Card one. */
   async function handleEmbedDropOnNewPage() {
     if (!movingEmbedCard) return;
-    const newPageId = await addPage(bottomOrder !== undefined ? bottomOrder - 1 : undefined);
-    setNavDirection("down");
-    setCurrentPageId(newPageId);
-    await handleDropEmbedAt(newPageId, 0);
+    const page = await api.createPage();
+    navigateToPage(page.id, "down");
+    await handleDropEmbedAt(page.id, 0);
   }
 
-  const pagesAboveCount = currentPageIndex === -1 ? 0 : currentPageIndex;
+  // The optional sibling trail's own position (Phase 3) — 0 for a loose Page with no
+  // siblingGroupId, same as PageStackEdges' old "how deep in the stack" reading.
+  const pagesAboveCount = siblings.index === -1 ? 0 : siblings.index;
 
   // Mutually exclusive with the normal Page view below — takes over the same flex
   // slot in .app (Dock stays put underneath either one) rather than overlaying on
@@ -1405,16 +1428,12 @@ export function App() {
   return (
     <div className="app">
       {focusedOverlay ?? (
-      <div
-        className="page-viewport"
-        onPointerDown={handleSwipeAreaPointerDown}
-        onPointerUp={handleSwipeAreaPointerUp}
-        onPointerCancel={handleSwipeAreaPointerCancel}
-      >
+      <div className="page-viewport">
         <PageStackEdges above={pagesAboveCount} />
         <main className="app__main">
           <PageStack
             currentPage={currentPage}
+            onRenameTitle={handleRenamePage}
             direction={navDirection}
             revealHidden={revealHidden}
             selectedPageCardIds={selectedPageCardIds}
@@ -1470,6 +1489,8 @@ export function App() {
                     onAddStack: handleAddStackToCurrentPage,
                     onAddAction: handleAddActionToCurrentPage,
                     onAddPrompt: handleAddPromptToCurrentPage,
+                    onAddPageLinks: handleAddPageLinksToCurrentPage,
+                    onAddSearch: handleAddSearchToCurrentPage,
                   }
                 : null
             }
@@ -1545,17 +1566,10 @@ export function App() {
         vaultSearchResults={vault.cards}
         vaultQuery={vault.query}
         onVaultQueryChange={vault.setQuery}
-        vaultFolderContents={vault.folderContents}
-        onOpenVaultFolder={vault.openFolder}
         onCreateVaultCard={handleCreateVaultCard}
-        onCreateVaultFolder={vault.createFolder}
         onUploadVaultFile={vault.uploadFile}
         onRenameVaultCard={vault.renameCard}
-        onRenameVaultFolder={vault.renameFolder}
-        onMoveVaultCard={vault.moveCard}
-        onMoveVaultFolder={vault.moveFolder}
         onDeleteVaultCard={vault.deleteCard}
-        onDeleteVaultFolder={vault.deleteFolder}
         onAddVaultCardToPage={currentPage ? handleAddVaultCardToPage : null}
         onAddVaultCardToDock={handleAddVaultCardToDock}
         dockCards={dockCards.dockCards}
@@ -1570,13 +1584,16 @@ export function App() {
         onDeselectDockCards={deselectDockCards}
         onCloseSelectedDockCards={handleCloseSelectedDockCards}
         onMoveSelectedDockCardsToPage={handleEnterDockCardMoveMode}
-        sortedPages={sortedPages}
-        currentPageIndex={currentPageIndex}
-        onSelectPage={navigateToIndex}
+        siblingIndex={siblings.index}
+        siblingCount={siblings.siblings.length}
         canNavigateUp={canNavigateUp}
         canNavigateDown={canNavigateDown}
         onNavigateUp={navigateUp}
         onNavigateDown={navigateDown}
+        canGoBack={pageHistory.length > 0}
+        canGoForward={pageForwardHistory.length > 0}
+        onGoBack={goBack}
+        onGoForward={goForward}
         onAddPage={
           movingPageCardIds.size > 0
             ? handleDropOnNewPage
@@ -1584,25 +1601,29 @@ export function App() {
               ? handleDockCardDropOnNewPage
               : movingEmbedCard !== null
                 ? handleEmbedDropOnNewPage
-                : handleAddPageAtBottom
+                : handleCreateNewPage
         }
-        tabs={sortedTabs}
-        currentTabIndex={currentTabIndex}
-        onSelectTab={switchToTabIndex}
-        onCreateTab={() => tabs.createTab()}
-        onSaveAsAppFromTab={handleSaveAsAppFromTab}
-        onSaveAsAppFromPage={handleSaveAsAppFromPage}
-        editingAppName={editingAppName}
-        onStopEditingApp={handleStopEditingApp}
+        homePageId={pagesNav.homePageId}
+        currentPageId={currentPageId}
+        onGoHome={handleGoHome}
+        pinnedPages={pagesNav.pinned}
+        isCurrentPagePinned={isCurrentPagePinned}
+        onTogglePinCurrent={handleTogglePinCurrent}
+        onOpenPage={(id) => navigateToPage(id)}
+        vaultPageResults={vault.pages}
+        onOpenPageFromSearch={(id) => navigateToPage(id)}
+        onSaveAsTemplateFromPage={handleSaveAsTemplateFromPage}
+        editingTemplateName={editingTemplateName}
+        onStopEditingTemplate={handleStopEditingTemplate}
       />
-      {saveAsAppRequest && (
-        <SaveAsAppModal onSubmit={handleSubmitSaveAsApp} onClose={() => setSaveAsAppRequest(null)} />
+      {saveAsTemplateRequest && (
+        <SaveAsTemplateModal onSubmit={handleSubmitSaveAsTemplate} onClose={() => setSaveAsTemplateRequest(null)} />
       )}
-      {appBrowserOpen && (
-        <AppBrowser
-          onOpen={handleOpenAppFromBrowser}
-          onEdit={handleEditAppFromBrowser}
-          onClose={() => setAppBrowserOpen(false)}
+      {templateBrowserOpen && (
+        <TemplateBrowser
+          onOpen={handleOpenTemplateFromBrowser}
+          onEdit={handleEditTemplateFromBrowser}
+          onClose={() => setTemplateBrowserOpen(false)}
         />
       )}
     </div>

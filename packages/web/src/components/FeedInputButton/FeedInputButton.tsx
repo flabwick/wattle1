@@ -38,6 +38,12 @@ interface FeedInputButtonProps {
   /** Creates a new "prompt"-typed Card (registries/definitions/promptCardType.ts) —
    *  same shape as onAddAction above. */
   onAddPrompt?: () => void;
+  /** Creates a new "pageLinks"-typed Card (registries/definitions/pageLinksCardType.ts)
+   *  — same shape as onAddAction above. */
+  onAddPageLinks?: () => void;
+  /** Creates a new "search"-typed Card (registries/definitions/searchCardType.ts) —
+   *  same shape as onAddAction above. */
+  onAddSearch?: () => void;
   /** False inside the Dock Card panel's own creation flow (Step 6 spec §3.3): Dock
    *  Cards have no Page/Tab to draw generation context from, so there's no Circle —
    *  Add is the only way a Card actually gets created either way. */
@@ -85,6 +91,8 @@ export function FeedInputButton({
   onAddStack,
   onAddAction,
   onAddPrompt,
+  onAddPageLinks,
+  onAddSearch,
   showGenerate = true,
   showMoreOptions = true,
   placeholder,
@@ -144,6 +152,8 @@ export function FeedInputButton({
     ...(onAddStack ? [{ typeId: "stack", onSelect: () => { onAddStack(); collapse(); } }] : []),
     ...(onAddAction ? [{ typeId: "action", onSelect: () => { onAddAction(); collapse(); } }] : []),
     ...(onAddPrompt ? [{ typeId: "prompt", onSelect: () => { onAddPrompt(); collapse(); } }] : []),
+    ...(onAddPageLinks ? [{ typeId: "pageLinks", onSelect: () => { onAddPageLinks(); collapse(); } }] : []),
+    ...(onAddSearch ? [{ typeId: "search", onSelect: () => { onAddSearch(); collapse(); } }] : []),
   ];
 
   return (

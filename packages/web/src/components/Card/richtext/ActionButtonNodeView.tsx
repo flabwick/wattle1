@@ -44,7 +44,10 @@ export function ActionButtonNodeView({ node, updateAttributes }: NodeViewProps) 
     }
     if (!known || running || !ctx.ownerPageCard || !ctx.onRunActionJob) return;
     const inputs = ctx.getActionFieldValues?.() ?? [];
-    ctx.onRunActionJob(ctx.ownerPageCard, jobId, { ...jobParams, inputs });
+    // Fire-and-forget — this button doesn't show per-run failure state (unlike the
+    // "action" CardType's own multi-step Run), so a rejected job (e.g. a stale
+    // cardPicker target) is swallowed here rather than becoming a console warning.
+    Promise.resolve(ctx.onRunActionJob(ctx.ownerPageCard, jobId, { ...jobParams, inputs })).catch(() => {});
   }
 
   return (

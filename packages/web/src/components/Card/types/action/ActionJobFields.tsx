@@ -1,9 +1,6 @@
-import { useEffect, useState } from "react";
-import type { App, PageCardWithCard } from "@wattle/shared";
-import { InputField } from "../../../primitives/index.js";
-import { EmbeddableTextField } from "./EmbeddableTextField.js";
-import { ACTION_JOBS, type PromptCardContextMode } from "../../../../lib/actionJobs.js";
-import { listApps } from "../../../../api/client.js";
+import type { PageCardWithCard } from "@wattle/shared";
+import { actionJobRegistry } from "../../../../lib/actionJobRegistry.js";
+import { ActionStepFields } from "./ActionStepFields.js";
 import { t } from "../../../../i18n/index.js";
 
 interface ActionJobFieldsProps {
@@ -16,22 +13,23 @@ interface ActionJobFieldsProps {
   onJobIdChange: (id: string) => void;
   jobParams: Record<string, unknown>;
   onJobParamsChange: (params: Record<string, unknown>) => void;
-  /** Every PageCard on the same Page — for removeCard/saveCard's "pick a card on
-   *  this page" selector. */
+  /** Every PageCard on the same Page — for a "cardPicker" field's own "pick a card
+   *  on this page" selector. */
   pageSiblings: PageCardWithCard[];
-  /** Filtered out of that selector — removeCard/saveCard only ever target a
-   *  specific *other* card, never the note Card an actionButton itself lives in. */
+  /** Filtered out of that selector — a job's own target is always a specific
+   *  *other* card, never the note Card an actionButton itself lives in. */
   excludePageCardId: string;
 }
 
 /**
- * The job-picker and its job-specific fields — everything below the "which job"
- * select — factored out so an inline actionButton node's
- * ActionButtonConfigPopover.tsx doesn't duplicate eight jobs' worth of field logic
- * inline. Fully controlled: every value comes from `jobParams`/`jobId`, and every
- * change goes back out through `onJobParamsChange`/`onJobIdChange` — no internal
- * state of its own, so the caller persists however fits its own storage (a node's
- * own attrs).
+ * The job-picker plus the chosen job's own fields — a thin wrapper around the
+ * actionJobRegistry.ts vocabulary and ActionStepFields.tsx's generic renderer, so
+ * an inline actionButton node's ActionButtonConfigPopover.tsx (the one remaining
+ * caller of this — the "action" CardType's own multi-step list, CardInfoPanel.tsx,
+ * renders each step's row directly via ActionStepFields since it already has its
+ * own job-kind dropdown per step) doesn't need to know the registry exists. Fully
+ * controlled: every value comes from `jobParams`/`jobId`, every change goes back
+ * out through `onJobParamsChange`/`onJobIdChange`.
  */
 export function ActionJobFields({
   cardIdForEmbeds,
@@ -42,100 +40,28 @@ export function ActionJobFields({
   pageSiblings,
   excludePageCardId,
 }: ActionJobFieldsProps) {
-  const [apps, setApps] = useState<App[]>([]);
-
-  useEffect(() => {
-    listApps()
-      .then(setApps)
-      .catch(() => {});
-  }, []);
-
-  const title = typeof jobParams.title === "string" ? jobParams.title : "";
-  const content = typeof jobParams.content === "string" ? jobParams.content : "";
-  const instructions = typeof jobParams.instructions === "string" ? jobParams.instructions : "";
-  const contextMode: PromptCardContextMode = jobParams.contextMode === "own" ? "own" : "context";
-  const appId = typeof jobParams.appId === "string" ? jobParams.appId : "";
-  const direction: "up" | "down" = jobParams.direction === "up" ? "up" : "down";
-  const targetPageCardId = typeof jobParams.targetPageCardId === "string" ? jobParams.targetPageCardId : "";
-  const otherCardsOnPage = pageSiblings.filter((pc) => pc.id !== excludePageCardId);
+  const job = actionJobRegistry.get(jobId);
 
   return (
     <>
-      <select value={jobId} onChange={(e) => onJobIdChange(e.target.value)}>
+      <select className="app-select" value={jobId} onChange={(e) => onJobIdChange(e.target.value)}>
         <option value="">{t("actionCard.job.none")}</option>
-        {ACTION_JOBS.map((job) => (
-          <option key={job.id} value={job.id}>
-            {job.label()}
+        {actionJobRegistry.list().map((j) => (
+          <option key={j.id} value={j.id}>
+            {j.label()}
           </option>
         ))}
       </select>
 
-      {jobId === "createCard" && (
-        <>
-          <InputField
-            value={title}
-            placeholder={t("actionCard.createCard.titlePlaceholder")}
-            onChange={(e) => onJobParamsChange({ title: e.target.value, content })}
-          />
-          <EmbeddableTextField
-            cardId={cardIdForEmbeds}
-            label={t("actionCard.createCard.contentLabel")}
-            value={content}
-            onChange={(next) => onJobParamsChange({ title, content: next })}
-            placeholder={t("actionCard.createCard.contentPlaceholder")}
-          />
-        </>
-      )}
-
-      {jobId === "promptCard" && (
-        <>
-          <EmbeddableTextField
-            cardId={cardIdForEmbeds}
-            label={t("actionCard.promptCard.instructionsLabel")}
-            value={instructions}
-            onChange={(next) => onJobParamsChange({ instructions: next, contextMode })}
-            placeholder={t("actionCard.promptCard.instructionsPlaceholder")}
-          />
-          <select
-            value={contextMode}
-            onChange={(e) => onJobParamsChange({ instructions, contextMode: e.target.value })}
-          >
-            <option value="context">{t("actionCard.promptCard.contextAbove")}</option>
-            <option value="own">{t("actionCard.promptCard.contextOwn")}</option>
-          </select>
-        </>
-      )}
-
-      {jobId === "openApp" && (
-        <select value={appId} onChange={(e) => onJobParamsChange({ appId: e.target.value })}>
-          <option value="">{t("actionCard.selectApp")}</option>
-          {apps.map((app) => (
-            <option key={app.id} value={app.id}>
-              {app.name}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {jobId === "navigatePage" && (
-        <select
-          value={direction}
-          onChange={(e) => onJobParamsChange({ direction: e.target.value === "up" ? "up" : "down" })}
-        >
-          <option value="up">{t("actionCard.navigatePage.up")}</option>
-          <option value="down">{t("actionCard.navigatePage.down")}</option>
-        </select>
-      )}
-
-      {(jobId === "removeCard" || jobId === "saveCard") && (
-        <select value={targetPageCardId} onChange={(e) => onJobParamsChange({ targetPageCardId: e.target.value })}>
-          <option value="">{t("actionCard.selectCardOnPage")}</option>
-          {otherCardsOnPage.map((pc) => (
-            <option key={pc.id} value={pc.id}>
-              {pc.card.title || t("common.untitled")}
-            </option>
-          ))}
-        </select>
+      {job && (
+        <ActionStepFields
+          cardIdForEmbeds={cardIdForEmbeds}
+          fields={job.fields}
+          jobParams={jobParams}
+          onChange={onJobParamsChange}
+          pageSiblings={pageSiblings}
+          excludePageCardId={excludePageCardId}
+        />
       )}
     </>
   );

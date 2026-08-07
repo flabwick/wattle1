@@ -17,3 +17,5 @@ packages/api/uploads/
 # Vite
 packages/web/dist/
 packages/web/.vite/
+packages/api/.env
+packages/web/.env

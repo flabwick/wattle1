@@ -5,6 +5,7 @@ import {
   ActionFieldNode,
   CalloutNode,
   CardEmbedNode,
+  PageLinkNode,
   MathBlockNode,
   MathInlineNode,
   codeBlockExtension,
@@ -15,6 +16,7 @@ import {
   tableExtension,
 } from "@wattle/shared";
 import { CardEmbedNodeView } from "./CardEmbedNodeView.js";
+import { PageLinkNodeView } from "./PageLinkNodeView.js";
 import { ActionButtonNodeView } from "./ActionButtonNodeView.js";
 import { ActionFieldNodeView } from "./ActionFieldNodeView.js";
 import { CalloutNodeView } from "./CalloutNodeView.js";
@@ -32,6 +34,14 @@ import { SelectionHighlightDecoration } from "./SelectionHighlightDecoration.js"
 const CardEmbedNodeExtension = CardEmbedNode.extend({
   addNodeView() {
     return ReactNodeViewRenderer(CardEmbedNodeView);
+  },
+});
+
+/** Same "schema on the server, NodeView on the client" split as CardEmbedNode above —
+ *  see richText/pageLinkNode.ts. */
+const PageLinkNodeExtension = PageLinkNode.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(PageLinkNodeView);
   },
 });
 
@@ -89,6 +99,7 @@ export const richTextExtensions: Extensions = [
   MathInlineNodeExtension,
   MathBlockNodeExtension,
   CardEmbedNodeExtension,
+  PageLinkNodeExtension,
   ActionButtonNodeExtension,
   ActionFieldNodeExtension,
   AnnotationDecorations,

@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { Badge, Button, CardShell, Icon } from "../../../primitives/index.js";
+import { Badge, CardShell } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { getCardFileUrl } from "../../../../api/client.js";
 import { isMarkdownFile } from "../../../../lib/isMarkdownFile.js";
-import { t } from "../../../../i18n/index.js";
+import { useCard } from "../../../../hooks/useCard.js";
+import { CardHeaderActions } from "../../CardHeaderActions.js";
+import { CardFlippableBody } from "../../CardFlippableBody.js";
 import "../../Card.css";
 
 function isPdf(originalName: string, mimeType: string): boolean {
@@ -28,12 +30,26 @@ function extensionLabel(originalName: string): string | null {
  * anything else just shows the header (see fileCardType.ts — there's no editor for
  * any of these, so no onDoubleClick wired to onRequestEdit). A tap toggles selection
  * (App.tsx's toggleSelectPageCard) — in if not already selected, out again if it
- * was; everything else (Edit, Save, Move, Hide, remove) is reached from the Dock.
+ * was; Save/turn-into-stack/fullscreen/info live in the header's own
+ * CardHeaderActions row, everything else (Edit, Move, Hide, remove) is reached from
+ * the Dock.
  */
-export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: CardTypeViewProps) {
+export function FileView({
+  pageCard,
+  selected,
+  onSelect,
+  onOpenFullscreen,
+  onSave,
+  onOpenInVault,
+  onTurnIntoStack,
+}: CardTypeViewProps) {
+  const { card: liveCard } = useCard(pageCard.card.id);
+  const canonicalCard = liveCard ?? pageCard.card;
   const file = pageCard.card.metadata.file;
   const markdown = !!file && isMarkdownFile(file.originalName, file.mimeType);
   const [markdownText, setMarkdownText] = useState<string | null>(null);
+  const [showingInfo, setShowingInfo] = useState(false);
+  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
 
   useEffect(() => {
     if (!markdown || !file) return;
@@ -55,23 +71,15 @@ export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: Car
         <span className="card__title">{pageCard.card.title}</span>
         {extension && <Badge>{extension}</Badge>}
       </div>
-      <div className="card__header-actions">
-        {onOpenFullscreen && (
-          <Button
-            iconOnly
-            aria-label={t("card.openFullscreen")}
-            title={t("card.openFullscreen")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenFullscreen(pageCard.id);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="expand" />
-          </Button>
-        )}
-      </div>
+      <CardHeaderActions
+        hasUnsavedChanges={hasUnsavedChanges}
+        onSave={() => onSave?.(pageCard.id)}
+        onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
+        onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
+        onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+        showingInfo={showingInfo}
+        onToggleInfo={() => setShowingInfo((v) => !v)}
+      />
     </div>
   );
 
@@ -98,7 +106,9 @@ export function FileView({ pageCard, selected, onSelect, onOpenFullscreen }: Car
   return (
     <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
       {header}
-      {body}
+      <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+        {body}
+      </CardFlippableBody>
     </CardShell>
   );
 }

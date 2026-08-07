@@ -38,7 +38,7 @@ export function VaultCardDetail({ card, links, nearbyItems, loading, onOpenCard,
       </button>
 
       <div className="vault-card-detail__header">
-        <span className="vault-card-detail__title">{card.title || t("common.untitled")}</span>
+        <span className="vault-card-detail__title">{card.title}</span>
         {card.frozenAt && (
           <span className="vault-card-detail__frozen" title={t("card.frozen")} aria-label={t("card.frozen")}>
             <Icon name="lock" />
@@ -58,7 +58,7 @@ export function VaultCardDetail({ card, links, nearbyItems, loading, onOpenCard,
             <li key={link.cardId}>
               <button type="button" className="vault-card-detail__row" onClick={() => onOpenCard(link.cardId)}>
                 <Icon name="link" className="vault-card-detail__row-icon" />
-                <span>{link.title || t("common.untitled")}</span>
+                <span>{link.title}</span>
               </button>
             </li>
           ))}
@@ -75,7 +75,7 @@ export function VaultCardDetail({ card, links, nearbyItems, loading, onOpenCard,
             <li key={item.cardId}>
               <button type="button" className="vault-card-detail__row" onClick={() => onOpenCard(item.cardId)}>
                 <Icon name="compass" className="vault-card-detail__row-icon" />
-                <span className="vault-card-detail__row-title">{item.title || t("common.untitled")}</span>
+                <span className="vault-card-detail__row-title">{item.title}</span>
                 {item.summary && item.summary !== item.title && (
                   <span className="vault-card-detail__row-summary">{item.summary}</span>
                 )}

@@ -454,10 +454,10 @@
   opacity: 0.55;
 }
 
-/* editingAppId's badge (Apps feature spec §5) — sits just above the action row,
-   tappable to stop editing (clears back to null) rather than a purely static label,
-   since there'd otherwise be no way out of this mode. */
-.dock__editing-app-badge {
+/* editingTemplateId's badge — sits just above the action row, tappable to stop
+   editing (clears back to null) rather than a purely static label, since there'd
+   otherwise be no way out of this mode. */
+.dock__editing-template-badge {
   display: block;
   width: 100%;
   text-align: center;

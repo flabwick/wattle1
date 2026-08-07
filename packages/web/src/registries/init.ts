@@ -2,6 +2,13 @@ import { z } from "zod";
 import type { Operation } from "@wattle/shared";
 import { initCardTypes, operationRegistry } from "@wattle/shared";
 import { initCardTypeUi } from "./cardTypeUiInit.js";
+// Side-effect only — registers every actionJobRegistry.ts job, including
+// "generateSteps" (actionScriptJob.ts), before anything else in the app can query
+// actionJobRegistry.list()/.get(). Several files (CardInfoPanel.tsx,
+// ActionStepFields.tsx, ActionCardView.tsx) import actionJobRegistry.ts directly
+// rather than through lib/actionJobs.ts, so relying on one of *those* to pull the
+// registrations in first isn't reliable — this is the one guaranteed-early spot.
+import "../lib/actionJobs.js";
 
 let initialized = false;
 

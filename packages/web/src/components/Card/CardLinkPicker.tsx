@@ -53,9 +53,7 @@ export function CardLinkPicker({ onSelect, onClose, style, excludeSelector }: Ca
         {cards.map((card) => (
           <li key={card.id}>
             <PopoverItem icon="file" onClick={() => onSelect(card)}>
-              <span className="card-link-picker__item-title">
-                {card.title || t("common.untitled")}
-              </span>
+              <span className="card-link-picker__item-title">{card.title}</span>
             </PopoverItem>
           </li>
         ))}

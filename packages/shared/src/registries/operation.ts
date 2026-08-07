@@ -26,6 +26,11 @@ export interface Operation<TPayload = unknown, TResult = unknown> {
 export class OperationRegistry {
   private readonly operations = new Map<string, Operation<any, any>>();
 
+  /** Before adding a new Operation, see `registries/README.md` (this directory)
+   *  and `docs/adding-features.md` at the repo root. Registering an Operation
+   *  here does NOT make it reachable from an action-script step or an inline
+   *  actionButton — that's a separate registration in @wattle/web's
+   *  ActionJobRegistry (lib/actionJobRegistry.ts). */
   register(op: Operation<any, any>): void {
     if (this.operations.has(op.id)) {
       throw new Error(`Operation "${op.id}" is already registered`);

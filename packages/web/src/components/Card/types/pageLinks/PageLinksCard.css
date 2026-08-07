@@ -1,0 +1,51 @@
+.pageLinksCard__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  list-style: none;
+  padding: 0;
+}
+
+.pageLinksCard__list--editing li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.pageLinksCard__target {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+button.pageLinksCard__target {
+  border: none;
+  text-align: left;
+}
+
+.pageLinksCard__target:hover {
+  text-decoration: underline;
+}
+
+.pageLinksCard__target .icon {
+  flex-shrink: 0;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.pageLinksCard__add-wrap {
+  position: relative;
+  margin-top: var(--space-2);
+}

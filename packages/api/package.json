@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@prisma/client": "^5.22.0",
+    "@tavily/core": "^0.7.7",
     "@wattle/prompt-engine": "*",
     "@wattle/shared": "*",
     "cors": "^2.8.5",

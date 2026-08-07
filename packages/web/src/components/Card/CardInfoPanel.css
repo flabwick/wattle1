@@ -1,35 +1,53 @@
+/* Deliberately tighter than most section-stacking layouts in this app
+   (--space-2, not --space-3) — Tags/Variables/Links/Relationships (the sections
+   someone flips a Card to actually see) are pushed as close together as still
+   reads cleanly, since the whole point of this pass was "take up less space." */
 .card-info {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.card-info__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.card-info__title {
-  font-family: var(--font-family-heading);
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-md);
-}
-
-.card-info__row {
-  display: flex;
-  gap: var(--space-3);
-}
-
-.card-info__row .card-info__section {
-  flex: 1;
-  min-width: 0;
+  gap: var(--space-2);
 }
 
 .card-info__section {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* A short explanatory line under a section label (currently just the "action"
+   CardType's own Variables section) — smaller/quieter than a value, same weight
+   as .card-info__empty. */
+.card-info__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* The compact title/dates/status line at the very bottom of the panel — one row
+   of small muted text instead of the three separate labeled sections this used to
+   be, and moved to the end since it's the least likely reason anyone flipped the
+   Card in the first place (see the section's own doc comment above its JSX). */
+.card-info__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding-top: var(--space-1);
+  border-top: var(--border-width-thin) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.card-info__meta-title {
+  color: var(--color-text);
+  font-weight: var(--font-weight-bold);
+}
+
+.card-info__meta .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  vertical-align: text-bottom;
 }
 
 .card-info__label {
@@ -72,6 +90,50 @@
 .card-info__empty {
   margin: 0;
   color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.card-info__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.card-info__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.card-info__tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.card-info__tag-remove:hover {
+  color: var(--color-text);
+}
+
+.card-info__tag-remove .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.card-info__tag-input {
+  width: 100%;
   font-size: var(--font-size-sm);
 }
 
@@ -175,4 +237,109 @@
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text);
+}
+
+.card-info__action-label,
+.card-info__add-step {
+  min-height: 28px;
+  font-size: var(--font-size-sm);
+}
+
+/* "Generate steps with AI" (CardInfoPanel.tsx) — an instruction box plus a compact
+   Generate button, same reduced sizing as everything else in this section. Sits
+   above the manual label/step-list controls: the fastest way to fill this in is
+   usually to describe it and let the model write the first draft, then fine-tune
+   by hand below. */
+.card-info__generate-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.card-info__generate-steps-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  font-size: var(--font-size-sm);
+}
+
+.card-info__generate-steps .button {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.card-info__generate-steps-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* The "action" CardType's own step list — a denser, quieter treatment than
+   .card-info__list-item's card-stock rows: a thin border instead of bold, tight
+   padding, and every control (below) sized down from the app's default 44px/36px
+   touch targets — a form with several steps of several fields each adds up fast at
+   full size, and this is a dense editing surface, not a tap-target-scarce one. */
+.card-info__action-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-info__action-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.card-info__action-step-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.card-info__action-step-header select {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-info__action-step-controls {
+  flex-shrink: 0;
+  display: flex;
+  gap: 1px;
+}
+
+.card-info__action-step-controls .button {
+  min-height: 22px;
+  min-width: 22px;
+}
+
+.card-info__action-step-controls .button.button--icon {
+  width: 22px;
+}
+
+.card-info__action-step-controls .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.card-info__action-step select,
+.card-info__action-step input:not(.input-field) {
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
 }

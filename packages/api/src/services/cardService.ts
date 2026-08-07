@@ -3,6 +3,7 @@ import { cardMetadataV1Schema, defaultMetadata, migrateMetadata } from "@wattle/
 import { prisma } from "../db.js";
 import * as proximityService from "./proximityService.js";
 import * as summaryService from "./summaryService.js";
+import { syncPageLinksForPage } from "./pageLinkService.js";
 
 /** Card.metadata is stored as a JSON string (see schema.prisma); parse defensively. */
 function parseMetadataColumn(raw: string): unknown {
@@ -22,7 +23,6 @@ export function serializeCard(card: {
   savedToVault: boolean;
   frozenAt: Date | null;
   forkedFromId: string | null;
-  folderId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): Card {
@@ -34,16 +34,33 @@ export function serializeCard(card: {
     savedToVault: card.savedToVault,
     frozenAt: card.frozenAt ? card.frozenAt.toISOString() : null,
     forkedFromId: card.forkedFromId,
-    folderId: card.folderId,
     createdAt: card.createdAt.toISOString(),
     updatedAt: card.updatedAt.toISOString(),
   };
+}
+
+/** Every saved Card whose `metadata.tags` array has an entry containing `query`
+ *  (case-insensitive substring, same convention as the title/content match below) —
+ *  tags replace Folders as the organizing primitive (Pages + Links + Search rebuild:
+ *  "folders should not be a thing"), so search is how they're found, not a tree to
+ *  browse. Metadata is stored as a JSON string (schema.prisma), not a queryable
+ *  column, so this reaches into it via SQLite's `json_each` table-valued function
+ *  rather than a Prisma filter — id-only, so the actual Card rows still come back
+ *  through Prisma's own normal (type-safe) hydration in listCards below. */
+async function findCardIdsByTag(query: string): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT DISTINCT c.id AS id
+    FROM "Card" c, json_each(c.metadata, '$.tags') t
+    WHERE c."savedToVault" = 1 AND t.value LIKE '%' || ${query} || '%' COLLATE NOCASE
+  `;
+  return rows.map((r) => r.id);
 }
 
 /** The vault list only ever shows Cards that have actually been saved there — a Card
  *  created inside a Page (or by a generation) is page-local scratch content until its
  *  Save action runs (see schema.prisma's Card.savedToVault doc comment). */
 export async function listCards(query?: string): Promise<Card[]> {
+  const tagMatchIds = query ? await findCardIdsByTag(query) : [];
   const cards = await prisma.card.findMany({
     where: {
       savedToVault: true,
@@ -52,6 +69,7 @@ export async function listCards(query?: string): Promise<Card[]> {
             OR: [
               { title: { contains: query } },
               { content: { contains: query } },
+              { id: { in: tagMatchIds } },
             ],
           }
         : {}),
@@ -67,19 +85,16 @@ export async function getCard(id: string): Promise<Card | null> {
 }
 
 /** Creates a Card directly in the vault (savedToVault defaults to true — see
- *  schema.prisma) — unlike a Page-local/Dock-local Card, there's no later "save"
- *  transition to enforce a title at, so it's required from the start here. */
+ *  schema.prisma). A title is never required — a Card can have no title by default,
+ *  same as a Page (see schema.prisma's Page.title doc comment); nothing here forces
+ *  a placeholder value into it. */
 export async function createCard(input: CreateCardInput): Promise<Card> {
-  if (input.title.trim() === "") {
-    throw new Error("A title is required to save a Card to the vault");
-  }
   const metadata = input.metadata === undefined ? defaultMetadata() : cardMetadataV1Schema.parse(input.metadata);
   const card = await prisma.card.create({
     data: {
       title: input.title,
       content: input.content,
       metadata: JSON.stringify(metadata),
-      folderId: input.folderId ?? null,
     },
   });
   return serializeCard(card);
@@ -97,7 +112,7 @@ export interface UploadedFile {
  *  pageCardService.addFileCardToPage/dockCardService.addFileCardToDock's page/Dock-
  *  local scratch versions, since there's no Page or Dock row for this one to be
  *  scratch content *of*: the vault is where it's being added directly. */
-export async function createFileCard(file: UploadedFile, folderId: string | null): Promise<Card> {
+export async function createFileCard(file: UploadedFile): Promise<Card> {
   const card = await prisma.card.create({
     data: {
       title: file.originalName,
@@ -112,26 +127,15 @@ export async function createFileCard(file: UploadedFile, folderId: string | null
           size: file.size,
         },
       }),
-      folderId,
     },
-  });
-  return serializeCard(card);
-}
-
-/** Moves a Card to a different Folder (or to the vault root, if `folderId` is null). */
-export async function moveCard(id: string, folderId: string | null): Promise<Card> {
-  const card = await prisma.card.update({
-    where: { id },
-    data: { folderId },
   });
   return serializeCard(card);
 }
 
 /** Used both for a genuine vault Card rename (VaultView) and for a still page-local
  *  Dock Card's "writes straight through" editing (see dockCardService's doc comment
- *  on DockCard) — so blank is only rejected once the Card is actually savedToVault;
- *  a not-yet-saved Dock Card can still go blank freely, same as any other scratch
- *  content. */
+ *  on DockCard) — blank is always allowed, whether or not the Card is already
+ *  savedToVault (see createCard's own doc comment: no title is ever required). */
 export async function updateCard(
   id: string,
   input: UpdateCardInput,
@@ -139,11 +143,6 @@ export async function updateCard(
   const existing = await prisma.card.findUniqueOrThrow({ where: { id } });
   if (existing.frozenAt) {
     throw new Error("A Frozen Card can't be edited directly — fork it first");
-  }
-  if (input.title !== undefined && input.title.trim() === "") {
-    if (existing.savedToVault) {
-      throw new Error("A title is required to save a Card to the vault");
-    }
   }
   const card = await prisma.card.update({
     where: { id },
@@ -159,6 +158,8 @@ export async function updateCard(
   if (existing.savedToVault && input.content !== undefined) {
     await proximityService.reinforceContentLinks(serialized);
     summaryService.scheduleSummaryRefresh(serialized.id);
+    const placements = await prisma.pageCard.findMany({ where: { cardId: id }, select: { pageId: true } });
+    await Promise.all([...new Set(placements.map((p) => p.pageId))].map((pageId) => syncPageLinksForPage(pageId)));
   }
   return serialized;
 }
@@ -200,7 +201,6 @@ export async function forkCard(id: string): Promise<Card> {
       content: original.content,
       metadata: original.metadata,
       savedToVault: true,
-      folderId: original.folderId,
       forkedFromId: original.id,
     },
   });

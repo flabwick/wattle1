@@ -57,7 +57,7 @@ export function ContextCardPicker({ selectedIds, onToggle, onDone }: ContextCard
               >
                 {selected.has(card.id) && <Icon name="done" />}
               </span>
-              <span className="context-card-picker__item-title">{card.title || t("common.untitled")}</span>
+              <span className="context-card-picker__item-title">{card.title}</span>
             </PopoverItem>
           </li>
         ))}

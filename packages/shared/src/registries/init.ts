@@ -5,6 +5,8 @@ import { fileCardTypeDefinition } from "./definitions/fileCardType.js";
 import { stackCardTypeDefinition } from "./definitions/stackCardType.js";
 import { actionCardTypeDefinition } from "./definitions/actionCardType.js";
 import { promptCardTypeDefinition } from "./definitions/promptCardType.js";
+import { pageLinksCardTypeDefinition } from "./definitions/pageLinksCardType.js";
+import { searchCardTypeDefinition } from "./definitions/searchCardType.js";
 
 let initialized = false;
 
@@ -21,5 +23,7 @@ export function initCardTypes(): void {
   cardTypeRegistry.register(stackCardTypeDefinition);
   cardTypeRegistry.register(actionCardTypeDefinition);
   cardTypeRegistry.register(promptCardTypeDefinition);
+  cardTypeRegistry.register(pageLinksCardTypeDefinition);
+  cardTypeRegistry.register(searchCardTypeDefinition);
   initialized = true;
 }

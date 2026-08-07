@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
@@ -7,6 +7,7 @@ import { FeedInputButton } from "../FeedInputButton/FeedInputButton.js";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import { cardTypeUiRegistry } from "../../registries/cardTypeUi.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
+import type { StepOutput } from "../../lib/actionJobRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./PageStack.css";
 
@@ -29,13 +30,15 @@ interface PageCardSlotProps {
    *  onActivateEditor doc comment. Every other CardType stays on its existing
    *  interaction model regardless. */
   onActivateEditor: () => void;
-  /** Card.tsx's own header Save button (App.tsx's handleSavePageCard) — only
-   *  consumed by the "note" branch below, same scoping as onActivateEditor
-   *  above. */
-  onSave: () => void;
+  /** Card.tsx's own header Save button (App.tsx's handleSavePageCard) — unbound
+   *  (takes the pageCardId), same "note" branch binds it itself, generic
+   *  cardTypeUiRegistry path passes it straight through" convention
+   *  onOpenFullscreen/onTurnIntoStack below already use. */
+  onSave: (pageCardId: string) => void;
   /** Card.tsx's own header button once there's nothing left to save (App.tsx's
-   *  handleOpenCardInVault, takes this Card's own live title) — same "note"
-   *  branch-only scoping as onSave above. */
+   *  handleOpenCardInVault, takes this Card's own live title) — forwarded to both
+   *  the "note" branch and the generic cardTypeUiRegistry path unchanged, since
+   *  neither needs to bind anything beyond the title itself. */
   onOpenInVault: (title: string) => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   selectedEmbedIds: ReadonlySet<string>;
@@ -56,15 +59,19 @@ interface PageCardSlotProps {
   onRemoveAnnotation: (cardId: string, annotationId: string) => void;
   onUpdateAnnotationText: (cardId: string, annotationId: string, text: string) => void;
   /** Powers any inline actionButton/actionField nodes in this Card's own rich
-   *  content (rich-text follow-up to the Apps feature) — only the "note" branch
-   *  below (CardView/Card.tsx) forwards these; the generic cardTypeUiRegistry path
-   *  has no CardType left that uses them (the whole-card "action" CardType this was
-   *  built for is gone — inline nodes replaced it entirely). */
+   *  content (rich-text follow-up to the Apps feature) — the "note" branch below
+   *  (CardView/Card.tsx) forwards this unchanged (`void`-typed, fire-and-forget);
+   *  the generic cardTypeUiRegistry path's own `ui.View` slot expects
+   *  `Promise<StepOutput | void>` (cardTypeUi.ts's own doc comment on this same
+   *  prop explains why — the "action" CardType's multi-step Run needs to await it
+   *  and capture what a card-creating step produced). Both are the same underlying
+   *  function (App.tsx's handleRunActionJob, genuinely async), just assigned into
+   *  two differently-typed slots — safe either way. */
   onRunActionJob: (
     pageCard: PageCardWithCard,
     jobId: string | undefined,
     jobParams: Record<string, unknown> | undefined,
-  ) => void;
+  ) => Promise<StepOutput | void>;
   generatingPageCardId: string | null;
   /** Every PageCard on this same Page — removeCard/saveCard's "pick a card on this
    *  page" selector (an inline actionButton's ActionButtonConfigPopover.tsx). */
@@ -138,7 +145,7 @@ function PageCardSlot({
         onSelect={onSelect}
         onCloseEditor={onCloseEditor}
         onActivateEditor={onActivateEditor}
-        onSave={onSave}
+        onSave={() => onSave(pageCard.id)}
         onOpenInVault={onOpenInVault}
         onChangeDraft={onChangeDraft}
         selectedEmbedIds={selectedEmbedIds}
@@ -181,7 +188,61 @@ function PageCardSlot({
       onOpenFullscreen={onOpenFullscreen}
       onRunActionJob={onRunActionJob}
       generatingPageCardId={generatingPageCardId}
+      pageSiblings={pageSiblings}
+      onSave={onSave}
+      onOpenInVault={onOpenInVault}
+      onTurnIntoStack={onTurnIntoStack}
     />
+  );
+}
+
+/** The Page's own title, inline-editable — Pages + Links + Search rebuild Phase 1's
+ *  "Show Page title on the current Page (inline rename)". Click-to-edit, same
+ *  convention as VaultView's ItemLabel; blank commits back to untitled/loose rather
+ *  than being rejected (a Page's title is optional — see schema.prisma's doc
+ *  comment). Only rendered when `onRename` is provided — the fullscreen single-Card
+ *  view (App.tsx's focusedPage) omits it, since a Page title has no place there. */
+function PageTitleHeader({ title, onRename }: { title: string | null; onRename: (title: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(title ?? "");
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset the draft
+    // when entering edit mode, not on every `title` change (e.g. from elsewhere
+    // renaming it mid-edit here, which shouldn't stomp on what's being typed).
+  }, [editing]);
+
+  function commit() {
+    setEditing(false);
+    if (draft.trim() !== (title ?? "")) onRename(draft);
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="page-stack__title page-stack__title--editing"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <button type="button" className="page-stack__title" onClick={() => setEditing(true)}>
+      {title}
+    </button>
   );
 }
 
@@ -191,6 +252,9 @@ interface PageStackProps {
    *  arrows, rather than all Pages stacked in one scrolling column). Null if there
    *  are no Pages yet. */
   currentPage: PageWithCards | null;
+  /** Omitted (no title header at all) for the fullscreen single-Card view — see
+   *  PageTitleHeader's own doc comment. */
+  onRenameTitle?: (title: string) => void;
   /** Which way the last navigation moved (App.tsx's navDirection) — drives the slide
    *  animation below. Null on first load, so there's no animation on initial mount. */
   direction: "up" | "down" | null;
@@ -247,7 +311,7 @@ interface PageStackProps {
     pageCard: PageCardWithCard,
     jobId: string | undefined,
     jobParams: Record<string, unknown> | undefined,
-  ) => void;
+  ) => Promise<StepOutput | void>;
   generatingPageCardId: string | null;
   /** See PageCardSlotProps.onOpenFullscreen/onTurnIntoStack above. */
   onOpenFullscreen: (pageCardId: string) => void;
@@ -294,6 +358,8 @@ interface PageStackProps {
     onAddStack: () => void;
     onAddAction: () => void;
     onAddPrompt: () => void;
+    onAddPageLinks: () => void;
+    onAddSearch: () => void;
   } | null;
 }
 
@@ -334,6 +400,7 @@ function DropZone({ onClick }: { onClick: () => void }) {
  */
 export function PageStack({
   currentPage,
+  onRenameTitle,
   direction,
   revealHidden,
   selectedPageCardIds,
@@ -395,6 +462,7 @@ export function PageStack({
           key={currentPage.id}
           className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
         >
+          {onRenameTitle && <PageTitleHeader title={currentPage.title} onRename={onRenameTitle} />}
           {currentPage.pageCards.length === 0 && !anyMoving && (
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
@@ -415,7 +483,7 @@ export function PageStack({
                   onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
                   onActivateEditor={() => onActivatePageCardEditor(pageCard.id)}
-                  onSave={() => onSavePageCard(pageCard.id)}
+                  onSave={onSavePageCard}
                   onOpenInVault={onOpenPageCardInVault}
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
                   selectedEmbedIds={selectedEmbedIds}
@@ -466,6 +534,8 @@ export function PageStack({
               onAddStack={feedInput.onAddStack}
               onAddAction={feedInput.onAddAction}
               onAddPrompt={feedInput.onAddPrompt}
+              onAddPageLinks={feedInput.onAddPageLinks}
+              onAddSearch={feedInput.onAddSearch}
             />
           )}
         </div>

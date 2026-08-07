@@ -1,9 +1,24 @@
 # Prompts
 
-Every prompt the generation pipeline sends to a model lives here as a plain markdown
-file, loaded fresh off disk by `src/promptCompiler.ts` at the moment it's used — editing
-one of these files changes model behavior on the very next generation, with no rebuild or
-restart.
+Every system prompt this app sends to a model lives here as a plain markdown file,
+loaded fresh off disk at the moment it's used (see `../src/promptsDir.ts` for the
+shared path-resolution logic every compiler below imports) — editing one of these
+files changes model behavior on the very next call, with no rebuild or restart.
+
+**If you're adding a new CardType, Operation, or action job**, see
+[`docs/adding-features.md`](../../../docs/adding-features.md) at the repo root for
+the checklist of which of these files typically need a look. Nothing here enforces
+that these files stay accurate as the app grows — the `generate/system.md`,
+`diff/system.md`, `footnote/system.md`, and `highlight/system.md` prompts in
+particular describe the app's own content model (Cards, their formatting, what a
+model may reference) in plain English, and a structural change elsewhere in the
+codebase can silently make one of them wrong.
+
+This app has four small, independent prompt-compiling systems, each with its own
+subfolder(s) below and its own compiler in `../src/`. They don't share an output
+contract with each other — see each section's own description.
+
+## Generation modes (`src/promptCompiler.ts`)
 
 One subfolder per trigger mode (`PromptMode` in `src/promptCompiler.ts`):
 
@@ -29,16 +44,25 @@ silently dropped, not rendered). A nested reference to an existing Card is
 `generationService.ts`'s `materializeParts`), never something the model emits itself
 — the old `[[cardId]]` bracket-token format is gone.
 
-## Adding a new prompt (generation modes)
+**These prompts do not currently tell the model which CardTypes exist** —
+`generate/system.md`'s rule 4 just says `type` should be `"note"` "unless you have a
+specific reason to use another registered card type," without naming any. If you add
+a CardType you want a generation to be able to pick deliberately (rather than only
+ever defaulting to `"note"`), you need to add it to that rule yourself — the prompt
+has no auto-generated list to fall out of sync, because it doesn't generate one at
+all yet.
+
+### Adding a new generation mode
 
 1. Create `<mode>/system.md` here.
 2. Add the mode to `PromptMode` and `SYSTEM_PROMPT_FILE` in `src/promptCompiler.ts`.
 
-## Annotation processes (a separate, parallel system)
+## Annotation processes (`src/annotationCompiler.ts`) — a separate, parallel system
 
 | File | Loaded by | Used for |
 | --- | --- | --- |
-| `diff/system.md` | `compileAnnotationPrompt({ process: "diff", ... })` | Proposing text replacements (spelling/grammar) on existing Card content. |
+| `diff/system.md` | `compileAnnotationPrompt({ process: "diff", ... })` | Proposing text replacements (spelling/grammar) on existing Card content — the default, narrow, proofread-only behavior. |
+| `diff/system-instructed.md` | `compileAnnotationPrompt({ process: "diff", instruction: "...", ... })` | The same "diff" process, but with a non-blank `instruction` (the Dock's magic-button rewrite-in-place flow) — a broader instructed rewrite, still only ever proposing anchor/replacement diffs, never freestanding new content. |
 | `footnote/system.md` | `compileAnnotationPrompt({ process: "footnote", ... })` | Attaching plain-text clarifying notes to existing Card content. |
 | `highlight/system.md` | `compileAnnotationPrompt({ process: "highlight", ... })` | Marking notable spans of existing Card content, with an optional note. |
 
@@ -46,3 +70,35 @@ These do not use the `<card>` block contract above — they never re-emit or rew
 content, only a JSON array of sparse `{cardId, anchor, ...}` entries anchored to an exact
 substring of the target content (dropped silently if the anchor doesn't match). See
 `src/annotationCompiler.ts` and `src/annotationParser.ts`.
+
+### Adding a new annotation process
+
+1. Create `<process>/system.md` here.
+2. Add the process to `AnnotationProcess` and `SYSTEM_PROMPT_FILE` in
+   `src/annotationCompiler.ts`.
+
+## Summary (`src/summaryCompiler.ts`) — a separate, small system
+
+| File | Loaded by | Used for |
+| --- | --- | --- |
+| `summary/system.md` | `compileSummaryPrompt(plainTextContent)` | The Nearby system's per-Card summary maintenance (`summaryService.ts`) — one or two plain sentences, no structured output at all. |
+
+No mode/process argument — there's only ever one summary prompt, so
+`compileSummaryPrompt` takes no selector, just the Card's own plain-text content.
+
+## Action script (`src/actionScriptCompiler.ts`) — mostly-static, one dynamic section
+
+| File | Loaded by | Used for |
+| --- | --- | --- |
+| `action-script/system.md` | `compileActionScriptPrompt({ actionsDoc, instruction, currentScript? })` | The "action" CardType's own "Generate steps with AI" feature (`packages/web/src/lib/actionScriptJob.ts`) — teaches a model to write Wattle's small action-script language (see `packages/web/src/lib/actionScript.ts`'s own doc comment for the language itself). |
+
+Unlike every other prompt above, this one is **not entirely static markdown**: the
+`ACTIONS` section (documenting every runnable action-job the model can use) is
+rendered client-side, from the live `actionJobRegistry` in `@wattle/web` — a
+browser-only module this server-side package can't import — and passed in as
+`actionsDoc`, which `compileActionScriptPrompt` splices into this file's own
+`<!-- ACTIONS -->` placeholder. Editing the rest of `action-script/system.md`
+(the syntax rules, the Variables explanation, the example) works exactly like every
+other prompt here — no rebuild needed. But **adding a new action job never requires
+editing this file** — see `registries/README.md`'s own "Adding a new action job"
+section (`packages/shared/src/registries/README.md`) for why that part auto-syncs.

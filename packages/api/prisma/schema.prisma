@@ -46,11 +46,6 @@ model Card {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// Which vault Folder this Card sits in — null means the vault root. Set only once
-  /// savedToVault; page-local scratch Cards aren't placed in the tree yet.
-  folderId String?
-  folder   Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
-
   pageCards PageCard[]
   dockCards DockCard[]
   /// This Card is a "stack"-typed container for these StackMembers — see
@@ -63,8 +58,6 @@ model Card {
   /// pair this Card participates in, as either side.
   proximityAsA CardProximity[] @relation("ProximityCardA")
   proximityAsB CardProximity[] @relation("ProximityCardB")
-
-  @@index([folderId])
 }
 
 /// A durable Nearby tie between two Cards (Wattle vault plan's "durable map") —
@@ -89,27 +82,12 @@ model CardProximity {
   @@index([cardBId])
 }
 
-/// A Folder in the vault — groups Cards and other Folders into a navigable tree.
-/// spec1.md's original Vault section explicitly deferred this ("no folders ... yet");
-/// this is that deferred feature. `parentId` null means the folder sits at vault root.
-/// Deleting a Folder cascades to its Cards and to its subfolders (and *their* Cards),
-/// recursively — a deliberate product choice, not an oversight.
-model Folder {
-  id        String   @id @default(cuid())
-  title     String
-  parentId  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  parent   Folder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
-  children Folder[] @relation("FolderChildren")
-  cards    Card[]
-
-  @@index([parentId])
-}
-
-/// A Tab — a horizontal slot holding its own independent stack of Pages. Tabs do not
-/// share generation context with each other (see Step 6 spec, "Interaction Overhaul").
+/// A Tab — vestigial (Pages + Links + Search rebuild): retained only so pre-rebuild
+/// Pages keep a working `tabId` foreign key until the one-time hub migration
+/// (scripts/migrateTabsToHubs.ts) has run against a given database. No route, service,
+/// or UI creates, lists, or navigates by Tab any more — a Tab is not a user-facing
+/// place. Safe to drop entirely (and make Page.tabId non-nullable-never-set) once every
+/// deployment has migrated.
 model Tab {
   id        String   @id @default(cuid())
   order     Int
@@ -120,20 +98,79 @@ model Tab {
   pages Page[]
 }
 
-/// A Page — one slot in the vertical stack. `order` is ascending bottom (0) to top,
-/// scoped within its parent Tab.
+/// A Page — a destination you go to (Pages + Links + Search rebuild's locked primitive).
+/// Loose/unlinked Pages are fine; "claimed" just means named and/or linked from Home
+/// (or pinned) — there is no separate schema flag for that, it's derived from `title`/
+/// pinnedOrder/inbound PageLinks.
 model Page {
   id        String   @id @default(cuid())
+  /// Display name shown as the Page's destination identity. Null is a valid, common
+  /// state — an untitled/loose scratch Page never forces the user to name it.
+  title     String?
   order     Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tabId String
-  tab   Tab    @relation(fields: [tabId], references: [id], onDelete: Cascade)
+  /// Vestigial — see the Tab model's own doc comment. Nullable so every newly created
+  /// Page (Phase 1 onward) never needs one; only pre-migration Pages still carry a
+  /// value here.
+  tabId String?
+  tab   Tab?   @relation(fields: [tabId], references: [id], onDelete: Cascade)
 
-  pageCards PageCard[]
+  /// Groups a set of Pages that used to be one Tab's vertical stack (or, going
+  /// forward, any Pages explicitly kept as a "next/prev" trail) — the Tab-collapse
+  /// migration's hub-Page-plus-links is the primary UI for this now; `orderInGroup`
+  /// only powers the optional sibling next/prev polish (see Phase 3 of the rebuild
+  /// plan), never primary navigation.
+  siblingGroupId String?
+  orderInGroup   Int?
+
+  /// Non-null places this Page in the scarce pin rail, in ascending display order.
+  /// Null (the default/common case) means not pinned.
+  pinnedOrder Int?
+
+  pageCards    PageCard[]
+  homeSettings UserSettings[]  @relation("HomePage")
+  linksOut     PageLink[]      @relation("LinkSource")
+  linksIn      PageLink[]      @relation("LinkTarget")
 
   @@index([tabId])
+  @@index([siblingGroupId])
+  @@index([title])
+}
+
+/// A Page -> Page navigation link (Pages + Links + Search rebuild's "Link" primitive) —
+/// distinct from a Card embed (`<wattle-embed>`) and from an external URL: this is the
+/// wiki-style destination-to-destination edge that Search/Home/hub Pages are built out
+/// of. `sourcePageId` is the Page whose rich text contains the link mark; `targetPageId`
+/// is what it points at. One row per (source, target) *and* per occurrence isn't
+/// tracked — the mark itself lives inline in the source Page's Card content (via a
+/// PageCard), this row only exists so "orphan"/"inbound links" queries don't need to
+/// scan and parse every Card's rich text.
+model PageLink {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  sourcePageId String
+  sourcePage   Page   @relation("LinkSource", fields: [sourcePageId], references: [id], onDelete: Cascade)
+  targetPageId String
+  targetPage   Page   @relation("LinkTarget", fields: [targetPageId], references: [id], onDelete: Cascade)
+
+  @@unique([sourcePageId, targetPageId])
+  @@index([targetPageId])
+}
+
+/// Single-row app-wide preferences — Home and pins live here rather than as a Page
+/// flag, so "which Page is Home" is one obvious answer instead of schema sprawl
+/// (multiple Pages fighting over an `isHome` boolean). Always exactly one row, with
+/// the fixed id "singleton" — see api/src/services/settingsService.ts.
+model UserSettings {
+  id String @id
+
+  homePageId String?
+  homePage   Page?   @relation("HomePage", fields: [homePageId], references: [id], onDelete: SetNull)
+
+  updatedAt DateTime @updatedAt
 }
 
 /// A Card living outside any Page/Tab — the persistent Dock scratchpad layer from the
@@ -176,26 +213,29 @@ model StackMember {
   @@index([stackCardId])
 }
 
-/// A reusable Tab or Page template — see packages/shared/src/registries/appSnapshot.ts
-/// for the versioned `AppSnapshotV1` payload stored in `snapshot`. Core Apps (`isCore`)
-/// are seeded by prisma/seed.ts and are read-only from the API's perspective (appService.ts
-/// rejects update/delete against them regardless of what the frontend allows).
-model App {
+/// A reusable Tab or Page template — see
+/// packages/shared/src/registries/templateSnapshot.ts for the versioned
+/// `TemplateSnapshotV1` payload stored in `snapshot`. Core Templates (`isCore`) are
+/// seeded by prisma/seed.ts and are read-only from the API's perspective
+/// (templateService.ts rejects update/delete against them regardless of what the
+/// frontend allows).
+model Template {
   id          String   @id @default(cuid())
-  /// Stable lookup key for core Apps ("blank", "note", "chat"); user-created Apps leave
-  /// this null since they have no need for a fixed identity.
+  /// Stable lookup key for core Templates ("blank", "note", "chat"); user-created
+  /// Templates leave this null since they have no need for a fixed identity.
   slug        String?  @unique
   name        String
   description String?
   /// Whether `snapshot` reconstructs a whole Tab (ordered Pages of ordered Cards) or a
-  /// single Page (ordered Cards) — see AppSnapshotV1.
+  /// single Page (ordered Cards) — see TemplateSnapshotV1.
   scope       String
   isCore      Boolean  @default(false)
   sortOrder   Int      @default(0)
-  /// Versioned JSON payload (AppSnapshotV1), stored as a JSON string for the same reason
-  /// as Card.metadata: the sqlite connector doesn't support Prisma's `Json` scalar. Never
-  /// built from or trusted as browser input — always serialized server-side from real
-  /// Tab/Page/Card data at save time (appService.ts).
+  /// Versioned JSON payload (TemplateSnapshotV1), stored as a JSON string for the
+  /// same reason as Card.metadata: the sqlite connector doesn't support Prisma's
+  /// `Json` scalar. Never built from or trusted as browser input — always
+  /// serialized server-side from real Tab/Page/Card data at save time
+  /// (templateService.ts).
   snapshot    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

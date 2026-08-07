@@ -18,6 +18,10 @@ export interface CardTypeDefinition<TData = unknown> {
 export class CardTypeRegistry {
   private readonly definitions = new Map<string, CardTypeDefinition<any>>();
 
+  /** Before adding a new CardType, see `registries/README.md` (this directory) and
+   *  `docs/adding-features.md` at the repo root — the latter has the checklist of
+   *  which of the app's LLM system prompts (packages/prompt-engine/prompts/) may
+   *  need a look once your new type exists. */
   register(def: CardTypeDefinition<any>): void {
     if (this.definitions.has(def.id)) {
       throw new Error(`CardType "${def.id}" is already registered`);

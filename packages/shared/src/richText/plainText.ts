@@ -71,6 +71,21 @@ export function findEmbeddedCardIds(doc: PMNode): string[] {
   return cardIds;
 }
 
+/** Every `pageLink` node's `pageId`, in document order — richText/pageLinkNode.ts's
+ *  counterpart to findEmbeddedCardIds above, used to keep the PageLink table (the
+ *  "who links to whom" index Search/orphan-detection query) in sync with what a
+ *  Page's Cards actually contain, without re-parsing HTML at query time. */
+export function findPageLinkIds(doc: PMNode): string[] {
+  const pageIds: string[] = [];
+  doc.descendants((node) => {
+    if (node.type.name === "pageLink" && typeof node.attrs.pageId === "string") {
+      pageIds.push(node.attrs.pageId);
+    }
+    return true;
+  });
+  return pageIds;
+}
+
 /** Locates `anchor` (an exact substring, same contract as before — see
  *  cardMetadata.ts's annotationSchema doc comment) in `doc`'s plain-text projection,
  *  returning the ProseMirror position range it corresponds to. First-occurrence

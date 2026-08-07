@@ -53,7 +53,13 @@ export const CardShell = forwardRef<HTMLDivElement, CardShellProps>(function Car
       onPointerUp={gesture.onPointerUp}
       onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
         onKeyDown?.(e);
-        if (!e.defaultPrevented && (e.key === "Enter" || e.key === " ")) {
+        // `e.target === e.currentTarget` — only the shell div itself, not some
+        // nested interactive child (a search box, a title input, a button) that
+        // happens to have focus. Without this, Space/Enter typed into e.g. a
+        // Search Card's query field (SearchCardBody.tsx) never reaches the input
+        // at all: the keydown bubbles here first, matches this same condition, and
+        // gets preventDefault-ed before the browser ever inserts the character.
+        if (!e.defaultPrevented && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           onSelect?.();
         }

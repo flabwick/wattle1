@@ -1,43 +1,74 @@
-import type { PageWithCards } from "@wattle/shared";
+import type { PageSummary } from "@wattle/shared";
+import { Button, Icon } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 import "./PagesPanel.css";
 
 interface PagesPanelProps {
-  /** Top-to-bottom stack order — same indexing as App.tsx's sortedPages/PageNav. */
-  pages: PageWithCards[];
-  currentIndex: number;
-  onSelectPage: (index: number) => void;
-  /** "Save as App" (Apps feature spec §5) with scope "page" — saves whichever Page
-   *  is currently in view (this panel's own "focus"), not a specific row here. */
-  onSaveAsApp: () => void;
+  /** Home (Pages + Links + Search rebuild, Phase 4) — null only before first-run
+   *  bootstrap finishes (App.tsx always has a Home Page by the time this can render). */
+  homePageId: string | null;
+  currentPageId: string | null;
+  onGoHome: () => void;
+  /** The scarce pin rail — every pinned Page, in pin order. */
+  pinned: PageSummary[];
+  isCurrentPagePinned: boolean;
+  onTogglePinCurrent: () => void;
+  onOpenPage: (id: string) => void;
+  /** "Save as Template" with scope "page" — saves whichever Page is currently in
+   *  view, not a specific row here. */
+  onSaveAsTemplate: () => void;
 }
 
 /**
- * The Pages panel (Step 6 spec §3.5) — a vertical scrollable quick-jump list of every
- * Page in the current tab. PageNav's up/down arrows remain for adjacent navigation;
- * this is for jumping straight to a distant one. Pages have no title of their own
- * (schema.prisma's Page model), so each row is labeled by stack position, same
- * "Page N of Total" convention as PageNav's own dot row, plus a preview of its first
- * Card's title so rows are actually distinguishable from one another.
+ * The Pages panel — Home + the scarce pin rail (Pages + Links + Search rebuild, Phase
+ * 4). Finding a *specific* Page by title is the Vault panel's job now (search-first,
+ * Phase 2); this stays a short, curated list of quick-access destinations instead of
+ * growing into a second search box.
  */
-export function PagesPanel({ pages, currentIndex, onSelectPage, onSaveAsApp }: PagesPanelProps) {
+export function PagesPanel({
+  homePageId,
+  currentPageId,
+  onGoHome,
+  pinned,
+  isCurrentPagePinned,
+  onTogglePinCurrent,
+  onOpenPage,
+  onSaveAsTemplate,
+}: PagesPanelProps) {
   return (
     <div className="pages-panel">
-      <button type="button" className="pages-panel__save-as-app" onClick={onSaveAsApp}>
-        {t("apps.saveAsApp")}
+      <div className="pages-panel__toolbar">
+        <Button
+          className={`pages-panel__home${currentPageId === homePageId ? " pages-panel__home--current" : ""}`}
+          onClick={onGoHome}
+          disabled={!homePageId || currentPageId === homePageId}
+        >
+          <Icon name="home" />
+          {t("pages.home")}
+        </Button>
+        <Button
+          iconOnly
+          className={isCurrentPagePinned ? "button--pressed" : undefined}
+          onClick={onTogglePinCurrent}
+          disabled={!currentPageId}
+          aria-label={isCurrentPagePinned ? t("pages.unpin") : t("pages.pin")}
+          title={isCurrentPagePinned ? t("pages.unpin") : t("pages.pin")}
+        >
+          <Icon name="pin" />
+        </Button>
+      </div>
+      <button type="button" className="pages-panel__save-as-template" onClick={onSaveAsTemplate}>
+        {t("templates.saveAsTemplate")}
       </button>
-      {pages.length === 0 && <p className="pages-panel__empty">{t("pageStack.empty")}</p>}
-      {pages.map((page, i) => (
+      {pinned.length === 0 && <p className="pages-panel__empty">{t("pages.noPins")}</p>}
+      {pinned.map((page) => (
         <button
           key={page.id}
           type="button"
-          className={`pages-panel__item${i === currentIndex ? " pages-panel__item--current" : ""}`}
-          onClick={() => onSelectPage(i)}
+          className={`pages-panel__item${page.id === currentPageId ? " pages-panel__item--current" : ""}`}
+          onClick={() => onOpenPage(page.id)}
         >
-          <span className="pages-panel__index">{`Page ${i + 1} of ${pages.length}`}</span>
-          <span className="pages-panel__preview">
-            {page.pageCards[0]?.card.title || t("pageStack.emptyPreview")}
-          </span>
+          <span className="pages-panel__preview">{page.title || page.preview}</span>
         </button>
       ))}
     </div>

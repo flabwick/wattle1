@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { forkCard, serializeCard } from "./cardService.js";
 import * as proximityService from "./proximityService.js";
 import * as summaryService from "./summaryService.js";
+import { syncPageLinksForPage } from "./pageLinkService.js";
 
 export interface UploadedFile {
   storedName: string;
@@ -141,19 +142,15 @@ export async function updateDraft(
 
 /** Persist a PageCard's draft edits back to its vault Card, then clear the draft.
  *  Also the one place a Card ever flips from page-local to a real, independently
- *  accessible Vault entry (savedToVault: true) — see schema.prisma's doc comment.
- *  A title is optional for page-local scratch content but required from this point
- *  on, so this is where that's enforced (removeFromPage's own auto-promotion below
- *  deliberately does NOT enforce this — see its doc comment). */
+ *  accessible Vault entry (savedToVault: true) — see schema.prisma's doc comment. No
+ *  title is required, on this path or any other — a Card can have no title by
+ *  default (see cardService.createCard's own doc comment). */
 export async function saveToVault(pageCardId: string): Promise<PageCard> {
   const pageCard = await prisma.pageCard.findUniqueOrThrow({
     where: { id: pageCardId },
     include: { card: true },
   });
   const title = pageCard.draftTitle ?? pageCard.card.title;
-  if (title.trim() === "") {
-    throw new Error("A title is required to save a Card to the vault");
-  }
 
   const saved = await prisma.card.update({
     where: { id: pageCard.cardId },
@@ -174,6 +171,7 @@ export async function saveToVault(pageCardId: string): Promise<PageCard> {
   // not a keystroke stream, so no debounce needed here unlike cardService.updateCard).
   await proximityService.reinforcePageCoPresence(pageCard.pageId);
   await proximityService.reinforceContentLinks(serializeCard(saved));
+  await syncPageLinksForPage(pageCard.pageId);
   await summaryService.refreshSummary(saved.id);
   return serialize(cleared);
 }

@@ -67,6 +67,19 @@
   text-decoration: underline;
 }
 
+/* A pageLink node's chip (PageLinkNodeView.tsx) — reads as a Page destination, not
+   just styled text, so it's visually distinct from a plain hyperlink mark above. */
+.page-link-node__chip {
+  display: inline;
+  padding: 0 var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
 /* Inline code (StarterKit's `code` mark) — a quiet box, distinct from a fenced
    code *block* (`pre` below), which gets the app's "retro terminal" treatment. */
 .card-rich-text .ProseMirror code {

@@ -22,7 +22,6 @@ export type IconName =
   | "upload"
   | "link"
   | "move"
-  | "folder"
   | "chevronRight"
   | "annotate"
   | "diff"
@@ -32,8 +31,9 @@ export type IconName =
   | "more"
   | "tray"
   | "pages"
-  | "tabs"
   | "stackAdd"
+  | "home"
+  | "pin"
   | "back"
   | "save"
   | "bookmark"
@@ -43,7 +43,7 @@ export type IconName =
   | "bulletList"
   | "orderedList"
   | "eye"
-  | "apps"
+  | "templates"
   | "insertButton"
   | "insertTextbox"
   | "settings"
@@ -196,11 +196,8 @@ const PATHS: Record<IconName, JSX.Element> = {
   // A filled square — the Dock's Generate action becomes this while a generation is
   // streaming, standard "stop" glyph so it reads as distinct from close/cancel (X).
   stop: <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
-  // A folder tab — distinct from "vault" (the Dock's whole-panel toggle) even though
-  // both read as container shapes; this one marks individual Folder rows/breadcrumbs.
-  folder: <path d="M4 6h6l2 2h8v11H4V6z" />,
-  // A single right-pointing chevron — the explicit "open this Folder" row control,
-  // since a Folder row's own click now only selects it (see VaultView.tsx).
+  // A single right-pointing chevron — reused as "Forward" in the Dock's recent-Pages
+  // nav cluster (App.tsx's pageHistory).
   chevronRight: <path d="M9 5l7 7-7 7" />,
   // Three dots — the Feed Input Button's "expand" trigger (Step 6 spec §2.2).
   more: (
@@ -227,12 +224,21 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M5 8v13h11" />
     </>
   ),
-  // Browser-style tabs — the Tabs panel's toggle (Step 6 spec §3.4), distinct from
-  // "pages" (that Tab's own vertical stack).
-  tabs: (
+  // A simple house — Home (Pages + Links + Search rebuild, Phase 4), the one fixed
+  // destination every Page can navigate back to.
+  home: (
     <>
-      <path d="M3 8h6l2 3h10" />
-      <path d="M3 8v11h18V11h-8l-2-3H3z" />
+      <path d="M4 11l8-7 8 7" />
+      <path d="M6 10v10h12V10" />
+      <path d="M10 20v-6h4v6" />
+    </>
+  ),
+  // A classic map-pin drop — the scarce pin rail's toggle (Phase 4), distinct from
+  // "bookmark" (that glyph means "save this Card to the vault", not "pin this Page").
+  pin: (
+    <>
+      <path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" />
+      <circle cx="12" cy="10" r="2.5" />
     </>
   ),
   // Two offset card outlines with a plus badge — the Dock's "Make a Stack" action
@@ -330,10 +336,10 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   // Four squares — the classic "app launcher" glyph, distinct from every existing
-  // container-shaped icon here (vault/tray/folder) since Apps (the feature) are
-  // templates, not a storage destination. FeedInputButton's "New from App…" and the
-  // App browser both use this.
-  apps: (
+  // container-shaped icon here (vault/tray/folder) since Templates aren't a storage
+  // destination. Not currently wired to any call site — reserved for a future
+  // "New from Template…" entry point and/or TemplateBrowser.tsx's own use.
+  templates: (
     <>
       <rect x="4" y="4" width="7" height="7" rx="1" />
       <rect x="13" y="4" width="7" height="7" rx="1" />
@@ -342,8 +348,8 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   // A rounded rectangle with a short center line — inserting an inline action
-  // button into a Card's rich content (rich-text follow-up to the Apps feature),
-  // distinct from "plus" (adding a whole new Card/Page).
+  // button into a Card's rich content, distinct from "plus" (adding a whole new
+  // Card/Page).
   insertButton: (
     <>
       <rect x="3" y="8" width="18" height="8" rx="2.5" />

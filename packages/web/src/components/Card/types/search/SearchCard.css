@@ -1,0 +1,144 @@
+.search-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.search-card__modes {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.search-card__mode {
+  padding: 2px var(--space-2);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.search-card__mode--active {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.search-card__query-row {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.search-card__query {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-card__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-card__result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.search-card__result--page,
+.search-card__result--web {
+  cursor: pointer;
+}
+
+.search-card__result--page:hover,
+.search-card__result--web:hover {
+  background: var(--color-surface-raised);
+}
+
+.search-card__result--web {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-decoration: none;
+}
+
+.search-card__result-title {
+  color: var(--color-accent);
+}
+
+.search-card__result-snippet {
+  color: var(--color-text-muted);
+}
+
+.search-card__empty,
+.search-card__pending {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* A web result row splits into two independent controls — a select checkbox
+   (multi-select for the "export as Card" action) and the result link itself
+   (opens externally) — see SearchCardBody.tsx's own doc comment. */
+.search-card__result-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.search-card__result-row .search-card__result {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-card__result-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target-sm);
+  border: var(--border-width-bold) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: transparent;
+  cursor: pointer;
+}
+
+.search-card__result-check:hover {
+  border-color: var(--color-accent);
+}
+
+.search-card__result-check--checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.search-card__result-check .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.search-card__export-row {
+  display: flex;
+}
+
+.search-card__error {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

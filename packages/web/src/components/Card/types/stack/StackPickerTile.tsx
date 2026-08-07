@@ -7,7 +7,7 @@ import type { CardTypePickerTileProps } from "../../../../registries/cardTypeUi.
 export function StackPickerTile({ onSelect }: CardTypePickerTileProps) {
   return (
     <button type="button" className="card-type-picker-tile" onClick={onSelect}>
-      <Icon name="tabs" />
+      <Icon name="stackAdd" />
       <span>Stack</span>
     </button>
   );

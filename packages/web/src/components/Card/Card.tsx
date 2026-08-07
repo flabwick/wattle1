@@ -161,12 +161,6 @@ export function CardView({
   // prompt CardType's own front/back faces (PromptCardBody.tsx), just for a static
   // info view here rather than input-vs-output.
   const [showingInfo, setShowingInfo] = useState(false);
-  // Briefly true right after tapping Save with no title set — flashes the button
-  // red instead of actually saving (see handleSaveClick below), since a still-
-  // untitled Card can't be saved yet (pageCardService.saveToVault's own guard) and
-  // silently doing nothing would just look broken. Cleared by the animation's own
-  // onAnimationEnd rather than a timer, so it can't outlive or race the CSS.
-  const [showSaveError, setShowSaveError] = useState(false);
 
   const savedToVault = pageCard.card.savedToVault;
   // Once saved, `pageCard.card` (only as fresh as the last listPages fetch) stops
@@ -187,14 +181,8 @@ export function CardView({
   const isFrozen = Boolean(canonicalCard.frozenAt);
   // Whether there's anything for the header's own Save button to do — any
   // not-yet-vaulted Card (the common case: freshly created, still page-local
-  // scratch content) or a pending draft. Deliberately not also gated on having a
-  // title here (unlike the actual save, still enforced by App.tsx's
-  // handleSavePageCard/pageCardService.saveToVault's own guard): most fresh Cards
-  // get typed into (content first) before ever getting a title, and hiding the
-  // button entirely until one exists made it look like Save had disappeared
-  // rather than "add a title first" — the button staying visible (tapping it
-  // while still untitled flashes red instead — handleSaveClick below) reads
-  // clearer than it not being there at all.
+  // scratch content) or a pending draft. No title required to save (a Card can have
+  // no title by default — see cardService.createCard's own doc comment).
   const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !savedToVault;
 
   function handleTitleChange(value: string) {
@@ -213,14 +201,6 @@ export function CardView({
     } else {
       onChangeDraft({ content: value });
     }
-  }
-
-  function handleSaveClick() {
-    if (title.trim() === "") {
-      setShowSaveError(true);
-      return;
-    }
-    onSave();
   }
 
   // Injects this Card's own `pageCard.id` as the trailing pageCardId whenever the
@@ -332,16 +312,15 @@ export function CardView({
           {hasUnsavedChanges ? (
             <Button
               iconOnly
-              className={`card__save-btn${showSaveError ? " card__save-btn--error" : ""}`}
-              aria-label={showSaveError ? t("card.saveTitleRequired") : t("dock.action.save")}
-              title={showSaveError ? t("card.saveTitleRequired") : t("dock.action.save")}
+              className="card__save-btn"
+              aria-label={t("dock.action.save")}
+              title={t("dock.action.save")}
               onClick={(e) => {
                 e.stopPropagation();
-                handleSaveClick();
+                onSave();
               }}
               onDoubleClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
-              onAnimationEnd={() => setShowSaveError(false)}
             >
               <Icon name="bookmark" />
             </Button>
@@ -393,8 +372,10 @@ export function CardView({
           )}
           <Button
             iconOnly
+            className={showingInfo ? "button--pressed" : undefined}
             aria-label={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
             title={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
+            aria-pressed={showingInfo}
             onClick={(e) => {
               e.stopPropagation();
               setShowingInfo((v) => !v);
@@ -434,7 +415,7 @@ export function CardView({
             />
           </div>
           <div className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}>
-            <CardInfoPanel card={canonicalCard} onClose={() => setShowingInfo(false)} />
+            <CardInfoPanel card={canonicalCard} />
           </div>
         </div>
       )}

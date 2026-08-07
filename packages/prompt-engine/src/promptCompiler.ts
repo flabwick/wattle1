@@ -1,12 +1,6 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// This file lives in <package root>/src, prompts/ is a sibling of src/ — one level up
-// from wherever this module actually runs from (src/ in dev via tsx, dist/ if ever run
-// compiled), so the relative offset holds either way.
-const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PROMPTS_DIR = join(PACKAGE_ROOT, "prompts");
+import { join } from "node:path";
+import { PROMPTS_DIR } from "./promptsDir.js";
 
 /**
  * One piece of assembled context above a triggering Card — structurally the same shape

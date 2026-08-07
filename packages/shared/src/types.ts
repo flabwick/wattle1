@@ -5,7 +5,7 @@
  */
 
 import type { CardMetadataV1 } from "./registries/cardMetadata.js";
-import type { AppScope, AppSnapshotV1 } from "./registries/appSnapshot.js";
+import type { TemplateScope, TemplateSnapshotV1 } from "./registries/templateSnapshot.js";
 
 /** A Card as it lives in the vault — the single source of truth for its saved content. */
 export interface Card {
@@ -24,8 +24,6 @@ export interface Card {
   /** Set only on a Card created by forking a Frozen Card — points at the Frozen
    *  original it was copied from. */
   forkedFromId: string | null;
-  /** Which vault Folder this Card sits in, or null for the vault root. */
-  folderId: string | null;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
 }
@@ -35,8 +33,6 @@ export interface CreateCardInput {
   content: string;
   /** Raw, unvalidated — the API validates against CardMetadataV1 before persisting. */
   metadata?: unknown;
-  /** Vault Folder to create the Card in — omit or null for the vault root. */
-  folderId?: string | null;
 }
 
 export interface UpdateCardInput {
@@ -59,13 +55,56 @@ export interface Tab {
   updatedAt: string;
 }
 
-/** A Page — an ordered stack slot within a Tab. `order` is ascending from bottom (0)
- *  to top. */
+/** A Page — a destination you go to (Pages + Links + Search rebuild's locked
+ *  primitive). `order` is a legacy ordering value, still used within a
+ *  `siblingGroupId` (a former Tab's stack, or any explicit next/prev trail) via
+ *  `orderInGroup`; it no longer means anything across the whole Page table. */
 export interface Page {
   id: string;
+  /** Null is a valid, common state — a loose/unlinked scratch Page never forces the
+   *  user to name it. "Claimed" (named and/or linked from Home, or pinned) is derived
+   *  client-side from this plus `pinnedOrder`/inbound links, not its own flag. */
+  title: string | null;
   order: number;
+  /** Groups this Page with former stack-mates (see the schema's own doc comment) —
+   *  null for a Page that was never part of one. */
+  siblingGroupId: string | null;
+  orderInGroup: number | null;
+  /** Non-null places this Page in the scarce pin rail, ascending display order. */
+  pinnedOrder: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A Page -> Page navigation link — the rebuild's "Link" primitive, distinct from a
+ *  Card embed and from an external URL. */
+export interface PageLink {
+  id: string;
+  sourcePageId: string;
+  targetPageId: string;
+  createdAt: string;
+}
+
+/** Single-row app preferences — which Page is Home, in GET/PUT /api/settings. */
+export interface UserSettings {
+  homePageId: string | null;
+}
+
+export interface SearchPagesQuery {
+  q?: string;
+}
+
+/** One Page search/listing result, with just enough denormalized info for a list row
+ *  — never the full PageWithCards payload (that's only fetched once a specific Page
+ *  is actually opened). */
+export interface PageSummary {
+  id: string;
+  title: string | null;
+  pinnedOrder: number | null;
+  updatedAt: string;
+  /** First top-level Card's title, for a list row preview when the Page itself has
+   *  no title yet. */
+  preview: string | null;
 }
 
 /**
@@ -193,55 +232,99 @@ export interface SearchCardsQuery {
   q?: string;
 }
 
-/** A reusable Tab or Page template — see schema.prisma's App model and
- *  registries/appSnapshot.ts's AppSnapshotV1. */
-export interface App {
+/** One hit from GET /api/search/web — see webSearchService.ts. */
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/** Response for GET /api/search/web — the "search" CardType's own web mode
+ *  (registries/definitions/searchCardType.ts). Backed by Tavily
+ *  (webSearchService.ts); `configured` is false until `TAVILY_API_KEY` is set
+ *  (see .env.example), and `results` is always empty in that state rather than the
+ *  endpoint erroring, so the UI can show a plain
+ *  "not set up yet" notice instead of an error state. */
+export interface WebSearchResponse {
+  configured: boolean;
+  results: WebSearchResult[];
+}
+
+/** One successfully extracted page from POST /api/search/web/extract — see
+ *  webSearchService.ts's extractPages. `content` is markdown, converted client-side
+ *  into a Card via lib/markdownToWattleHtml.ts before being appended to the current
+ *  Page (SearchCardBody.tsx's own "export selected" action). */
+export interface WebExtractResult {
+  url: string;
+  title: string | null;
+  content: string;
+}
+
+/** One URL that failed extraction (a dead link, a page Tavily couldn't fetch, ...) —
+ *  reported rather than silently dropped, so the UI can tell the user which of a
+ *  multi-URL selection didn't come through. */
+export interface WebExtractFailure {
+  url: string;
+  error: string;
+}
+
+/** Response for POST /api/search/web/extract. Same `configured` convention as
+ *  WebSearchResponse — false (empty results/failed) until TAVILY_API_KEY is set. */
+export interface WebExtractResponse {
+  configured: boolean;
+  results: WebExtractResult[];
+  failed: WebExtractFailure[];
+}
+
+/** A reusable Tab or Page template — see schema.prisma's Template model and
+ *  registries/templateSnapshot.ts's TemplateSnapshotV1. */
+export interface Template {
   id: string;
   slug: string | null;
   name: string;
   description: string | null;
-  scope: AppScope;
+  scope: TemplateScope;
   isCore: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
 
-/** An App plus its full (server-built) template payload — GET /api/apps/:id and the
- *  create/update responses, as opposed to the lightweight GET /api/apps list. */
-export interface AppWithSnapshot extends App {
-  snapshot: AppSnapshotV1;
+/** A Template plus its full (server-built) snapshot payload — GET /api/templates/:id
+ *  and the create/update responses, as opposed to the lightweight GET /api/templates
+ *  list. */
+export interface TemplateWithSnapshot extends Template {
+  snapshot: TemplateSnapshotV1;
 }
 
 /**
- * Save-as-App and re-save-on-Edit both go through this shape: exactly one of `tabId`/
- * `pageId` must be set (determines `scope`), and the API always (re)builds the
- * snapshot itself from that Tab/Page's real current data — never from a payload the
- * browser constructed.
+ * Save-as-Template and re-save-on-Edit both go through this shape: exactly one of
+ * `tabId`/`pageId` must be set (determines `scope`), and the API always (re)builds
+ * the snapshot itself from that Tab/Page's real current data — never from a payload
+ * the browser constructed.
  */
-export interface CreateAppInput {
+export interface CreateTemplateInput {
   name: string;
   description?: string | null;
   tabId?: string;
   pageId?: string;
 }
 
-export interface UpdateAppSnapshotInput {
+export interface UpdateTemplateSnapshotInput {
   tabId?: string;
   pageId?: string;
 }
 
-/** Required only when opening a scope: "page" App — which Tab to append the fresh
- *  Page into. Ignored for a scope: "tab" App, which always gets a brand-new Tab. */
-export interface OpenAppInput {
-  tabId?: string;
-}
+/** Opening a Template no longer needs a destination Tab (Pages + Links + Search
+ *  rebuild: a fresh Page is a place in its own right) — reserved for future opening
+ *  options. */
+export type OpenTemplateInput = Record<string, never>;
 
-/** Ids of what "opening" an App just instantiated, so the frontend can navigate
- *  straight to it. */
-export interface OpenAppResult {
-  scope: AppScope;
-  tabId: string;
+/** What "opening" a Template just instantiated, so the frontend can navigate
+ *  straight to it — always exactly one Page (a `scope: "tab"`/hub Template lands on
+ *  its new hub Page, not any one child). */
+export interface OpenTemplateResult {
+  scope: TemplateScope;
   pageId: string;
 }
 
@@ -255,24 +338,3 @@ export interface NearbyItem {
   score: number;
 }
 
-/** A Folder in the vault — see schema.prisma's Folder model. */
-export interface Folder {
-  id: string;
-  title: string;
-  parentId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * One screen's worth of vault browsing: a Folder's immediate children (subfolders and
- * Cards, not recursive) plus the ancestor chain to render as a breadcrumb. `folder` is
- * null and `breadcrumb` is empty at the vault root.
- */
-export interface FolderContents {
-  folder: Folder | null;
-  /** Root-to-parent order, not including `folder` itself. */
-  breadcrumb: Folder[];
-  folders: Folder[];
-  cards: Card[];
-}

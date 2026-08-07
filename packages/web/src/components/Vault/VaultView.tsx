@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Card, Folder } from "@wattle/shared";
-import { Button, Icon, InputField } from "../primitives/index.js";
+import type { Card, PageSummary } from "@wattle/shared";
+import { Icon, InputField } from "../primitives/index.js";
 import { useVaultCardDetail } from "../../hooks/useVaultCardDetail.js";
 import { VaultCardDetail } from "./VaultCardDetail.js";
 import { t } from "../../i18n/index.js";
@@ -9,26 +9,22 @@ import "./VaultView.css";
 interface VaultViewProps {
   query: string;
   onQueryChange: (q: string) => void;
-  /** Flat search results (spec1.md Part 3 "Vault") — shown instead of `subfolders`/
-   *  `cards` whenever `query` is non-empty. Search ignores folder boundaries. */
+  /** Card title/content matches (spec1.md Part 3 "Vault") — with no query, every
+   *  saved Card, most recently updated first (cardService.listCards's own default). */
   searchResults: Card[];
-
-  /** The currently browsed Folder, or null at the vault root. */
-  folder: Folder | null;
-  /** Root-to-parent ancestor chain of `folder`, for the breadcrumb. */
-  breadcrumb: Folder[];
-  subfolders: Folder[];
-  /** Cards directly inside `folder` (or the root, if `folder` is null). */
-  cards: Card[];
-  /** Navigates into a Folder (or back to the vault root, for `null`) — distinct from
-   *  *selecting* one (see onSelectFolder below): breadcrumb ancestor crumbs, a Folder
-   *  row's chevron button, and double-clicking a Folder row all open it this way. */
-  onOpenFolder: (id: string | null) => void;
+  /** Page title matches (Pages + Links + Search rebuild) — rendered above
+   *  `searchResults`, since a Page hit is "go there", not "select and decide what to
+   *  do" the way a Card hit is. With no query, every claimed Page (searchPages's own
+   *  default — named, pinned, or linked from somewhere). */
+  pageResults: PageSummary[];
+  /** Open-on-hit — a Page result navigates immediately, no separate Dock action
+   *  needed the way a Card's does. */
+  onOpenPage: (id: string) => void;
 
   selectedCardId: string | null;
   /** A plain row click/tap — only ever selects (IDE-file-manager convention), never
-   *  opens anything. What "open" even means for a Card is ambiguous on its own
-   *  (add to Page? to the Dock? preview its links/Nearby?) — see Dock.tsx's
+   *  opens anything. What "open" even means for a Card is ambiguous on its own (add
+   *  to Page? to the Dock? preview its links/Nearby?) — see Dock.tsx's
    *  vaultModeActions for the explicit actions selecting one surfaces instead. */
   onSelectCard: (id: string) => void;
   /** Non-null while the selected Card's click-through detail view (links + Nearby)
@@ -43,37 +39,21 @@ interface VaultViewProps {
    *  leaving the Card itself still selected — same as closing a preview pane in a
    *  file manager doesn't deselect the file. */
   onCloseCardDetail: () => void;
-  /** A selected Folder — a single click on a Folder row (or on the breadcrumb's
-   *  trailing "current folder" crumb, which does nothing else) selects it *without*
-   *  navigating, so the Dock can show Rename/Move/Delete for it — see Dock.tsx's
-   *  vaultModeActions. Selecting is otherwise identical whether the Folder is one of
-   *  `subfolders` or is `folder` itself (the one currently browsed). */
-  selectedFolderId: string | null;
-  onSelectFolder: (id: string) => void;
 
-  /** Which row (a Card or Folder id) is mid-rename, showing a text input in place of
-   *  its label — set by the Dock's Rename action, not from within this view. */
+  /** Which Card is mid-rename, showing a text input in place of its title — set by
+   *  the Dock's Rename action, not from within this view. */
   renamingId: string | null;
   /** True while `renamingId` is a Card just created by the "New Card" action,
    *  naming it for the very first time — its rename input starts blank (never
-   *  pre-filled with a placeholder title the user never actually chose), and
-   *  submitting it blank deletes the Card instead of reverting to that placeholder
-   *  (see Dock.tsx's onCommitRename/onCancelRename). Never true for a Folder or an
-   *  already-named Card being renamed normally. */
+   *  pre-filled with a placeholder title the user never actually chose). Never true
+   *  for an already-named Card being renamed normally. */
   renamingIsNewCard: boolean;
   onCommitRename: (title: string) => void;
   onCancelRename: () => void;
-
-  /** Non-null while the Dock's Move action has a Card/Folder "in transit" waiting for
-   *  a destination — folder rows stay click-to-navigate (so the target can be several
-   *  levels deep), and a "Move Here" row targets whatever folder is currently open,
-   *  mirroring PageStack.tsx's drop-zone Move Mode. */
-  moving: { type: "card" | "folder"; id: string } | null;
-  onPickMoveTarget: () => void;
 }
 
-/** A file-list row's label, either static or (while `renamingId === id`) an inline
- *  rename input — shared by both Folder and Card rows below. */
+/** A Card row's title, either static or (while `renamingId === id`) an inline
+ *  rename input. */
 function ItemLabel({
   id,
   title,
@@ -108,7 +88,7 @@ function ItemLabel({
   }, [renaming]);
 
   if (!renaming) {
-    return <span className="vault__item-title">{title || t("common.untitled")}</span>;
+    return <span className="vault__item-title">{title}</span>;
   }
 
   return (
@@ -128,9 +108,8 @@ function ItemLabel({
 }
 
 /** The toolbar row — just a search field, full width. Every other action (New
- *  Folder/New Card/Upload, and whatever's selected) lives in the Dock's own row
- *  underneath instead (Dock.tsx's vaultModeActions) — this panel stays a plain,
- *  quiet list. */
+ *  Card/Upload, and whatever's selected) lives in the Dock's own row underneath
+ *  instead (Dock.tsx's vaultModeActions) — this panel stays a plain, quiet list. */
 function SearchBar({ query, onQueryChange }: { query: string; onQueryChange: (q: string) => void }) {
   return (
     <div className="vault__toolbar">
@@ -148,40 +127,33 @@ function SearchBar({ query, onQueryChange }: { query: string; onQueryChange: (q:
 }
 
 /**
- * The vault, styled as a compact file explorer: a breadcrumb over folders-then-cards,
- * or a flat search list. A single click on any row — Folder or Card — only *selects*
- * it, exactly like an IDE's own file tree: nothing opens on its own. The Dock then
+ * The vault, reframed as pure search (Pages + Links + Search rebuild) — no folder
+ * tree, no browsing: a search box over every Page (by title) and Card (by title/
+ * content), Page hits above Card hits. A blank query isn't an empty state either —
+ * it's just the widest possible search, so there's always something here rather
+ * than a "type to begin" prompt. A single click on a Card row only *selects* it,
+ * exactly like an IDE's own file list: nothing opens on its own. The Dock then
  * shows what to do with it — Add to Page, Add to Dock, Preview (links + Nearby),
- * Rename, Move, Delete — see Dock.tsx's vaultModeActions. Opening a Folder
- * (navigating into it) is a deliberately separate gesture — double-click, or its
- * row's chevron button — so a Folder can be renamed/moved/deleted without having to
- * step into it first.
+ * Rename, Delete — see Dock.tsx's vaultModeActions. A Page row is different:
+ * there's only one sensible thing to do with it (go there), so it navigates on the
+ * first click.
  */
 export function VaultView({
   query,
   onQueryChange,
   searchResults,
-  folder,
-  breadcrumb,
-  subfolders,
-  cards,
-  onOpenFolder,
+  pageResults,
+  onOpenPage,
   selectedCardId,
   onSelectCard,
   detailCardId,
   onOpenCardDetail,
   onCloseCardDetail,
-  selectedFolderId,
-  onSelectFolder,
   renamingId,
   renamingIsNewCard,
   onCommitRename,
   onCancelRename,
-  moving,
-  onPickMoveTarget,
 }: VaultViewProps) {
-  const searching = query.length > 0;
-  const movingFolderIntoItself = moving?.type === "folder" && moving.id === folder?.id;
   const cardDetail = useVaultCardDetail(detailCardId);
 
   if (detailCardId && cardDetail.card) {
@@ -204,90 +176,25 @@ export function VaultView({
     <div className="vault">
       <SearchBar query={query} onQueryChange={onQueryChange} />
 
-      {!searching && folder && (
-        <div className="vault__breadcrumb">
-          <button type="button" className="vault__crumb" onClick={() => onOpenFolder(null)}>
-            {t("vault.root")}
-          </button>
-          {breadcrumb.map((crumb) => (
-            <span key={crumb.id}>
-              <span className="vault__crumb-sep">/</span>
-              <button type="button" className="vault__crumb" onClick={() => onOpenFolder(crumb.id)}>
-                {crumb.title || t("common.untitled")}
+      {pageResults.length > 0 && (
+        <ul className="vault__list vault__list--pages">
+          {pageResults.map((page) => (
+            <li key={page.id} className="vault__item">
+              <button type="button" className="vault__item-open" onClick={() => onOpenPage(page.id)}>
+                <Icon name="pages" className="vault__item-icon" />
+                <span className="vault__item-title">{page.title || page.preview}</span>
               </button>
-            </span>
+            </li>
           ))}
-          <span className="vault__crumb-sep">/</span>
-          <button
-            type="button"
-            className={`vault__crumb vault__crumb--current${
-              selectedFolderId === folder.id ? " vault__crumb--selected" : ""
-            }`}
-            onClick={() => onSelectFolder(folder.id)}
-          >
-            <ItemLabel
-              id={folder.id}
-              title={folder.title}
-              renamingId={renamingId}
-              onCommitRename={onCommitRename}
-              onCancelRename={onCancelRename}
-            />
-          </button>
-        </div>
+        </ul>
       )}
 
       <ul className="vault__list">
-        {moving && (
-          <li className="vault__item">
-            <button
-              type="button"
-              className="vault__move-target"
-              disabled={movingFolderIntoItself}
-              onClick={onPickMoveTarget}
-            >
-              <Icon name="done" className="vault__item-icon" />
-              <span className="vault__item-title">{t("vault.moveHere")}</span>
-            </button>
-          </li>
-        )}
-
-        {!searching &&
-          subfolders.map((f) => (
-            <li key={f.id} className="vault__item">
-              <button
-                type="button"
-                className={`vault__item-open${selectedFolderId === f.id ? " vault__item-open--selected" : ""}`}
-                disabled={!!moving}
-                onClick={() => onSelectFolder(f.id)}
-                onDoubleClick={() => onOpenFolder(f.id)}
-              >
-                <Icon name="folder" className="vault__item-icon" />
-                <ItemLabel
-                  id={f.id}
-                  title={f.title}
-                  renamingId={renamingId}
-                  onCommitRename={onCommitRename}
-                  onCancelRename={onCancelRename}
-                />
-              </button>
-              <Button
-                iconOnly
-                className="vault__item-chevron"
-                aria-label={t("vault.open")}
-                title={t("vault.open")}
-                onClick={() => onOpenFolder(f.id)}
-              >
-                <Icon name="chevronRight" />
-              </Button>
-            </li>
-          ))}
-
-        {(searching ? searchResults : cards).map((card) => (
+        {searchResults.map((card) => (
           <li key={card.id} className="vault__item">
             <button
               type="button"
               className={`vault__item-open${selectedCardId === card.id ? " vault__item-open--selected" : ""}`}
-              disabled={!!moving}
               onClick={() => onSelectCard(card.id)}
             >
               <Icon name="file" className="vault__item-icon" />
@@ -303,9 +210,8 @@ export function VaultView({
           </li>
         ))}
 
-        {searching && searchResults.length === 0 && <li className="vault__empty">{t("vault.empty")}</li>}
-        {!searching && subfolders.length === 0 && cards.length === 0 && (
-          <li className="vault__empty">{t("vault.emptyFolder")}</li>
+        {searchResults.length === 0 && pageResults.length === 0 && (
+          <li className="vault__empty">{t("vault.empty")}</li>
         )}
       </ul>
     </div>

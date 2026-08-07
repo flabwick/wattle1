@@ -1,4 +1,4 @@
-import { appSnapshotV1Schema, defaultMetadata, type AppSnapshotV1 } from "@wattle/shared";
+import { templateSnapshotV1Schema, defaultMetadata, type TemplateSnapshotV1 } from "@wattle/shared";
 import { prisma } from "../src/db.js";
 
 /** No live database ids appear anywhere in these snapshots: they're self-contained
@@ -7,12 +7,12 @@ function noteMetadata(extra: Record<string, unknown> = {}) {
   return { ...defaultMetadata(), typeId: "note", ...extra };
 }
 
-const CORE_APPS: Array<{
+const CORE_TEMPLATES: Array<{
   slug: string;
   name: string;
   description: string;
   sortOrder: number;
-  snapshot: AppSnapshotV1;
+  snapshot: TemplateSnapshotV1;
 }> = [
   {
     slug: "blank",
@@ -75,30 +75,30 @@ const CORE_APPS: Array<{
 ];
 
 async function main() {
-  for (const app of CORE_APPS) {
-    const snapshot = appSnapshotV1Schema.parse(app.snapshot);
-    await prisma.app.upsert({
-      where: { slug: app.slug },
+  for (const template of CORE_TEMPLATES) {
+    const snapshot = templateSnapshotV1Schema.parse(template.snapshot);
+    await prisma.template.upsert({
+      where: { slug: template.slug },
       update: {
-        name: app.name,
-        description: app.description,
+        name: template.name,
+        description: template.description,
         scope: snapshot.scope,
-        sortOrder: app.sortOrder,
+        sortOrder: template.sortOrder,
         isCore: true,
         snapshot: JSON.stringify(snapshot),
       },
       create: {
-        slug: app.slug,
-        name: app.name,
-        description: app.description,
+        slug: template.slug,
+        name: template.name,
+        description: template.description,
         scope: snapshot.scope,
-        sortOrder: app.sortOrder,
+        sortOrder: template.sortOrder,
         isCore: true,
         snapshot: JSON.stringify(snapshot),
       },
     });
   }
-  console.log(`Seeded ${CORE_APPS.length} core Apps: ${CORE_APPS.map((a) => a.slug).join(", ")}`);
+  console.log(`Seeded ${CORE_TEMPLATES.length} core Templates: ${CORE_TEMPLATES.map((t) => t.slug).join(", ")}`);
 }
 
 main()

@@ -1,0 +1,65 @@
+/* A "pagePicker" field (ActionStepFields.tsx) — a read-only label plus a button
+   that opens PageLinkPicker, same shape the old operation CardType's own
+   page-target row used. */
+.action-step-fields__page-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  position: relative;
+}
+
+/* The "or use step N's card" option next to a vaultCardPicker's own "Pick from
+   vault" button (ActionStepFields.tsx) — same compact sizing as everything else
+   here, capped so it doesn't crowd out the label/button when all three sit on one
+   row. */
+.action-step-fields__step-ref-picker {
+  flex-shrink: 1;
+  max-width: 45%;
+}
+
+.action-step-fields__page-target-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Same compact sizing as every other control in this dense step-editing context
+   (CardInfoPanel.css's own .card-info__action-step select/input rule) — the
+   default full-size .button (44px, thick border) reads oversized next to a 26px
+   select in the same row. */
+.action-step-fields__page-target .button {
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* A "text"/"richtext" field plus its own optional "insert variable" picker
+   (ActionStepFields.tsx's VariablePicker) — the picker sits to the side for a
+   single-line text field, below a richtext field's own taller box. */
+.action-step-fields__text-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.action-step-fields__text-row .input-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-step-fields__richtext-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.action-step-fields__variable-picker {
+  flex-shrink: 0;
+  max-width: 40%;
+  font-size: var(--font-size-sm);
+}

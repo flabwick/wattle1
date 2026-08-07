@@ -17,6 +17,12 @@ import { ActionCardPickerTile } from "../components/Card/types/action/ActionCard
 import { PromptCardView } from "../components/Card/types/prompt/PromptCardView.js";
 import { PromptCardEditor } from "../components/Card/types/prompt/PromptCardEditor.js";
 import { PromptCardPickerTile } from "../components/Card/types/prompt/PromptCardPickerTile.js";
+import { PageLinksView } from "../components/Card/types/pageLinks/PageLinksView.js";
+import { PageLinksEditor } from "../components/Card/types/pageLinks/PageLinksEditor.js";
+import { PageLinksPickerTile } from "../components/Card/types/pageLinks/PageLinksPickerTile.js";
+import { SearchCardView } from "../components/Card/types/search/SearchCardView.js";
+import { SearchCardEditor } from "../components/Card/types/search/SearchCardEditor.js";
+import { SearchCardPickerTile } from "../components/Card/types/search/SearchCardPickerTile.js";
 
 let initialized = false;
 
@@ -24,6 +30,10 @@ let initialized = false;
  * Registers the UI (View/Editor/PickerTile) for every CardType. Mirrors initCardTypes
  * in @wattle/shared — see cardTypeUi.ts for why this is a separate registry. Call once
  * at app startup (see main.tsx via initRegistries). Safe to call more than once.
+ *
+ * Adding a new CardType's UI here is one step of a larger checklist — see
+ * `packages/shared/src/registries/README.md` and `docs/adding-features.md` at the
+ * repo root for the full list, including which LLM system prompts might need a look.
  */
 export function initCardTypeUi(): void {
   if (initialized) return;
@@ -62,6 +72,18 @@ export function initCardTypeUi(): void {
     View: PromptCardView,
     Editor: PromptCardEditor,
     PickerTile: PromptCardPickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "pageLinks",
+    View: PageLinksView,
+    Editor: PageLinksEditor,
+    PickerTile: PageLinksPickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "search",
+    View: SearchCardView,
+    Editor: SearchCardEditor,
+    PickerTile: SearchCardPickerTile,
   });
   initialized = true;
 }

@@ -88,7 +88,7 @@ function LinkedPropertyValue({
   return (
     <span className="card-info__property-link">
       <Icon name="link" className="card-info__property-link-icon" />
-      <span className="card-info__property-link-title">{card ? card.title || t("common.untitled") : "…"}</span>
+      <span className="card-info__property-link-title">{card ? card.title : "…"}</span>
       {!isFrozen && (
         <button
           type="button"

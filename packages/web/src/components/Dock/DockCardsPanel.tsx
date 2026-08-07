@@ -137,7 +137,7 @@ export function DockCardsPanel({
                 setView("card");
               }}
             >
-              {dc.card.title || t("common.untitled")}
+              {dc.card.title}
             </button>
           ))}
           <button

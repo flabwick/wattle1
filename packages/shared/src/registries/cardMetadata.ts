@@ -45,14 +45,40 @@ const diffHistoryEntrySchema = z.object({
 });
 
 /**
+ * One step of an "action" Card's job list (registries/definitions/actionCardType.ts) —
+ * which entry in the runtime job registry (web/lib/actionJobRegistry.ts) to run and
+ * its parameters. `jobId` is a free string, not a Zod-level literal union: the actual
+ * set of valid ids is a runtime registry (so new jobs can be added there without a
+ * schema change here), validated against at read time by whatever's dispatching it
+ * (lib/actionJobs.ts's runActionJob), not by this schema. `jobParams`' shape depends
+ * entirely on which job `jobId` names — see each job's own `fields` spec in the
+ * registry for what it reads out of this bag.
+ */
+const actionStepSchema = z.object({
+  id: z.string(),
+  jobId: z.string(),
+  jobParams: z.record(z.unknown()).default({}),
+});
+
+export type ActionStep = z.infer<typeof actionStepSchema>;
+
+/**
  * Versioned, extensible per-Card data — the JSON payload stored in Card.metadata
  * (see packages/api/prisma/schema.prisma). Adding a field to what a Card can carry
- * should mean adding it here (or a new version below), not a new DB column.
+ * should mean adding it here (or a new version below), not a new DB column. If this
+ * is part of adding a new CardType, see `docs/adding-features.md` at the repo root
+ * for the full checklist, including which LLM system prompts might need a look.
  */
 export const cardMetadataV1Schema = z.object({
   version: z.literal(1),
   /** ids of related Cards. */
   links: z.array(z.string()).default([]),
+  /** Free-form labels the user attaches to a Card — Folders' replacement as the
+   *  organizing primitive (Pages + Links + Search rebuild: "folders should not be a
+   *  thing"). No separate taxonomy/tree, no per-tag row anywhere: a tag is just text
+   *  matched by the Vault's own search (cardService.listCards), the same as a
+   *  title/content word — see CardInfoPanel.tsx for where they're added/removed. */
+  tags: z.array(z.string()).default([]),
   /** User-editable key/value pairs shown and edited on the Card's info back face
    *  (CardInfoPanel.tsx) — arbitrary facts the user attaches themselves (e.g.
    *  "status: draft"), distinct from every other field here, which the app itself
@@ -106,26 +132,70 @@ export const cardMetadataV1Schema = z.object({
   annotations: z.array(annotationSchema).default([]),
   /** Accepted diffs' pre-change text — see diffHistoryEntrySchema above. */
   diffHistory: z.array(diffHistoryEntrySchema).default([]),
-  /** Set only on typeId "action" Cards — a single calibrated job button, the
-   *  whole-card counterpart to an inline actionButton node
-   *  (richText/actionButtonNode.ts — same jobId/jobParams shape, calibrated
-   *  through the same ActionJobFields UI). `jobParams` is a plain object here, not
-   *  the JSON-encoded string the TipTap node attr needs — Card.metadata is already
-   *  free-form JSON, no ProseMirror attrs-must-be-primitive constraint to work
-   *  around. */
-  action: z
-    .object({
-      label: z.string(),
-      jobId: z.string().nullable(),
-      jobParams: z.record(z.unknown()),
-    })
-    .optional(),
+  /** Set only on typeId "action" Cards — a calibrated button that runs an ordered
+   *  list of jobs (see actionStepSchema above), each one a direct wrapper around an
+   *  existing mutation the app already performs elsewhere (creating/renaming/
+   *  editing/deleting/moving a Card, creating a Page, navigating, generating,
+   *  etc — the runtime registry in web/lib/actionJobRegistry.ts). Deliberately not
+   *  a general scripting language: no branching, no loops, no step-to-step data
+   *  passing. Steps run strictly in order, client-side, stopping at the first
+   *  failure — see ActionCardView.tsx's own Run handler. An inline actionButton
+   *  node (richText/actionButtonNode.ts) is the single-job counterpart to this —
+   *  same jobId/jobParams shape per entry, calibrated through the same
+   *  ActionJobFields/ActionStepFields UI, just never more than one. */
+  action: z.preprocess(
+    // Upgrades the pre-this-change shape (`{label, jobId, jobParams}`, a single
+    // job) into a one-step `steps` list — without this, an old-shape object would
+    // just have `jobId`/`jobParams` silently stripped as unknown keys by the
+    // object schema below (Zod's default behavior) and `steps` fall back to its
+    // `[]` default, silently discarding whatever was configured. Runs on every
+    // parse (migrateMetadata below), so existing action Cards upgrade the moment
+    // they're next read — no separate DB migration script needed.
+    (val) => {
+      if (val && typeof val === "object" && !Array.isArray(val) && "jobId" in val && !("steps" in val)) {
+        const legacy = val as { label?: unknown; jobId?: unknown; jobParams?: unknown };
+        return {
+          label: typeof legacy.label === "string" ? legacy.label : "",
+          steps:
+            typeof legacy.jobId === "string" && legacy.jobId
+              ? [{ id: "legacy", jobId: legacy.jobId, jobParams: legacy.jobParams ?? {} }]
+              : [],
+        };
+      }
+      return val;
+    },
+    z
+      .object({
+        label: z.string(),
+        steps: z.array(actionStepSchema).default([]),
+      })
+      .optional(),
+  ),
   /** Set only on typeId "link" Cards — a bookmark to an external URL. The Card's own
    *  `title` is the display title (same convention every other type uses, rather than
    *  registries/definitions/linkCardType.ts's separate, never-enforced `title` field
    *  on its dataSchema); this is just the one field that isn't already covered by an
    *  existing Card column. */
   link: z.object({ url: z.string() }).optional(),
+  /** Set only on typeId "pageLinks" Cards — one or more Page navigation targets (see
+   *  registries/definitions/pageLinksCardType.ts). `title` is cached per target the
+   *  same way a `pageLink` rich-text node caches one (richText/pageLinkNode.ts) —
+   *  the live Page's own title, if it's since changed, is what actually renders. */
+  pageLinks: z
+    .object({
+      targets: z.array(z.object({ pageId: z.string(), title: z.string() })).default([]),
+    })
+    .optional(),
+  /** Set only on typeId "search" Cards — a saved query plus which surface it
+   *  searches (registries/definitions/searchCardType.ts). Only the query is
+   *  persisted; results are always fetched live (never stale, never a second copy
+   *  of vault/web data sitting in metadata) — see SearchCardView.tsx. */
+  search: z
+    .object({
+      mode: z.enum(["vault", "web"]),
+      query: z.string(),
+    })
+    .optional(),
   /** Set only on typeId "prompt" Cards — a flip-card input/output box: `input` is the
    *  live draft prompt text on the front face; each Send appends a new entry to
    *  `iterations` (never overwrites one) rather than replacing a single output, so
@@ -175,6 +245,7 @@ export function defaultMetadata(): CardMetadataV1 {
   return {
     version: CURRENT_METADATA_VERSION,
     links: [],
+    tags: [],
     properties: [],
     log: [],
     annotations: [],

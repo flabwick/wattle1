@@ -1,27 +1,28 @@
 import type {
-  App,
-  AppWithSnapshot,
   Card,
-  CreateAppInput,
   CreateCardInput,
+  CreateTemplateInput,
   DockCardWithCard,
-  Folder,
-  FolderContents,
   GeneratedCardPart,
   GenerateResponse,
   NearbyItem,
-  OpenAppInput,
-  OpenAppResult,
+  OpenTemplateInput,
+  OpenTemplateResult,
   Page,
   PageCard,
   PageCardWithCard,
+  PageSummary,
   PageWithCards,
   StackData,
   StackMember,
   StackMemberWithCard,
-  Tab,
-  UpdateAppSnapshotInput,
+  Template,
+  TemplateWithSnapshot,
   UpdateCardInput,
+  UpdateTemplateSnapshotInput,
+  UserSettings,
+  WebExtractResponse,
+  WebSearchResponse,
 } from "@wattle/shared";
 
 /** The three annotation processes — see useAnnotations.ts and
@@ -54,17 +55,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// Apps — reusable Tab/Page templates (Apps feature spec). Snapshots are always built
-// server-side from a real Tab/Page reference; this client only ever sends ids.
-export const listApps = () => request<App[]>("/apps");
-export const getApp = (id: string) => request<AppWithSnapshot>(`/apps/${id}`);
-export const createApp = (input: CreateAppInput) =>
-  request<AppWithSnapshot>("/apps", { method: "POST", body: JSON.stringify(input) });
-export const updateAppSnapshot = (id: string, input: UpdateAppSnapshotInput) =>
-  request<AppWithSnapshot>(`/apps/${id}`, { method: "PUT", body: JSON.stringify(input) });
-export const deleteApp = (id: string) => request<void>(`/apps/${id}`, { method: "DELETE" });
-export const openApp = (id: string, input: OpenAppInput = {}) =>
-  request<OpenAppResult>(`/apps/${id}/open`, { method: "POST", body: JSON.stringify(input) });
+// Templates — reusable Tab/Page templates. Snapshots are always built server-side
+// from a real Tab/Page reference; this client only ever sends ids.
+export const listTemplates = () => request<Template[]>("/templates");
+export const getTemplate = (id: string) => request<TemplateWithSnapshot>(`/templates/${id}`);
+export const createTemplate = (input: CreateTemplateInput) =>
+  request<TemplateWithSnapshot>("/templates", { method: "POST", body: JSON.stringify(input) });
+export const updateTemplateSnapshot = (id: string, input: UpdateTemplateSnapshotInput) =>
+  request<TemplateWithSnapshot>(`/templates/${id}`, { method: "PUT", body: JSON.stringify(input) });
+export const deleteTemplate = (id: string) => request<void>(`/templates/${id}`, { method: "DELETE" });
+export const openTemplate = (id: string, input: OpenTemplateInput = {}) =>
+  request<OpenTemplateResult>(`/templates/${id}/open`, { method: "POST", body: JSON.stringify(input) });
+
+// Search — the "search" CardType's web mode (registries/definitions/
+// searchCardType.ts). Vault mode reuses listCards/searchPages directly below.
+export const searchWeb = (q: string) =>
+  request<WebSearchResponse>(`/search/web?q=${encodeURIComponent(q)}`);
+/** The "export selected results as a Card" action (SearchCardBody.tsx) — full page
+ *  text for up to 20 URLs at once. */
+export const extractWebPages = (urls: string[]) =>
+  request<WebExtractResponse>("/search/web/extract", { method: "POST", body: JSON.stringify({ urls }) });
+
+/** The "action" CardType's own "Generate steps with AI" feature
+ *  (lib/actionScript.ts/actionScriptPrompt.ts) — one blocking model call, no
+ *  streaming. `actionsDoc` is rendered client-side from the action-job registry
+ *  (lib/actionScriptPrompt.ts's buildActionScriptActionsDoc); the server splices it
+ *  into the static prompt template it reads from disk
+ *  (packages/prompt-engine/prompts/action-script/system.md). `currentScript`,
+ *  when regenerating an existing button, is that button's own script serialized
+ *  back to text (lib/actionScript.ts's serializeActionScript) so the model edits
+ *  in context. */
+export const generateActionScript = (actionsDoc: string, instruction: string, currentScript?: string) =>
+  request<{ text: string }>("/action-scripts/generate", {
+    method: "POST",
+    body: JSON.stringify({ actionsDoc, instruction, currentScript }),
+  });
 
 // Vault
 export const listCards = (q?: string) =>
@@ -75,18 +100,14 @@ export const createCard = (input: CreateCardInput) =>
 export const updateCard = (id: string, input: UpdateCardInput) =>
   request<Card>(`/cards/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 export const deleteCard = (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" });
-export const moveCard = (id: string, folderId: string | null) =>
-  request<Card>(`/cards/${id}/move`, { method: "PATCH", body: JSON.stringify({ folderId }) });
 /** Direct URL (not routed through `request()`) for a "file"-typed Card's uploaded
  *  bytes — used as an <iframe>/<img> src or fetched as raw text, never as JSON. */
 export const getCardFileUrl = (id: string) => `/api/cards/${id}/file`;
 /** The Vault panel's own Upload action — a real, already-savedToVault "file"-typed
- *  Card straight in `folderId` (or the vault root). Same multipart/bypass-request()
- *  shape as uploadFileToPage. */
-export const uploadFileToVault = async (file: File, folderId: string | null): Promise<Card> => {
+ *  Card. Same multipart/bypass-request() shape as uploadFileToPage. */
+export const uploadFileToVault = async (file: File): Promise<Card> => {
   const body = new FormData();
   body.append("file", file);
-  if (folderId) body.append("folderId", folderId);
   const res = await fetch(`/api/cards/files`, { method: "POST", body });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
@@ -95,34 +116,33 @@ export const uploadFileToVault = async (file: File, folderId: string | null): Pr
   return res.json() as Promise<Card>;
 };
 
-// Vault Folders
-export const getFolderContents = (folderId: string | null) =>
-  request<FolderContents>(`/folders/contents${folderId ? `?folderId=${encodeURIComponent(folderId)}` : ""}`);
-export const createFolder = (title: string, parentId: string | null) =>
-  request<Folder>("/folders", { method: "POST", body: JSON.stringify({ title, parentId }) });
-export const renameFolder = (id: string, title: string) =>
-  request<Folder>(`/folders/${id}`, { method: "PATCH", body: JSON.stringify({ title }) });
-export const moveFolder = (id: string, parentId: string | null) =>
-  request<Folder>(`/folders/${id}/move`, { method: "PATCH", body: JSON.stringify({ parentId }) });
-export const deleteFolder = (id: string) => request<void>(`/folders/${id}`, { method: "DELETE" });
+// Settings — Home (Pages + Links + Search rebuild, Phase 4).
+export const getSettings = () => request<UserSettings>("/settings");
+export const setHomePage = (pageId: string | null) =>
+  request<UserSettings>("/settings/home", { method: "PUT", body: JSON.stringify({ pageId }) });
 
-// Tabs — the horizontal layer above Pages (Step 6 spec §1.1).
-export const listTabs = () => request<Tab[]>("/tabs");
-export const createTab = (title?: string) =>
-  request<Tab>("/tabs", { method: "POST", body: JSON.stringify(title ? { title } : {}) });
-export const deleteTab = (id: string) => request<void>(`/tabs/${id}`, { method: "DELETE" });
-
-// Pages
-export const listPages = (tabId: string) =>
-  request<PageWithCards[]>(`/pages?tabId=${encodeURIComponent(tabId)}`);
-export const createPage = (tabId: string, order?: number) =>
-  request<Page>("/pages", {
-    method: "POST",
-    body: JSON.stringify(order !== undefined ? { tabId, order } : { tabId }),
-  });
+// Pages — a Page is a destination in its own right now, not scoped to a Tab.
+/** Search/list Pages by title (Search's Page results, and the Pages panel's own
+ *  quick-jump list) — omit `q` for the default "claimed" listing (named, pinned, or
+ *  linked from somewhere). */
+export const searchPages = (q?: string) =>
+  request<PageSummary[]>(`/pages${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+export const listPinnedPages = () => request<PageSummary[]>("/pages/pinned");
+/** Find-or-create a Page by title — the Page-link picker's "link to missing title →
+ *  create empty Page, link to it". */
+export const resolvePageByTitle = (title: string) =>
+  request<Page>("/pages/resolve", { method: "POST", body: JSON.stringify({ title }) });
+export const getPage = (id: string) => request<PageWithCards>(`/pages/${id}`);
+export const listSiblingPages = (id: string) => request<PageSummary[]>(`/pages/${id}/siblings`);
+export const createPage = (title?: string) =>
+  request<Page>("/pages", { method: "POST", body: JSON.stringify(title ? { title } : {}) });
+export const renamePage = (id: string, title: string) =>
+  request<Page>(`/pages/${id}`, { method: "PATCH", body: JSON.stringify({ title }) });
+export const setPagePinned = (id: string, pinnedOrder: number | null) =>
+  request<Page>(`/pages/${id}/pin`, { method: "PUT", body: JSON.stringify({ pinnedOrder }) });
 export const deletePage = (id: string) => request<void>(`/pages/${id}`, { method: "DELETE" });
-export const reorderPages = (orderedIds: string[]) =>
-  request<void>("/pages/reorder", { method: "PUT", body: JSON.stringify({ orderedIds }) });
+export const reorderSiblingPages = (orderedIds: string[]) =>
+  request<void>("/pages/reorder-siblings", { method: "PUT", body: JSON.stringify({ orderedIds }) });
 
 // Page <-> Card membership
 export const addExistingCardToPage = (pageId: string, cardId: string) =>

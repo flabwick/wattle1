@@ -6,6 +6,7 @@ import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
 import type { Extensions } from "@tiptap/core";
 import { CardEmbedNode } from "./cardEmbedNode.js";
+import { PageLinkNode } from "./pageLinkNode.js";
 import { ActionButtonNode } from "./actionButtonNode.js";
 import { ActionFieldNode } from "./actionFieldNode.js";
 import { CalloutNode } from "./calloutNode.js";
@@ -68,6 +69,7 @@ export const baseRichTextExtensions: Extensions = [
   MathInlineNode,
   MathBlockNode,
   CardEmbedNode,
+  PageLinkNode,
   ActionButtonNode,
   ActionFieldNode,
 ];

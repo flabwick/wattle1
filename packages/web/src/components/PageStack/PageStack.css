@@ -20,6 +20,26 @@
   font-size: var(--font-size-sm);
 }
 
+/* The Page's own title (Pages + Links + Search rebuild) — its destination identity,
+   click-to-edit. Sits above every Card, not styled as one itself. */
+.page-stack__title {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-3);
+  padding: var(--space-1) 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  text-align: left;
+  cursor: text;
+}
+
+.page-stack__title--editing {
+  border-bottom: var(--border-width-thin) solid var(--color-border-strong);
+}
+
 /* Navigation feel: the new Page slides in from the direction it "came from" in the
    stack (App.tsx's navDirection) rather than just popping in — "up" arrives from
    below (you're moving toward the top of the stack), "down" from above. */
