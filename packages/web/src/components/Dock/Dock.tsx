@@ -331,10 +331,17 @@ interface DockAction {
  * Which Operation ids a CardType allows, resolved against every Operation actually
  * registered (operationRegistry.list()) — a `["*"]` wildcard (the "note" type's
  * current value) means "everything registered", not literally the string "*".
+ *
+ * A `typeId` that isn't currently registered (a stale value left over from a
+ * CardType that's since been removed/renamed, e.g. the old "operation" type folded
+ * into "action" — see cardMetadata.ts's own migration doc comments) falls back to
+ * "note"'s own `["*"]` behavior — same "unrecognized type renders as a plain note"
+ * convention PageStack.tsx's own PageCardSlot already uses for the View layer,
+ * rather than throwing and taking the whole Dock down.
  */
 function supportedOperationIds(typeId: string): Set<string> {
-  const cardType = cardTypeRegistry.get(typeId);
   const registeredIds = operationRegistry.list().map((op) => op.id);
+  const cardType = cardTypeRegistry.has(typeId) ? cardTypeRegistry.get(typeId) : cardTypeRegistry.get("note");
   if (cardType.supportsOperations.includes("*")) {
     return new Set(registeredIds);
   }

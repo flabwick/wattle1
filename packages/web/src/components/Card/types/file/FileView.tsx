@@ -7,6 +7,7 @@ import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { getCardFileUrl } from "../../../../api/client.js";
 import { isMarkdownFile } from "../../../../lib/isMarkdownFile.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
 import "../../Card.css";
@@ -28,11 +29,11 @@ function extensionLabel(originalName: string): string | null {
  * client-side PDF library needed), a .md file is fetched as raw text and rendered as
  * GitHub-flavored markdown (tables, task lists, fenced code highlighting), and
  * anything else just shows the header (see fileCardType.ts — there's no editor for
- * any of these, so no onDoubleClick wired to onRequestEdit). A tap toggles selection
- * (App.tsx's toggleSelectPageCard) — in if not already selected, out again if it
- * was; Save/turn-into-stack/fullscreen/info live in the header's own
- * CardHeaderActions row, everything else (Edit, Move, Hide, remove) is reached from
- * the Dock.
+ * any of these, so no onDoubleClick wired to onRequestEdit). The header's own
+ * fold-caret/select-checkbox (CardHeaderStart) is the only way to select now, same
+ * as every other type; Save/turn-into-stack/fullscreen/info live in the header's
+ * own CardHeaderActions row, everything else (Edit, Move, Hide, remove) is reached
+ * from the Dock.
  */
 export function FileView({
   pageCard,
@@ -49,6 +50,7 @@ export function FileView({
   const markdown = !!file && isMarkdownFile(file.originalName, file.mimeType);
   const [markdownText, setMarkdownText] = useState<string | null>(null);
   const [showingInfo, setShowingInfo] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
 
   useEffect(() => {
@@ -67,10 +69,15 @@ export function FileView({
   const extension = file ? extensionLabel(file.originalName) : null;
   const header = (
     <div className="card__header">
-      <div className="card__header-start">
-        <span className="card__title">{pageCard.card.title}</span>
+      <CardHeaderStart
+        title={pageCard.card.title}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((c) => !c)}
+        selected={selected}
+        onSelect={onSelect}
+      >
         {extension && <Badge>{extension}</Badge>}
-      </div>
+      </CardHeaderStart>
       <CardHeaderActions
         hasUnsavedChanges={hasUnsavedChanges}
         onSave={() => onSave?.(pageCard.id)}
@@ -104,11 +111,13 @@ export function FileView({
   const isHidden = Boolean(pageCard.card.metadata.hidden);
 
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined}>
       {header}
-      <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
-        {body}
-      </CardFlippableBody>
+      {!collapsed && (
+        <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+          {body}
+        </CardFlippableBody>
+      )}
     </CardShell>
   );
 }

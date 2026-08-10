@@ -2,11 +2,12 @@ import { CardShell } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { StackBody } from "./StackBody.js";
 
-/** A tap toggles selection of the Stack Card itself (Dock's Move row — see
- *  Dock.tsx's isStackSelected) — in if not already selected, out again if it was;
- *  everything else (Save, Move, Hide, remove) is reached from the Dock. Content
- *  inside (StackBody) is independently, always-editable. `selected` also gates
- *  whether StackBody publishes its active alternate's Save into the Dock
+/** The header's own select-checkbox (StackBody.tsx's own CardSelectButton) toggles
+ *  selection of the Stack Card itself (Dock's Move row — see Dock.tsx's
+ *  isStackSelected) — in if not already selected, out again if it was; everything
+ *  else (Save, Move, Hide, remove) is reached from the Dock. Content inside
+ *  (StackBody) is independently, always-editable. `selected` also gates whether
+ *  StackBody publishes its active alternate's Save into the Dock
  *  (activeStackRegistry.ts) — only the Stack actually in view there. */
 export function StackView({ pageCard, selected, onSelect, onOpenFullscreen, onOpenInVault }: CardTypeViewProps) {
   // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
@@ -14,10 +15,11 @@ export function StackView({ pageCard, selected, onSelect, onOpenFullscreen, onOp
   // is always the "still hidden" indicator, never a false positive.
   const isHidden = Boolean(pageCard.card.metadata.hidden);
   return (
-    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined} onSelect={onSelect}>
+    <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined}>
       <StackBody
         stackCardId={pageCard.card.id}
         selected={selected}
+        onSelect={onSelect}
         onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
         onOpenInVault={onOpenInVault}
       />

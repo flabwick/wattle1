@@ -39,6 +39,15 @@ export interface InteractiveModeInput {
   context: ContextEntry[];
   /** The triggering Card's own content, which supplies the override instruction. */
   overridePrompt: string;
+  /** The runnable-action vocabulary, pre-rendered as plain text — same shape and same
+   *  reason as actionScriptCompiler.ts's CompileActionScriptInput.actionsDoc (built
+   *  client-side, @wattle/web's lib/actionScriptPrompt.ts, since the job registry it
+   *  reads is a browser-only module). Spliced into interactive/system.md's own
+   *  `<!-- ACTIONS -->` placeholder, teaching this mode's model how to write a
+   *  type="action" card's own content — see that prompt's "Action cards" section.
+   *  Omitted (or blank) leaves the placeholder spliced with nothing, which is only
+   *  ever expected for callers that predate the self-driving generation pipeline. */
+  actionsDoc?: string;
 }
 
 export type CompilePromptInput = GenerateModeInput | SelectionModeInput | InteractiveModeInput;
@@ -54,11 +63,21 @@ const SYSTEM_PROMPT_FILE: Record<PromptMode, string> = {
   interactive: "interactive/system.md",
 };
 
+const ACTIONS_PLACEHOLDER = "<!-- ACTIONS -->";
+
 /** Reads a prompt file fresh off disk on every call — no caching, nothing baked into
  *  compiled code — so editing a .md file changes model behavior on the next generation
- *  with no rebuild or restart. */
-function loadSystemPrompt(mode: PromptMode): string {
-  return readFileSync(join(PROMPTS_DIR, SYSTEM_PROMPT_FILE[mode]), "utf-8").trim();
+ *  with no rebuild or restart. Only "interactive" has a dynamic section to splice in
+ *  (see InteractiveModeInput.actionsDoc's own doc comment) — same
+ *  read-then-substitute-one-placeholder pattern actionScriptCompiler.ts's own
+ *  loadSystemPrompt uses for prompts/action-script/system.md. */
+function loadSystemPrompt(mode: PromptMode, actionsDoc?: string): string {
+  const template = readFileSync(join(PROMPTS_DIR, SYSTEM_PROMPT_FILE[mode]), "utf-8").trim();
+  if (mode !== "interactive") return template;
+  if (!template.includes(ACTIONS_PLACEHOLDER)) {
+    throw new Error(`prompts/interactive/system.md is missing its ${ACTIONS_PLACEHOLDER} placeholder`);
+  }
+  return template.replace(ACTIONS_PLACEHOLDER, actionsDoc ?? "");
 }
 
 /** Renders assembled context into the literal user-message text. Unchanged from the old
@@ -78,7 +97,7 @@ function renderContext(context: ContextEntry[]): string {
  * that mode needs.
  */
 export function compilePrompt(input: CompilePromptInput): CompiledPrompt {
-  const systemPrompt = loadSystemPrompt(input.mode);
+  const systemPrompt = loadSystemPrompt(input.mode, input.mode === "interactive" ? input.actionsDoc : undefined);
   const contextText = renderContext(input.context);
 
   switch (input.mode) {

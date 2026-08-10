@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { Template, Card, PageCardWithCard } from "@wattle/shared";
+import type { Template, Card, GenerateResponse, PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { Icon } from "./components/primitives/index.js";
@@ -22,6 +22,9 @@ import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
 import { registerPageNavHandler } from "./lib/pageNavRegistry.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
 import { runActionJob, type StepOutput } from "./lib/actionJobs.js";
+import { runActionSteps } from "./lib/actionJobRegistry.js";
+import { materializeGeneratedActionCard } from "./lib/generatedActionCard.js";
+import { buildActionScriptActionsDoc } from "./lib/actionScriptPrompt.js";
 import { t } from "./i18n/index.js";
 
 /** Move Mode never applies inside the fullscreen single-Card view (App.tsx's
@@ -29,6 +32,13 @@ import { t } from "./i18n/index.js";
  *  moving" props there don't churn on every render. */
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 const NOOP_INDEX = (_index: number) => {};
+
+/** The "guide the next generation" auto-run pipeline's own safety valve
+ *  (onGenerationAccepted below) — caps how many consecutive AUTORUN action cards the
+ *  model can chain through on its own before the app stops continuing automatically,
+ *  so a model that keeps generating another self-running action card can't loop
+ *  forever. Resets to 0 whenever a human explicitly starts a fresh generation. */
+const AUTO_RUN_ROUND_CAP = 20;
 
 export function App() {
   /** Every currently-selected top-level Card on the current Page — multiple Cards
@@ -202,11 +212,142 @@ export function App() {
   }, [pageLoading, currentPage, currentPageId, pagesNav.homePageId]);
 
   // Auto-saves the moment a generation lands (cleanly or via Stop) — no separate
-  // review step. `refresh` re-fetches `pages` so the newly-saved Card shows up;
-  // useGeneration.ts awaits this before clearing its own ghost-card state, so there's
-  // no flash of "nothing there" in between.
-  const generation = useGeneration(refresh);
+  // review step. onGenerationAccepted (below) always starts with `refresh()`
+  // re-fetching `pages` so the newly-saved Card shows up — useGeneration.ts awaits
+  // the whole handler before clearing its own ghost-card state, so there's no flash
+  // of "nothing there" in between — and then, only for a freshly generated,
+  // self-running ("AUTORUN") "action" Card, drives the rest of the "guide the next
+  // generation" auto-run pipeline (see that function's own doc comment).
+  const generation = useGeneration(onGenerationAccepted);
   const annotations = useAnnotations();
+  /** True for the whole span of an auto-continuing chain (onGenerationAccepted
+   *  below) — including the brief gap between one round's own generation.isStreaming
+   *  going false and the next round's own stream opening, which generation.isStreaming
+   *  alone doesn't cover — so the Feed Input Button's Stop button (feedInput.generating
+   *  below) stays live the entire time, not just mid-stream. */
+  const [autoRunChaining, setAutoRunChaining] = useState(false);
+  /** How many consecutive AUTORUN rounds this chain has run so far — see
+   *  AUTO_RUN_ROUND_CAP. Reset to 0 whenever a human explicitly starts a fresh
+   *  generation (handleGeneratePage) or the Stop button is pressed. A ref, not state:
+   *  only ever read/written from inside onGenerationAccepted's own async flow, never
+   *  something a render needs to reflect directly. */
+  const autoRunRoundRef = useRef(0);
+  /** Set by the Stop button, checked (and cleared) the next time
+   *  onGenerationAccepted runs — since useGeneration.ts's finalize() still calls
+   *  onAccepted even for a user-stopped stream (whatever generated so far is saved
+   *  as-is), this is what actually prevents a Stop tap mid-chain from being
+   *  mistaken for "keep going". */
+  const autoRunAbortedRef = useRef(false);
+  /** Surfaced through the Dock's own generationError/generationNotice banner
+   *  (App.tsx's <Dock> below) — onGenerationAccepted's own two non-happy-path
+   *  outcomes (a generated action card that didn't parse; the round cap kicking in)
+   *  that useGeneration.ts's own error/notice slots can't carry, since they're
+   *  read-only outputs of that hook, not settable from outside it. */
+  const [autoRunError, setAutoRunError] = useState<string | null>(null);
+  const [autoRunNotice, setAutoRunNotice] = useState<string | null>(null);
+
+  /**
+   * The "guide the next generation" auto-run pipeline (App.tsx). Runs once every
+   * accepted generation lands — the ordinary case (nothing to do beyond refresh()) and
+   * the self-driving case are the same code path, distinguished only by what was
+   * actually generated: if the model chose to generate a card of type="action" whose
+   * own content is action-script text starting with `AUTORUN` (see
+   * prompts/interactive/system.md's "Action cards" section), this parses that text
+   * into real steps, runs them immediately via the same dispatcher the Run button
+   * uses (runActionSteps/handleRunActionJob), then triggers another round of
+   * generation with a short summary of what just happened — letting the model react
+   * (create/edit/delete/move a card, annotate, or simply stop) with, per the
+   * product's own framing, "complete freedom" over what happens next. `result` is
+   * undefined for a Stack alternate's own generation (useGeneration.ts's own
+   * onAccepted contract) — nothing here applies to that target.
+   *
+   * The next round's own generation.startForPage call is deliberately deferred via
+   * setTimeout rather than called directly: this whole function runs *inside*
+   * useGeneration.ts's own finalize(), awaited there immediately before its own
+   * `finally { setIsStreaming(false); ... }` runs. Calling startForPage synchronously
+   * here would open the next round's stream (setIsStreaming(true)) only for that
+   * stale `finally` to immediately clobber it back to false the instant this function
+   * returns. Deferring to a fresh macrotask lets that finally settle first.
+   */
+  async function onGenerationAccepted(result?: GenerateResponse) {
+    await refresh();
+
+    if (autoRunAbortedRef.current) {
+      autoRunAbortedRef.current = false;
+      setAutoRunChaining(false);
+      return;
+    }
+    if (!result || getCardTypeId(result.card) !== "action") {
+      setAutoRunChaining(false);
+      return;
+    }
+
+    const parsed = await materializeGeneratedActionCard(result.card);
+    if (parsed.errors.length > 0) {
+      setAutoRunChaining(false);
+      setAutoRunError(`${t("generate.autoRunParseError")} ${parsed.errors.join("; ")}`);
+      return;
+    }
+    if (!parsed.autoRun) {
+      setAutoRunChaining(false);
+      return;
+    }
+    if (autoRunRoundRef.current >= AUTO_RUN_ROUND_CAP) {
+      setAutoRunChaining(false);
+      setAutoRunNotice(t("generate.autoRunChainCapped"));
+      return;
+    }
+
+    autoRunRoundRef.current += 1;
+    setAutoRunChaining(true);
+    const runResult = await runActionSteps(
+      { ...result.pageCard, card: result.card },
+      parsed.steps,
+      handleRunActionJob,
+    );
+    await refresh();
+
+    if (autoRunAbortedRef.current) {
+      autoRunAbortedRef.current = false;
+      setAutoRunChaining(false);
+      return;
+    }
+
+    const pageId = currentPage?.id;
+    if (!pageId) {
+      setAutoRunChaining(false);
+      return;
+    }
+
+    const label = parsed.label || t("actionCard.defaultLabel");
+    const createdNote = runResult.created.length
+      ? ` Cards created this run, in case a later action card of yours needs to target one (write card:<id> in a cardPicker/vaultCardPicker field — cardPicker wants the pageCardId, vaultCardPicker wants the cardId): ${runResult.created
+          .map((c) => `${c.title ? `"${c.title}"` : "(untitled)"} — pageCardId=${c.pageCardId} cardId=${c.cardId}`)
+          .join("; ")}.`
+      : "";
+    const summary =
+      (runResult.error
+        ? `Your action card "${label}" ran and stopped at step ${runResult.ranCount + 1}: ${runResult.error}. Decide what, if anything, to do next.`
+        : `Your action card "${label}" finished running (${runResult.ranCount} step${runResult.ranCount === 1 ? "" : "s"}). Decide what, if anything, to do next.`) +
+      createdNote;
+
+    setTimeout(() => {
+      generation.startForPage(pageId, summary, buildActionScriptActionsDoc());
+    }, 0);
+  }
+
+  /** The Feed Input Button's Stop action — also unconditionally aborts any pending
+   *  auto-run chain (onGenerationAccepted above), not just the in-flight stream:
+   *  without this, a stream stopped mid-chain would still save whatever generated so
+   *  far (useGeneration.ts's own finalize("stopped") behavior) and, if that happened
+   *  to be another AUTORUN action card, keep the chain going right past the tap that
+   *  was supposed to end it. */
+  function handleStopGeneration() {
+    autoRunAbortedRef.current = true;
+    autoRunRoundRef.current = 0;
+    setAutoRunChaining(false);
+    generation.stop();
+  }
 
   // The currently-selected Card/embed's own live annotations, for the Dock's process/
   // accept-all-diffs actions (pendingDiffCount) — an embed's Card only lives in
@@ -859,7 +1000,15 @@ export function App() {
   // this generation instead of relying purely on existing context (Step 6 spec §2.2).
   function handleGeneratePage(instruction?: string) {
     if (!currentPage) return;
-    generation.startForPage(currentPage.id, instruction);
+    // A human explicitly starting a fresh generation always resets any auto-run
+    // chain state left over from a previous one — see onGenerationAccepted/
+    // handleStopGeneration above.
+    autoRunAbortedRef.current = false;
+    autoRunRoundRef.current = 0;
+    setAutoRunChaining(false);
+    setAutoRunError(null);
+    setAutoRunNotice(null);
+    generation.startForPage(currentPage.id, instruction, buildActionScriptActionsDoc());
   }
 
   /** The Dock's magic button when a single plain (non-Stack) Card is selected
@@ -1225,7 +1374,7 @@ export function App() {
       // immediately rather than waiting for the generation to finish, same as this
       // job's existing single-job behavior always has.
       onPromptCard: async (pc, instructions, contextMode) => {
-        generation.start(pc.id, instructions, contextMode === "own");
+        generation.start(pc.id, instructions, contextMode === "own", buildActionScriptActionsDoc());
       },
       onNewBlankPage: async () => {
         await handleCreateNewPage();
@@ -1480,8 +1629,8 @@ export function App() {
             feedInput={
               currentPage
                 ? {
-                    generating: generation.isStreaming,
-                    onStopGeneration: generation.stop,
+                    generating: generation.isStreaming || autoRunChaining,
+                    onStopGeneration: handleStopGeneration,
                     onGenerate: handleGeneratePage,
                     onAddCard: handleAddCardToCurrentPage,
                     onOpenVault: () => setOpenPanel("vault"),
@@ -1507,10 +1656,16 @@ export function App() {
         onExitEditing={exitEditing}
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
-        generationError={generation.error}
-        onDismissGenerationError={generation.dismissError}
-        generationNotice={generation.notice}
-        onDismissGenerationNotice={generation.dismissNotice}
+        generationError={generation.error ?? autoRunError}
+        onDismissGenerationError={() => {
+          generation.dismissError();
+          setAutoRunError(null);
+        }}
+        generationNotice={generation.notice ?? autoRunNotice}
+        onDismissGenerationNotice={() => {
+          generation.dismissNotice();
+          setAutoRunNotice(null);
+        }}
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onFreezeSelected={handleFreezeSelected}

@@ -37,6 +37,16 @@ export class CardTypeRegistry {
     return def;
   }
 
+  /** For call sites that need to render/reason about *something* reasonable for a
+   *  Card whose stored `metadata.typeId` doesn't match any currently-registered
+   *  type (e.g. a leftover value from a CardType that's since been removed or
+   *  renamed) rather than crashing on `.get()` — same convention
+   *  CardTypeUiRegistry.has() already uses on the web-only UI registry (see
+   *  PageStack.tsx's PageCardSlot). */
+  has(id: string): boolean {
+    return this.definitions.has(id);
+  }
+
   list(): CardTypeDefinition<any>[] {
     return [...this.definitions.values()];
   }

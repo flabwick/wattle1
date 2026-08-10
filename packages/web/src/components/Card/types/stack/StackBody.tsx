@@ -8,6 +8,7 @@ import { useCardStack } from "../../../../hooks/useCardStack.js";
 import { useGeneration } from "../../../../hooks/useGeneration.js";
 import { getActiveStackControls, setActiveStackControls } from "../../../../lib/activeStackRegistry.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
+import { CardSelectButton } from "../../CardHeaderStart.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
@@ -38,10 +39,12 @@ import "../../Card.css";
  * while `selected` is true — but the header's own CardHeaderActions row now offers
  * the same save/open-in-vault/fullscreen/info actions inline too, same as every other
  * CardType's View. "Turn into stack" is the one action deliberately left out: a Stack
- * already has its own way to add an alternate (CardStackRail's own "+"). A tap
- * toggles the container's own selection in/out (StackView.tsx's onClick); removing
- * the whole Stack from the Page is the Dock's bulk "Remove" action (App.tsx's
- * handleRemoveSelected).
+ * already has its own way to add an alternate (CardStackRail's own "+"). The
+ * header's own select-checkbox (CardSelectButton — the same one CardHeaderStart.tsx
+ * uses for every other CardType, just placed inline here since a Stack's own title
+ * is a genuinely editable input rather than that shared component's plain read-only
+ * span) toggles the container's own selection in/out; removing the whole Stack from
+ * the Page is the Dock's bulk "Remove" action (App.tsx's handleRemoveSelected).
  *
  * A blank alternate (added via the rail's "+", never touched since) shows its own
  * Feed Input Button — Generate + a typed guide, same as a blank Page — instead of
@@ -59,11 +62,19 @@ import "../../Card.css";
 export function StackBody({
   stackCardId,
   selected,
+  onSelect,
   onOpenFullscreen,
   onOpenInVault,
 }: {
   stackCardId: string;
   selected: boolean;
+  /** The header's own select-checkbox — see CardHeaderStart.tsx's own doc comment
+   *  on the equivalent prop every other CardType's View passes straight through
+   *  from CardTypeViewProps.onSelect. Optional/omits the checkbox entirely when
+   *  absent — StackEditor.tsx has no such callback to give it (CardTypeEditorProps
+   *  has no onSelect at all; that render path is only ever reached for a Stack
+   *  that's already selected, with no in-editor way to deselect today). */
+  onSelect?: () => void;
   /** The header's "expand" corner button — see Card.tsx's own prop of the same
    *  name; StackView/StackEditor forward this down from the generic CardTypeUi
    *  props (registries/cardTypeUi.ts). */
@@ -145,16 +156,17 @@ export function StackBody({
           >
             <Icon name="down" className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`} />
           </button>
+          {onSelect && <CardSelectButton selected={selected} onSelect={onSelect} />}
           <InputField
             className="card__title-input"
             value={title}
             placeholder={t("card.titlePlaceholder")}
             onChange={(e) => stack.updateActiveDraft({ title: e.target.value })}
             // Clicking into the title to place the cursor (or drag-selecting its
-            // text to retype it) shouldn't also toggle this Stack's own Dock
-            // selection — an <input> is already excluded from StackView.tsx's
-            // outer CardShell select gesture (useCardSelectGesture.ts), this is
-            // just belt-and-suspenders, same as CardEmbed.tsx's own title input.
+            // text to retype it) shouldn't also select/deselect this Stack — same
+            // belt-and-suspenders reasoning CardEmbed.tsx's own title input uses,
+            // even though selection is only ever the checkbox now (CardShell no
+            // longer has an onSelect of its own to accidentally trigger either).
             onClick={(e) => e.stopPropagation()}
           />
         </div>

@@ -1,5 +1,6 @@
-import type { PageCardWithCard } from "@wattle/shared";
+import type { ActionStep, PageCardWithCard } from "@wattle/shared";
 import * as api from "../api/client.js";
+import type { AnnotationProcess } from "../api/client.js";
 import { editCard, ensureCardLoaded, notifySaved } from "./cardStore.js";
 import { t } from "../i18n/index.js";
 
@@ -215,6 +216,62 @@ export function resolveStepReferences(
     resolved[field.key] = field.kind === "cardPicker" ? output.pageCardId : output.cardId;
   }
   return resolved;
+}
+
+export interface RunActionStepsResult {
+  /** How many steps actually completed before either running out or hitting an
+   *  error — lets a caller report "ran 2 of 5" rather than just pass/fail. */
+  ranCount: number;
+  /** The first failing step's own error message, same "stop and report, don't run
+   *  the rest" behavior every caller of this wants — null on a clean run through
+   *  every step. */
+  error: string | null;
+  /** Every card a step in this run created (createCard/copyExistingCard/
+   *  linkExistingCard), in run order — App.tsx's onGenerationAccepted folds these
+   *  into the next AUTORUN round's own summary so the model can act on a card an
+   *  *earlier* round created via the `card:<id>` form (actionScript.ts), not just
+   *  `step:N` within one script. `title` is whatever the step's own `title`
+   *  jobParam held (createCard only) — undefined for a copy/link step. */
+  created: { title: string | undefined; cardId: string; pageCardId: string }[];
+}
+
+/**
+ * Runs a whole action-Card's step list in order, stopping at the first failure —
+ * the shared core of ActionCardView.tsx's own Run button (which wraps this with its
+ * own `running`/`runError` UI state) and the "guide the next generation" pipeline's
+ * auto-run path (App.tsx), which calls this directly the moment a freshly generated
+ * `AUTORUN` action Card's steps are parsed and written, with no button tap involved.
+ * `onRunActionJob` is the same dispatcher both callers already have to hand —
+ * App.tsx's handleRunActionJob (lib/actionJobs.ts's runActionJob, ctx-bound).
+ */
+export async function runActionSteps(
+  pageCard: PageCardWithCard,
+  steps: ActionStep[],
+  onRunActionJob: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => Promise<StepOutput | void>,
+): Promise<RunActionStepsResult> {
+  const stepOutputs = new Map<string, StepOutput>();
+  const created: RunActionStepsResult["created"] = [];
+  let ranCount = 0;
+  for (const step of steps) {
+    try {
+      const job = actionJobRegistry.get(step.jobId);
+      const jobParams = job ? resolveStepReferences(step.jobParams, job.fields, stepOutputs) : step.jobParams;
+      const result = await onRunActionJob(pageCard, step.jobId, jobParams);
+      if (result) {
+        stepOutputs.set(step.id, result);
+        const title = typeof step.jobParams.title === "string" ? step.jobParams.title : undefined;
+        created.push({ title, cardId: result.cardId, pageCardId: result.pageCardId });
+      }
+      ranCount++;
+    } catch (err) {
+      return { ranCount, error: err instanceof Error ? err.message : String(err), created };
+    }
+  }
+  return { ranCount, error: null, created };
 }
 
 /** Exported for actionScriptJob.ts's own "generateSteps" job — kept here rather
@@ -553,6 +610,37 @@ actionJobRegistry.register({
         ? properties.map((p, i) => (i === index ? { ...p, value, linkedCardId: null } : p))
         : [...properties, { key, value, linkedCardId: null }];
     editCard(cardId, { metadata: { ...card.metadata, properties: next } });
+    notifySaved(cardId);
+  },
+});
+
+actionJobRegistry.register({
+  id: "annotateCard",
+  label: () => t("actionCard.job.annotateCard"),
+  fields: [
+    { kind: "vaultCardPicker", key: "target", label: t("actionCard.field.target") },
+    {
+      kind: "select",
+      key: "process",
+      label: t("actionCard.field.process"),
+      options: [
+        { value: "diff", label: t("actionCard.annotateCard.diff") },
+        { value: "footnote", label: t("actionCard.annotateCard.footnote") },
+        { value: "highlight", label: t("actionCard.annotateCard.highlight") },
+      ],
+    },
+    { kind: "text", key: "instruction", label: t("actionCard.field.instruction") },
+  ],
+  // No `selection` — always runs against the target's whole current content, same
+  // as the Dock's own whole-Card Rewrite (App.tsx's handleRewriteSelected); a
+  // selection-scoped run only exists from the text-selection context menu, which
+  // has no analog here (there's no text to have selected). `instruction` is only
+  // meaningful for "diff" (annotationService.ts's own per-process prompts) but is
+  // harmless to send for the other two.
+  run: async (_ctx, _pageCard, jobParams) => {
+    const cardId = requireStr(jobParams, "target");
+    const process = (str(jobParams, "process") || "diff") as AnnotationProcess;
+    await api.runAnnotationProcess(process, cardId, undefined, undefined, str(jobParams, "instruction") || undefined);
     notifySaved(cardId);
   },
 });

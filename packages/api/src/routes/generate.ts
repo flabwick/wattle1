@@ -52,6 +52,16 @@ function standaloneParam(req: { query: Record<string, unknown> }): boolean {
   return req.query.standalone === "1";
 }
 
+/** The runnable-action vocabulary (lib/actionScriptPrompt.ts's buildActionScriptActionsDoc,
+ *  built client-side) — same query-param convention as instructionParam above, for the
+ *  same EventSource-can't-carry-a-body reason. Always sent alongside `instruction` by
+ *  the client now (App.tsx) so any "guide the next generation" turn can respond with a
+ *  self-running "action" card — see generationService.ts's streamForTarget. */
+function actionsDocParam(req: { query: Record<string, unknown> }): string | undefined {
+  const raw = req.query.actionsDoc;
+  return typeof raw === "string" && raw.trim() ? raw : undefined;
+}
+
 /** The "prompt" CardType's context-mode selector (cardMetadata.ts's `prompt.context`)
  *  — same query-param convention as the above, defaulting to "none" if missing/invalid
  *  rather than throwing, since a stale/malformed value shouldn't break generation. */
@@ -91,7 +101,12 @@ generateRouter.get("/stream/lookup", async (req, res) => {
 generateRouter.get("/stream/:pageCardId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGeneration(req.params.pageCardId, instructionParam(req), standaloneParam(req)),
+    generationService.streamGeneration(
+      req.params.pageCardId,
+      instructionParam(req),
+      standaloneParam(req),
+      actionsDocParam(req),
+    ),
   );
 });
 
@@ -101,7 +116,7 @@ generateRouter.get("/stream/:pageCardId", async (req, res) => {
 generateRouter.get("/stream/page/:pageId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGenerationForPage(req.params.pageId, instructionParam(req)),
+    generationService.streamGenerationForPage(req.params.pageId, instructionParam(req), actionsDocParam(req)),
   );
 });
 
@@ -111,7 +126,11 @@ generateRouter.get("/stream/page/:pageId", async (req, res) => {
 generateRouter.get("/stream/stack-member/:memberId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGenerationForStackMember(req.params.memberId, instructionParam(req)),
+    generationService.streamGenerationForStackMember(
+      req.params.memberId,
+      instructionParam(req),
+      actionsDocParam(req),
+    ),
   );
 });
 

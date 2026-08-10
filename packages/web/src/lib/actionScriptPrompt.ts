@@ -10,8 +10,9 @@ function describeField(field: ActionFieldSpec): string {
     case "select":
       return `  - ${field.key} (one of: ${field.options.map((o) => o.value).join("|")}) — ${field.label}`;
     case "cardPicker":
+      return `  - ${field.key} (step:N — an earlier step IN THIS SAME SCRIPT that creates a card — or card:<id> using a pageCardId you were given earlier) — ${field.label}`;
     case "vaultCardPicker":
-      return `  - ${field.key} (step:N — the line number of an earlier step IN THIS SAME SCRIPT that creates a card) — ${field.label}`;
+      return `  - ${field.key} (step:N — an earlier step IN THIS SAME SCRIPT that creates a card — or card:<id> using a cardId you were given earlier) — ${field.label}`;
     case "pagePicker":
       return `  - ${field.key} (a quoted Page title — omit to use the current Page; the Page is created if no Page with that title exists yet) — ${field.label}`;
     case "templatePicker":

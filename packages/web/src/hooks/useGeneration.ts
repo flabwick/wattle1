@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GeneratedCardPart } from "@wattle/shared";
+import type { GeneratedCardPart, GenerateResponse } from "@wattle/shared";
 import * as api from "../api/client.js";
 import { t } from "../i18n/index.js";
 
@@ -73,14 +73,18 @@ export interface UseGenerationResult {
    *  given, is the Feed Input Button's typed guide text (Step 6 spec §2.2) or a
    *  Prompt Card's configured instructions (lib/actionJobs.ts). `standalone`, only
    *  ever set by a Prompt Card's "on its own" mode, skips the Generation Rule
-   *  context entirely. */
-  start: (pageCardId: string, instruction?: string, standalone?: boolean) => void;
+   *  context entirely. `actionsDoc`, whenever `instruction` is also given, is the
+   *  runnable-action vocabulary (lib/actionScriptPrompt.ts's
+   *  buildActionScriptActionsDoc) — lets this "interactive"-mode turn's model
+   *  respond with a self-running "action" card (see App.tsx's onGenerationAccepted,
+   *  the "guide the next generation" auto-run pipeline). */
+  start: (pageCardId: string, instruction?: string, standalone?: boolean, actionsDoc?: string) => void;
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
-  startForPage: (pageId: string, instruction?: string) => void;
+  startForPage: (pageId: string, instruction?: string, actionsDoc?: string) => void;
   /** Same as `start`, but for a blank Stack alternate (StackBody.tsx) — fills that
    *  alternate's own content in place instead of inserting a sibling PageCard. */
-  startForStackMember: (memberId: string, instruction?: string) => void;
+  startForStackMember: (memberId: string, instruction?: string, actionsDoc?: string) => void;
   /** Ends the stream early and immediately saves whatever's been generated so far as
    *  the real Card — the same save path a clean completion uses, just triggered by
    *  the user instead of the model finishing on its own. If nothing has streamed in
@@ -115,12 +119,19 @@ function buildParts(id: number, nodes: Record<number, GhostCardNode>): Generated
  * the stream ends (cleanly or via `stop()`), that tree is saved immediately — no
  * separate Accept/Deny review step.
  *
- * `onAccepted` runs after every successful save (App.tsx passes `refresh` — the ghost
- * card's local state is only cleared *after* this resolves, so the freshly-saved real
- * Card is already in `pages` before the ghost slot disappears, avoiding a flash of
- * nothing in between).
+ * `onAccepted` runs after every successful save (App.tsx passes onGenerationAccepted —
+ * the ghost card's local state is only cleared *after* this resolves, so the
+ * freshly-saved real Card is already in `pages` before the ghost slot disappears,
+ * avoiding a flash of nothing in between). Receives the full GenerateResponse for the
+ * "card"/"page" targets (everything App.tsx's auto-run pipeline needs to inspect
+ * whether the just-saved Card is a self-running "action" one); omitted for the
+ * "stackMember" target, which saves a StackMember instead — not something the auto-run
+ * pipeline applies to (a Stack alternate isn't reachable from the "guide the next
+ * generation" Circle this pipeline is scoped to).
  */
-export function useGeneration(onAccepted?: () => void | Promise<void>): UseGenerationResult {
+export function useGeneration(
+  onAccepted?: (result?: GenerateResponse) => void | Promise<void>,
+): UseGenerationResult {
   const [isStreaming, setIsStreaming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +199,7 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
 
         const generated = { title: root.title, cardType: root.cardType, parts: buildParts(root.id, localNodes) };
         try {
-          await api.acceptGeneration(
+          const saved = await api.acceptGeneration(
             streamTarget.type === "card"
               ? { pageCardId: streamTarget.pageCardId }
               : streamTarget.type === "stackMember"
@@ -199,7 +210,7 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
           console.debug(`[gen] finalize(${reason}) saved successfully`);
           if (reason === "truncated") setNotice(t("generate.truncatedNotice"));
           else if (reason === "stopped") setNotice(t("generate.stoppedNotice"));
-          await onAccepted?.();
+          await onAccepted?.(streamTarget.type === "stackMember" ? undefined : (saved as GenerateResponse));
         } catch (err) {
           console.debug(`[gen] finalize(${reason}) FAILED to save:`, err);
           setError(err instanceof Error ? err.message : "Failed to save the generated card");
@@ -302,10 +313,11 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
   );
 
   const start = useCallback(
-    (pageCardId: string, instruction?: string, standalone?: boolean) => {
+    (pageCardId: string, instruction?: string, standalone?: boolean, actionsDoc?: string) => {
       const params = new URLSearchParams();
       if (instruction) params.set("instruction", instruction);
       if (standalone) params.set("standalone", "1");
+      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
       const query = params.toString();
       openStream({ type: "card", pageCardId }, `/api/generate/stream/${pageCardId}${query ? `?${query}` : ""}`);
     },
@@ -313,22 +325,29 @@ export function useGeneration(onAccepted?: () => void | Promise<void>): UseGener
   );
 
   const startForPage = useCallback(
-    (pageId: string, instruction?: string) =>
-      openStream(
-        { type: "page", pageId },
-        `/api/generate/stream/page/${pageId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
-      ),
+    (pageId: string, instruction?: string, actionsDoc?: string) => {
+      const params = new URLSearchParams();
+      if (instruction) params.set("instruction", instruction);
+      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
+      const query = params.toString();
+      openStream({ type: "page", pageId }, `/api/generate/stream/page/${pageId}${query ? `?${query}` : ""}`);
+    },
     [openStream],
   );
 
   /** A blank Stack alternate's own Feed Input Button (StackBody.tsx) — fills that
    *  alternate's content in place rather than inserting a sibling PageCard. */
   const startForStackMember = useCallback(
-    (memberId: string, instruction?: string) =>
+    (memberId: string, instruction?: string, actionsDoc?: string) => {
+      const params = new URLSearchParams();
+      if (instruction) params.set("instruction", instruction);
+      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
+      const query = params.toString();
       openStream(
         { type: "stackMember", memberId },
-        `/api/generate/stream/stack-member/${memberId}${instruction ? `?instruction=${encodeURIComponent(instruction)}` : ""}`,
-      ),
+        `/api/generate/stream/stack-member/${memberId}${query ? `?${query}` : ""}`,
+      );
+    },
     [openStream],
   );
 

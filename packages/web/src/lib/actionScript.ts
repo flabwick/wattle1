@@ -15,12 +15,15 @@ import { actionJobRegistry, stepRefValue } from "./actionJobRegistry.js";
  * (CardInfoPanel.tsx) already enforces, just a text surface for writing it:
  *
  * - A "select" field's value must be one of that field's own option values.
- * - A "cardPicker"/"vaultCardPicker" field's value must be `step:<N>` — the
+ * - A "cardPicker"/"vaultCardPicker" field's value must be either `step:<N>` — the
  *   1-based line number of an *earlier* step in the *same* script that creates a
- *   card (createCard/copyExistingCard/linkExistingCard). There's no way to name an
- *   arbitrary already-existing vault card from script text (nothing stable to
- *   spell — titles aren't unique, ids aren't guessable) — that still has to be
- *   picked by hand afterward, in the same per-step fields the script produced.
+ *   card (createCard/copyExistingCard/linkExistingCard) — or `card:<id>`, a real
+ *   Card/PageCard id the model was handed directly (e.g. in an AUTORUN round's own
+ *   summary — see App.tsx's onGenerationAccepted), letting a later round act on a
+ *   card an earlier round created. Beyond those two cases there's still no way to
+ *   name an arbitrary already-existing vault card from script text (nothing stable
+ *   to spell otherwise — titles aren't unique) — that still has to be picked by
+ *   hand afterward, in the same per-step fields the script produced.
  * - A "pagePicker" field's value is a quoted Page title, resolved through
  *   `resolvePageTitle` (find-or-create, same as the picker UI's own PageLinkPicker)
  *   — omit the field entirely to mean "this button's own Page".
@@ -28,12 +31,22 @@ import { actionJobRegistry, stepRefValue } from "./actionJobRegistry.js";
  *   — a Template id isn't nameable either, and unlike a Page there's no
  *   find-or-create to lean on, so `openTemplate` is excluded from the vocabulary a
  *   script can use.
+ *
+ * `AUTORUN` (optional, its own line, anywhere before the steps — same free
+ * placement as `LABEL`) is a signal for exactly one caller: the "guide the next
+ * generation" pipeline (App.tsx's onGenerationAccepted), which runs a freshly
+ * generated "action" Card's own steps immediately, the moment they're parsed and
+ * written, rather than waiting for a human to tap Run. Every other caller of this
+ * parser (the flip-panel's "Generate steps with AI", CardInfoPanel.tsx) ignores it
+ * entirely — it's inert there, just carried through so a re-serialized script
+ * doesn't silently drop it.
  */
 
 export interface ActionScriptResult {
   label: string;
   steps: ActionStep[];
   errors: string[];
+  autoRun: boolean;
 }
 
 function makeStepId(): string {
@@ -97,6 +110,7 @@ export async function parseActionScript(
   const errors: string[] = [];
   const positionToId: string[] = [];
   let label = "";
+  let autoRun = false;
 
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1;
@@ -105,6 +119,11 @@ export async function parseActionScript(
 
     if (/^LABEL\b/i.test(line)) {
       label = unquote(line.replace(/^LABEL\s*/i, ""));
+      continue;
+    }
+
+    if (/^AUTORUN\b/i.test(line)) {
+      autoRun = true;
       continue;
     }
 
@@ -129,11 +148,19 @@ export async function parseActionScript(
       if (value === undefined) continue;
 
       if (field.kind === "cardPicker" || field.kind === "vaultCardPicker") {
+        const cardMatch = /^card:(\S+)$/.exec(value);
+        if (cardMatch) {
+          // A real id, already known (e.g. handed back in an earlier AUTORUN
+          // round's summary — see App.tsx's onGenerationAccepted) — no run-time
+          // resolution needed, unlike `step:N` below.
+          jobParams[field.key] = cardMatch[1];
+          continue;
+        }
         const m = /^step:(\d+)$/.exec(value);
         const refPos = m ? Number(m[1]) : NaN;
         if (!m || refPos < 1 || refPos > positionToId.length) {
           errors.push(
-            `Line ${lineNo}: "${field.key}" must be step:<N>, naming an earlier line in this same script that creates a card — got "${value}"`,
+            `Line ${lineNo}: "${field.key}" must be step:<N> (an earlier line in this same script that creates a card) or card:<id> (an id given to you earlier) — got "${value}"`,
           );
           lineOk = false;
           continue;
@@ -177,7 +204,7 @@ export async function parseActionScript(
     positionToId.push(stepId);
   }
 
-  return { label, steps, errors };
+  return { label, steps, errors, autoRun };
 }
 
 /**
@@ -189,9 +216,10 @@ export async function parseActionScript(
  * script text — noted inline as a comment instead of silently dropped, so the
  * model knows that field exists and is already set to something specific.
  */
-export function serializeActionScript(label: string, steps: ActionStep[]): string {
+export function serializeActionScript(label: string, steps: ActionStep[], autoRun = false): string {
   const idToPosition = new Map(steps.map((step, i) => [step.id, i + 1]));
   const lines: string[] = [];
+  if (autoRun) lines.push("AUTORUN");
   if (label) lines.push(`LABEL ${quote(label)}`);
 
   for (const step of steps) {

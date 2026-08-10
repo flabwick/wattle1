@@ -256,6 +256,14 @@ async function* streamForTarget(
    *  the instruction. Distinct from the "prompt" CardType's own generation
    *  (streamPromptCardGeneration below), which has its own four-way context mode. */
   standalone?: boolean,
+  /** The runnable-action vocabulary, pre-rendered client-side (@wattle/web's
+   *  lib/actionScriptPrompt.ts) — only meaningful alongside `instruction` (only
+   *  "interactive" mode's own prompt has anywhere to splice it), see
+   *  InteractiveModeInput.actionsDoc's own doc comment. Lets this generation's model
+   *  respond with a self-running "action" card and chain into the next round of the
+   *  "guide the next generation" pipeline (App.tsx's onGenerationAccepted) — see
+   *  prompts/interactive/system.md's "Action cards" section. */
+  actionsDoc?: string,
 ): AsyncGenerator<CardBlockEvent> {
   const context = standalone ? [] : await assembleContextForTarget(target);
   const resolvedInstruction = instruction ? await resolveInstructionEmbeds(instruction) : undefined;
@@ -264,7 +272,7 @@ async function* streamForTarget(
   // prompt mode — it was already built for exactly this "override instruction
   // alongside the normal context" shape (context is just empty in standalone mode).
   const { systemPrompt, userMessage } = resolvedInstruction
-    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
+    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction, actionsDoc })
     : compilePrompt({ mode: "generate", context });
   const nearbyAppendix = standalone ? "" : await buildNearbyAppendix(target);
   yield* streamCompiledPrompt(systemPrompt, `${userMessage}${nearbyAppendix}`);
@@ -277,13 +285,18 @@ export function streamGeneration(
   pageCardId: string,
   instruction?: string,
   standalone?: boolean,
+  actionsDoc?: string,
 ): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "card", pageCardId }, instruction, standalone);
+  return streamForTarget({ type: "card", pageCardId }, instruction, standalone, actionsDoc);
 }
 
 /** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */
-export function streamGenerationForPage(pageId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "page", pageId }, instruction);
+export function streamGenerationForPage(
+  pageId: string,
+  instruction?: string,
+  actionsDoc?: string,
+): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "page", pageId }, instruction, undefined, actionsDoc);
 }
 
 /** A blank Stack alternate's own generation — GET
@@ -292,8 +305,9 @@ export function streamGenerationForPage(pageId: string, instruction?: string): A
 export function streamGenerationForStackMember(
   memberId: string,
   instruction?: string,
+  actionsDoc?: string,
 ): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "stackMember", memberId }, instruction);
+  return streamForTarget({ type: "stackMember", memberId }, instruction, undefined, actionsDoc);
 }
 
 /** The "prompt" CardType's own four context modes (cardMetadata.ts's
