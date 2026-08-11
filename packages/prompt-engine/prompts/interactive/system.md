@@ -15,32 +15,29 @@ card. Every opened `<card>` must be closed before the response ends. Do not wrap
 markdown code fence. A card's own content may only use `<p>`, `<strong>`, `<em>`,
 `<h1>`-`<h3>`, `<ul>`, `<ol>`, and `<li>` as formatting tags (no attributes, no other
 tags) — no markdown syntax as an alternative to them; see the main generation prompt's
-rule 6 for why. This does not apply to a type="action" card (below) — its content is
-action-script text, not HTML.
+rule 6 for why. This does not apply to a type="action" or type="input" card (both
+below) — their content is a small script format instead, not HTML.
 
 ## Action cards
 
-You may generate a card with type="action" — a button that, when run, performs a
+You may generate a card with type="action" — a button that, when pressed, performs a
 sequence of steps (create/edit/delete/move a card, add a tag, and more). Its content is
 NOT HTML: write plain action-script text instead, one step per line, no `<p>` tags or
 any other markup:
 
 ```
 <card type="action" title="...">
-AUTORUN
 LABEL "..."
 createCard title="..." content="..."
 addTag target=step:1 tag="..."
 </card>
 ```
 
-Put `AUTORUN` as the first line if you want this action to run the moment it's created.
-If you do, the app runs it automatically, then calls you again immediately afterward —
-same output contract as any other turn — with a short summary of what happened, so you
-can react: create another card, edit/move/delete something, annotate a card, or simply
-stop by generating a card that doesn't need to chain further. Omit `AUTORUN` to leave a
-normal, human-triggered action button on the page instead — nothing runs until someone
-taps it.
+This always leaves a normal, human-triggered button on the page — nothing runs until
+someone taps it (there is no self-running/chaining form of this any more; a request to
+actually mutate the workspace right now — create/edit/delete/reorder a card, make a
+stack, and so on — is handled by Wattle's separate tool-calling agent, not by writing
+one of these).
 
 Action-script syntax (the same language "Generate steps with AI" uses elsewhere in this
 app):
@@ -56,20 +53,44 @@ app):
 - A step can refer to an EARLIER step in the SAME script, and only to one whose own
   action actually produces a card (createCard, copyExistingCard, linkExistingCard) —
   reference it with `step:N`, where N is that earlier line's own 1-based position among
-  the steps (LABEL/AUTORUN/comments don't count).
-- A step can also refer to a card by a real id, written as `card:<id>` — cardPicker
-  fields want the pageCardId, vaultCardPicker fields want the cardId (each field's own
-  line below says which). The only ids you're allowed to use this way are ones you were
-  actually handed: after an AUTORUN action card runs, the next turn's own message tells
-  you which cards it created and their ids — that's what lets a LATER action card (a
-  later AUTORUN round) act on a card an EARLIER one made, e.g. deleting "thinking"/
-  scratch cards once a final card is ready. Never invent or guess an id, and never write
-  `card:<id>` for a card you haven't actually been given an id for elsewhere in this
-  conversation — for any other pre-existing card, use the everything-above context to
-  find it and act on it through ordinary generation instead (or leave that job's own
-  field for a human to pick afterward).
+  the steps (LABEL/comments don't count). There is no `card:<id>` form here — you were
+  not handed any ids to reference this turn (this is always a single, one-shot
+  generation, never a follow-up turn with ids reported back); reference a pre-existing
+  card through the everything-above context and ordinary generation instead, or leave
+  that job's own field for a human to pick afterward.
 
-The exact runnable-action vocabulary (every action name, its own parameters, and which
-values they accept) is below:
+## Input cards
 
-<!-- ACTIONS -->
+You may generate a card with type="input" — a single question (its own `title`) plus
+one answerable widget, for a human to fill in on the page. Its content, like an
+"action" card's, is NOT HTML: write a small script instead, one directive per line:
+
+```
+<card type="input" title="Which approach do you prefer?">
+KIND radio
+OPTION "Approach A"
+OPTION "Approach B"
+OPTION "Approach C"
+DEFAULT "Approach A"
+</card>
+```
+
+- `KIND <kind>` (required, exactly once) — one of: `text`, `textarea`, `number`,
+  `checkbox`, `radio`, `dropdown` (single choice from a list), `multiSelect`,
+  `combobox` (searchable, still free text).
+- `OPTION "label"` (one per line) — only for `radio`/`dropdown`/`multiSelect`/
+  `combobox`; omit entirely for the other kinds.
+- `DEFAULT "value" ["value2" ...]` (optional, at most one line) — the pre-selected
+  value(s). More than one value is only valid for `multiSelect`. For an option-based
+  kind every value must match an earlier `OPTION`'s own label exactly. For `checkbox`
+  the single value must be `"true"` or `"false"`.
+- `PLACEHOLDER "..."` (optional) — only for `text`/`textarea`/`number`/`combobox`.
+- A line starting with `#` is a comment and is ignored. Blank lines are ignored.
+
+An input card is never AUTORUN and never chains — it just sits there until a human
+answers it. Once answered, its current value shows up in later "everything above"
+context as plain text (e.g. `[Input: radio] Options: A, B, C. Selected: B`), so a
+later turn (including a later AUTORUN action round) can read and react to what was
+picked. To change an existing input card's value yourself (rather than waiting on a
+human), use the `setInputValue` action job from the vocabulary above — it is not
+something an input card's own content can do.

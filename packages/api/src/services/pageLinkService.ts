@@ -3,6 +3,25 @@ import { findPageLinkIds, htmlToDoc } from "@wattle/shared";
 import { prisma } from "../db.js";
 import { serializePage } from "./pageService.js";
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** The exact `<wattle-page-link>` tag shape `richText/pageLinkNode.ts` parses
+ *  (`parseHTML`/`addAttributes` there) — the one place that knows how to spell one,
+ *  so a caller building a link card (Homes + Pages hierarchy's "create child page")
+ *  never hand-writes the tag itself. Escapes `title` — unlike
+ *  `scripts/migrateTabsToHubs.ts`'s own one-time, already-run construction of the
+ *  same tag, this is live code a user's own Page titles flow through. */
+export function buildPageLinkHtml(pageId: string, title: string | null): string {
+  return `<p><wattle-page-link data-page-id="${escapeHtml(pageId)}" data-title="${escapeHtml(title ?? "")}"></wattle-page-link></p>`;
+}
+
 /** The Page-link picker's "link to missing title → create empty Page, link to it"
  *  (Pages + Links + Search rebuild, Phase 2) — an exact, case-insensitive title match
  *  reuses the existing Page; otherwise a brand-new, untitled-no-longer Page is

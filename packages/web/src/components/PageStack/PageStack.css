@@ -20,24 +20,123 @@
   font-size: var(--font-size-sm);
 }
 
-/* The Page's own title (Pages + Links + Search rebuild) — its destination identity,
-   click-to-edit. Sits above every Card, not styled as one itself. */
-.page-stack__title {
-  display: block;
-  width: 100%;
-  margin-bottom: var(--space-3);
-  padding: var(--space-1) 0;
+/* A small sticky header for the Page itself, above the breadcrumb — currently just
+   holds the inline-editable title (moved in from its own standalone block below the
+   header, see .page-stack__title). Sticks to the top of .app__main's own scrollport
+   (global.css) the same way a Card's own .card__header does (Card.css), on both
+   desktop and mobile — no vendor prefix needed, same as that rule. A z-index above
+   .card__header's (--z-raised) so it stays on top once a Card's own sticky header
+   reaches top:0 and would otherwise paint over it (same DOM-order stacking concern,
+   just going the other way — this sits earlier in the document, so without a higher
+   z-index a later, equally-stuck Card header would win).
+   Deliberately NOT breaking out of .page-stack's own padding (an earlier version
+   pulled it out to the full-bleed edge via negative margins) — the Cards below
+   (CardShell.css's .card-shell) are width: 100% *within* that padding, so a
+   full-bleed header ended up visibly wider than every Card beneath it, worst on the
+   wide desktop column where the mismatch had the most room to show. Same
+   inset/width/rounded-corner treatment as a Card now, so it reads as one of the
+   family instead of a stray edge-to-edge bar. */
+.page-stack__header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  /* Stretch (the flex default, left unset rather than overridden) — .page-stack__
+     title's own height: 100% needs this to resolve, so the click-to-edit target is
+     the header's full height, not just an empty title's own near-zero content
+     height. */
+  min-height: 32px;
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-raised);
+}
+
+/* Root-first ancestor chain above the Page's own title (Homes + Pages hierarchy,
+   Phase 1) — absent entirely for a Home, since there's nothing above it. */
+.page-stack__breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.page-stack__breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.page-stack__breadcrumb-item button {
   background: none;
   border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.page-stack__breadcrumb-item button:hover {
   color: var(--color-text);
-  font-size: var(--font-size-lg);
+  text-decoration: underline;
+}
+
+.page-stack__breadcrumb-sep {
+  color: var(--color-text-muted);
+}
+
+/* The Page's own title (Pages + Links + Search rebuild) — its destination identity,
+   click-to-edit. Lives inside .page-stack__header now, not its own block above the
+   Cards — monospace so it reads as a distinct label for the sticky header rather
+   than competing with the Cards' own (much larger) content, while staying compact
+   enough not to eat into that header's small height. `flex: 1` (both the button and
+   the input below) so the whole header bar is the click target for entering edit
+   mode, not just the text itself — clicking empty space to the right of a short (or
+   blank) title still starts editing. A transparent border-bottom reserved here (not
+   added only once editing starts) keeps the button and input the exact same height,
+   so switching between them doesn't nudge the header's own height by a pixel — that
+   jump was the "janky" bit switching in/out of edit. */
+.page-stack__title {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-thin) solid transparent;
+  color: var(--color-text);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-base);
   font-weight: 600;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: text;
 }
 
+/* Capped rather than left at the full (potentially very wide, on the desktop
+   column) header width once actually typing — flex: 1 above is what makes the
+   *button* fill the header for a big click target; the input doesn't need to, and
+   stretching edge-to-edge looked oversized/odd on desktop specifically. */
 .page-stack__title--editing {
-  border-bottom: var(--border-width-thin) solid var(--color-border-strong);
+  flex: 0 1 320px;
+  border-bottom-color: var(--color-border-strong);
+  outline: none;
+}
+
+/* The "Untitled" fallback text — muted and not bold, so it reads as a placeholder
+   rather than as though the Page actually has that title. */
+.page-stack__title--empty {
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 
 /* Navigation feel: the new Page slides in from the direction it "came from" in the

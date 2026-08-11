@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CardShell } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { editCard } from "../../../../lib/cardStore.js";
 import { SearchCardBody } from "./SearchCardBody.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
@@ -14,43 +15,29 @@ import "../../Card.css";
  *  independently always-interactive regardless of selection, same "content isn't
  *  gated behind edit mode" precedent PromptCardView.tsx/StackBody.tsx use; folding
  *  it away is a separate, orthogonal control (the caret). */
-export function SearchCardView({
-  pageCard,
-  selected,
-  onSelect,
-  onSave,
-  onOpenInVault,
-  onTurnIntoStack,
-  onOpenFullscreen,
-}: CardTypeViewProps) {
+export function SearchCardView({ pageCard, selected, onSelect, onRemove, onTurnIntoStack }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
   const [showingInfo, setShowingInfo] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
 
   return (
     <CardShell selected={selected}>
-      <div className="card__header">
-        <CardHeaderStart
-          title={canonicalCard.title}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed((c) => !c)}
-          selected={selected}
-          onSelect={onSelect}
-        />
+      <div className="card__header" onClick={onSelect}>
+        <CardHeaderStart title={canonicalCard.title} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
         <CardHeaderActions
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSave={() => onSave?.(pageCard.id)}
-          onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
-          onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+          onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
         />
       </div>
       {!collapsed && (
-        <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+        <CardFlippableBody
+          card={canonicalCard}
+          showingInfo={showingInfo}
+          onChangeTitle={(title) => editCard(pageCard.card.id, { title })}
+        >
           <SearchCardBody pageCard={pageCard} />
         </CardFlippableBody>
       )}

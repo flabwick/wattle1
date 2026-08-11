@@ -129,6 +129,16 @@ model Page {
   /// Null (the default/common case) means not pinned.
   pinnedOrder Int?
 
+  /// Homes + Pages hierarchy: null means this Page is a Home (a root — "detected
+  /// automatically" from the absence of a parent, not a separate flag). Set once at
+  /// creation time; there is no re-parent/move operation yet. `onDelete: SetNull`
+  /// rather than Cascade — deleting a parent shouldn't take its whole subtree with
+  /// it, its former children just become Homes themselves, consistent with "a loose
+  /// Page is a fine, permanent state" (see createPage's own doc comment).
+  parentPageId String?
+  parent       Page?   @relation("PageParent", fields: [parentPageId], references: [id], onDelete: SetNull)
+  children     Page[]  @relation("PageParent")
+
   pageCards    PageCard[]
   homeSettings UserSettings[]  @relation("HomePage")
   linksOut     PageLink[]      @relation("LinkSource")
@@ -137,6 +147,7 @@ model Page {
   @@index([tabId])
   @@index([siblingGroupId])
   @@index([title])
+  @@index([parentPageId])
 }
 
 /// A Page -> Page navigation link (Pages + Links + Search rebuild's "Link" primitive) —

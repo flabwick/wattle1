@@ -24,4 +24,28 @@ export const stubProvider: ModelProvider = {
     ].join("\n");
     yield { text: `<card type="note" title="Stub response">\n${body}\n</card>`, done: true };
   },
+  // No credentials to call a real model with, so this just proves the agent loop's
+  // plumbing end-to-end (route → provider → client) without needing any API key: the
+  // first time it sees a given tool list it "calls" the first tool offered, with
+  // whatever the caller's own system/instruction text most recently asked for as a
+  // best-effort guess at the input — then on the next turn (once a tool_result is
+  // present in `messages`, i.e. the loop already ran that call) it ends the turn.
+  async generateWithTools({ tools, messages }) {
+    const alreadyCalledATool = messages.some(
+      (m) => Array.isArray(m.content) && m.content.some((block) => block.type === "tool_result"),
+    );
+    if (alreadyCalledATool || tools.length === 0) {
+      return {
+        content: [{ type: "text", text: "Stub response — no ModelProvider credentials configured." }],
+        stopReason: "end_turn",
+      };
+    }
+    return {
+      content: [
+        { type: "text", text: `Stub calling "${tools[0].name}" (no credentials configured).` },
+        { type: "tool_use", id: "stub-tool-call-1", name: tools[0].name, input: {} },
+      ],
+      stopReason: "tool_use",
+    };
+  },
 };

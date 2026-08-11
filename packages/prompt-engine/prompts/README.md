@@ -14,7 +14,7 @@ particular describe the app's own content model (Cards, their formatting, what a
 model may reference) in plain English, and a structural change elsewhere in the
 codebase can silently make one of them wrong.
 
-This app has four small, independent prompt-compiling systems, each with its own
+This app has five small, independent prompt-compiling systems, each with its own
 subfolder(s) below and its own compiler in `../src/`. They don't share an output
 contract with each other — see each section's own description.
 
@@ -102,3 +102,28 @@ browser-only module this server-side package can't import — and passed in as
 other prompt here — no rebuild needed. But **adding a new action job never requires
 editing this file** — see `registries/README.md`'s own "Adding a new action job"
 section (`packages/shared/src/registries/README.md`) for why that part auto-syncs.
+
+## Agent (`src/agentCompiler.ts`) — native tool-calling, no output contract at all
+
+| File | Loaded by | Used for |
+| --- | --- | --- |
+| `agent/system.md` | `compileAgentTurn({ scope, instruction, contextText })` | The Brilliantly Simple Generation Agent: Feed/Circle with typed guide text, and selection "Ask AI", both run a small client-side tool-calling loop (`@wattle/web`'s `useAgentLoop.ts`) instead of streaming a `<card>` block. |
+
+Structurally the simplest system here: **entirely static markdown, no placeholder, no
+splice.** The agent's tool vocabulary (one entry per runnable action-job, the same
+`actionJobRegistry` `action-script/system.md` draws from) travels as a real `tools`
+array on the provider request — native tool-calling — not as prose baked into the
+system prompt, so unlike `action-script/system.md` there's no `ACTIONS`-style section
+to keep in sync here at all. `compileAgentTurn` only builds the *first* turn's user
+message (a scope line + the instruction + whatever page/selection context the client
+assembled); every turn after that reuses the same `system` string with its own
+`messages` array (the running tool_use/tool_result conversation) instead of calling
+this compiler again — see `packages/api/src/services/agentService.ts`.
+
+### Adding a new generation mode / process / system
+
+Same short version across all five systems above: add a new `<name>/system.md` file
+here, then add the corresponding entry to that system's own compiler in `../src/`
+(`PromptMode`/`SYSTEM_PROMPT_FILE`, `AnnotationProcess`/`SYSTEM_PROMPT_FILE`, or a new
+compiler module entirely for a structurally different system, as `agentCompiler.ts`
+was here). None of these five compilers know about each other.

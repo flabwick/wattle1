@@ -2,8 +2,10 @@ import { useState } from "react";
 import type { FocusEvent } from "react";
 import type { PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
-import { Button, CardShell, Icon, InputField } from "../primitives/index.js";
+import { CardShell, Icon } from "../primitives/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
+import { CardHeaderStart } from "./CardHeaderStart.js";
+import { CardHeaderActions } from "./CardHeaderActions.js";
 import { CardInfoPanel } from "./CardInfoPanel.js";
 import { useCard } from "../../hooks/useCard.js";
 import { useDismiss } from "../../hooks/useDismiss.js";
@@ -21,12 +23,11 @@ interface CardProps {
    *  regardless of this flag, so it doesn't change anything about how the Card
    *  itself renders — it only gates the click-away listener below. */
   editing: boolean;
-  /** Tapping this Card's own header select button (the checkbox beside the fold
-   *  caret) toggles its membership in the current (possibly multi-Card) selection,
-   *  in if not already selected, out again if it was (App.tsx's
-   *  toggleSelectPageCard). Move/Hide/remove are still reached from the Dock
-   *  instead of a per-Card popup; Save has its own header button now too (see
-   *  onSave below). */
+  /** Tapping anywhere on this Card's own skinny header bar toggles its membership
+   *  in the current (possibly multi-Card) selection, in if not already selected,
+   *  out again if it was (App.tsx's toggleSelectPageCard). Move/Hide are still
+   *  reached from the Dock instead of a per-Card popup; removing has its own
+   *  header button now too (see onRemove below). */
   onSelect: () => void;
   /** Marks this Card as the Dock's own formatting-toolbar target (App.tsx's
    *  activatePageCardEditor, which also forks first if this Card is frozen —
@@ -41,18 +42,10 @@ interface CardProps {
    *  instead so a Dock button click (which blurs the editor a beat before its own
    *  onClick runs) doesn't yank the toolbar out from under itself. */
   onCloseEditor: () => void;
-  /** The header's own bookmark-shaped Save button (App.tsx's handleSavePageCard)
-   *  — called while there's still something pending (see hasUnsavedChanges
-   *  below): a not-yet-vaulted Card's draft title/content, or a still-page-local
-   *  Card that's never been saved at all. Once nothing's pending, the same button
-   *  slot switches to a tick instead (onOpenInVault below) rather than
-   *  disappearing outright. */
-  onSave: () => void;
-  /** The same header button once there's nothing left to save — a tick in place
-   *  of the bookmark, same "you're done, here's where it lives" convention
-   *  Spotify's own saved-track checkmark uses. Opens the Vault panel searching
-   *  for this Card by its current title (App.tsx's handleOpenCardInVault). */
-  onOpenInVault: (title: string) => void;
+  /** The header's own "X" (App.tsx's handleRequestRemovePageCard) — removes this
+   *  Card from the Page (Card design pass — replaces the old Save/bookmark slot,
+   *  which is gone: every Card is treated as saved in the UI now). */
+  onRemove: () => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   /** Every embedded Card independently selected (App.tsx state) — see
    *  CardContent.tsx's doc comment. Wired into both render branches below now: an
@@ -92,9 +85,6 @@ interface CardProps {
   ) => void;
   generatingPageCardId?: string | null;
   pageSiblings?: PageCardWithCard[];
-  /** The header's "expand" corner button — opens this Card full-screen (App.tsx's
-   *  focusedPageCardId), independent of selection/editing state. */
-  onOpenFullscreen?: () => void;
   /** The header's "+" corner button — turns this Card into a Stack and immediately
    *  adds a second (blank) alternate to it, in one step (App.tsx's
    *  handleTurnIntoStackWithNewCard). */
@@ -106,26 +96,29 @@ interface CardProps {
  * there's no separate "view" vs "edit" mode to enter or exit any more, only frozen
  * Cards (Open/Frozen — Wattle vault plan) stay read-only, since they're meant to be
  * stable, safe-to-reference context rather than something to change in place.
- * Selecting the Card (for the Dock's batch Save/Move/Hide/Remove actions) is a
- * completely separate gesture from editing its text: the header's own select button
- * (beside the fold caret) toggles selection regardless of anything else going on;
- * clicking into the title or the rich text body to type is all "entering editing"
- * takes now, and it only affects the Dock's own formatting-toolbar targeting
- * (onActivateEditor/onCloseEditor below), not this Card's own appearance.
+ * Selecting the Card (for the Dock's batch Move/Hide/Remove actions) is a
+ * completely separate gesture from editing its text: the skinny header bar itself
+ * (`.card__header`, click anywhere on it) toggles selection regardless of anything
+ * else going on — every clickable child inside (fold caret, +/i/x) stops
+ * propagation so a tap on one of those doesn't also toggle selection. Clicking into
+ * the rich text body to type is all "entering editing" takes now, and it only
+ * affects the Dock's own formatting-toolbar targeting (onActivateEditor/
+ * onCloseEditor below), not this Card's own appearance. There is no Save affordance
+ * in the UI any more (Card design pass) — every Card reads as saved; renaming
+ * happens on the Info face (CardInfoPanel's own onChangeTitle) instead of an
+ * always-visible header input, and the header shows a title at all only while
+ * folded.
  *
  * Once a Card has been saved to the vault at least once (`card.savedToVault`),
  * every keystroke commits straight to the vault Card, live, through the same shared
  * cardStore CardEmbed.tsx uses (see editCard/useCard) — so any other open instance
- * of this same Card, on this Page or any other, updates immediately too, and
- * there's nothing left to save. The header's own bookmark/tick button (onSave/
- * onOpenInVault below) reflects this either way: a bookmark while there's still
- * something page-local or draft to commit, a tick once there isn't — tapping the
- * tick doesn't do anything to the Card itself, it just opens the Vault to it.
- *
- * A Card that has *never* been saved to the vault yet is still page-local scratch
- * content (schema.prisma's Card.savedToVault doc comment) — those edits go through
- * the draft/Save flow instead (onChangeDraft, App.tsx/usePages.ts), same as before,
- * until the first explicit Save promotes it into the vault and this switches over.
+ * of this same Card, on this Page or any other, updates immediately too. A Card
+ * that has *never* been saved to the vault yet is still page-local scratch content
+ * (schema.prisma's Card.savedToVault doc comment) — those edits still go through
+ * the draft flow instead (onChangeDraft, App.tsx/usePages.ts) exactly as before;
+ * there's just no explicit Save button left to promote it into the vault any more
+ * (backend savedToVault/draft columns are untouched by this pass — see the Card
+ * design plan's own "minimum: no Save button and no unsaved affordance").
  */
 export function CardView({
   pageCard,
@@ -134,8 +127,7 @@ export function CardView({
   onSelect,
   onActivateEditor,
   onCloseEditor,
-  onSave,
-  onOpenInVault,
+  onRemove,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -150,7 +142,6 @@ export function CardView({
   onRunActionJob,
   generatingPageCardId,
   pageSiblings,
-  onOpenFullscreen,
   onTurnIntoStack,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
@@ -179,11 +170,6 @@ export function CardView({
   // CardRichText stays non-editable below), same as everywhere else Frozen already
   // means "not directly editable" (embeds, Dock Cards).
   const isFrozen = Boolean(canonicalCard.frozenAt);
-  // Whether there's anything for the header's own Save button to do — any
-  // not-yet-vaulted Card (the common case: freshly created, still page-local
-  // scratch content) or a pending draft. No title required to save (a Card can have
-  // no title by default — see cardService.createCard's own doc comment).
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !savedToVault;
 
   function handleTitleChange(value: string) {
     if (isFrozen) return;
@@ -261,131 +247,20 @@ export function CardView({
       // below), so this never fires for one.
       onFocus={isFrozen ? undefined : handleFocus}
     >
-      <div className="card__header card__header--pinned">
-        <div className="card__header-start">
-          <button
-            type="button"
-            className="card__caret-btn"
-            aria-label={collapsed ? t("card.expand") : t("card.collapse")}
-            title={collapsed ? t("card.expand") : t("card.collapse")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setCollapsed((c) => !c);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="down" className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`} />
-          </button>
-          <button
-            type="button"
-            className={`card__select-btn${selected ? " card__select-btn--selected" : ""}`}
-            aria-label={selected ? t("card.deselect") : t("card.select")}
-            title={selected ? t("card.deselect") : t("card.select")}
-            aria-pressed={selected}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect();
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            <span className="card__select-box" aria-hidden="true">
-              {selected && <Icon name="done" />}
-            </span>
-          </button>
-          {isFrozen ? (
-            title && <span className="card__title">{title}</span>
-          ) : (
-            // No placeholder: an untitled Card just shows blank space here, not a
-            // ghost "Untitled" — the input itself (flex: 1, Card.css) already
-            // fills the whole header-start row up to the frozen badge/header
-            // actions, so clicking anywhere in that blank space still focuses it.
-            <InputField className="card__title-input" value={title} onChange={(e) => handleTitleChange(e.target.value)} />
-          )}
+      <div className="card__header" onClick={onSelect}>
+        <CardHeaderStart title={title} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)}>
           {isFrozen && (
             <span className="card__frozen-badge" title={t("card.frozen")} aria-label={t("card.frozen")}>
               <Icon name="lock" />
             </span>
           )}
-        </div>
-        <div className="card__header-actions">
-          {hasUnsavedChanges ? (
-            <Button
-              iconOnly
-              className="card__save-btn"
-              aria-label={t("dock.action.save")}
-              title={t("dock.action.save")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSave();
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="bookmark" />
-            </Button>
-          ) : (
-            <Button
-              iconOnly
-              className="card__save-btn card__save-btn--saved"
-              aria-label={t("card.openInVault")}
-              title={t("card.openInVault")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenInVault(title);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="done" />
-            </Button>
-          )}
-          {onTurnIntoStack && (
-            <Button
-              iconOnly
-              aria-label={t("card.addCard")}
-              title={t("card.addCard")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onTurnIntoStack();
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="plus" />
-            </Button>
-          )}
-          {onOpenFullscreen && (
-            <Button
-              iconOnly
-              aria-label={t("card.openFullscreen")}
-              title={t("card.openFullscreen")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenFullscreen();
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="expand" />
-            </Button>
-          )}
-          <Button
-            iconOnly
-            className={showingInfo ? "button--pressed" : undefined}
-            aria-label={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
-            title={showingInfo ? t("card.hideInfo") : t("card.showInfo")}
-            aria-pressed={showingInfo}
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowingInfo((v) => !v);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="info" />
-          </Button>
-        </div>
+        </CardHeaderStart>
+        <CardHeaderActions
+          onTurnIntoStack={onTurnIntoStack}
+          showingInfo={showingInfo}
+          onToggleInfo={() => setShowingInfo((v) => !v)}
+          onRemove={onRemove}
+        />
       </div>
       {!collapsed && (
         <div className={`card__flip${showingInfo ? " card__flip--flipped" : ""}`}>
@@ -415,7 +290,7 @@ export function CardView({
             />
           </div>
           <div className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}>
-            <CardInfoPanel card={canonicalCard} />
+            <CardInfoPanel card={canonicalCard} onChangeTitle={handleTitleChange} />
           </div>
         </div>
       )}

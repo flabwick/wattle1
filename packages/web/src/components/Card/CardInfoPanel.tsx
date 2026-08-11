@@ -17,6 +17,12 @@ interface CardInfoPanelProps {
    *  back face ignores both. */
   pageSiblings?: PageCardWithCard[];
   excludePageCardId?: string;
+  /** Renders the title field editable when present (Card design pass: title
+   *  editing moved here from the header) — same draft-vs-saved branching the
+   *  header used to do, resolved by the caller (Card.tsx's handleTitleChange,
+   *  StackBody.tsx's stack.updateActiveDraft). Omitted for a read-only title —
+   *  most typed CardTypes rename through their own Editor instead. */
+  onChangeTitle?: (title: string) => void;
 }
 
 function makeStepId(): string {
@@ -48,7 +54,7 @@ function formatDate(iso: string): string {
  * `useCard` subscription, so an edit here is reflected back into `card.metadata`
  * on the very next render, the same as a title edit already is.
  */
-export function CardInfoPanel({ card, pageSiblings, excludePageCardId }: CardInfoPanelProps) {
+export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeTitle }: CardInfoPanelProps) {
   const isFrozen = Boolean(card.frozenAt);
   const isAction = card.metadata.typeId === "action";
   const action = card.metadata.action ?? { label: "", steps: [] };
@@ -208,6 +214,23 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId }: CardInf
 
   return (
     <div className="card-info">
+      {onChangeTitle && (
+        <div className="card-info__section">
+          <span className="card-info__label">{t("card.info.title")}</span>
+          {isFrozen ? (
+            <p className="card-info__empty">{card.title || t("card.titlePlaceholder")}</p>
+          ) : (
+            <InputField
+              className="card-info__title-input"
+              value={card.title}
+              placeholder={t("card.titlePlaceholder")}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onChangeTitle(e.target.value)}
+            />
+          )}
+        </div>
+      )}
+
       {isAction && (
         <div className="card-info__section">
           <span className="card-info__label">{t("card.info.actions")}</span>
@@ -471,10 +494,9 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId }: CardInf
           Links/Relationships above are), so this is deliberately terse and pushed
           to the very bottom rather than the old top-of-panel treatment. */}
       <p className="card-info__meta">
-        {card.title && <span className="card-info__meta-title">{card.title}</span>}
+        {!onChangeTitle && card.title && <span className="card-info__meta-title">{card.title}</span>}
         <span>{formatDate(card.createdAt)}</span>
         <span>{formatDate(card.updatedAt)}</span>
-        <span>{card.savedToVault ? t("card.info.statusSaved") : t("card.info.statusDraft")}</span>
         {card.frozenAt && (
           <span>
             <Icon name="lock" /> {t("card.info.statusFrozen")}

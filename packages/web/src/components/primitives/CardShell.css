@@ -40,6 +40,18 @@
   }
 }
 
+/* Folding a Card (its own caret, Card.tsx/StackBody.tsx) should show *only* the
+   header — no trailing sliver of this shell's own bottom padding, nor the
+   44px-minimum touch target it otherwise enforces, once there's no body content
+   left inside to size around. `:has()` detects "this shell's only child is its
+   own header" (no `.card__flip`/body sibling — i.e. collapsed); Card.css's own
+   `.card__header:only-child` rule removes that header's matching trailing margin
+   the same way. */
+.card-shell:has(> .card__header:only-child) {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
 /* The border/shadow is the existing "this is selected" boundary; the background
    wash is the highlighter material — same one AnnotatedText.css's own
    .selection-highlight text mark uses (via --color-selection-tint), so a selected

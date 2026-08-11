@@ -1,10 +1,12 @@
 import type {
+  AgentMessage,
   Card,
   CreateCardInput,
   CreateTemplateInput,
   DockCardWithCard,
   GeneratedCardPart,
   GenerateResponse,
+  GenerateWithToolsResult,
   NearbyItem,
   OpenTemplateInput,
   OpenTemplateResult,
@@ -18,6 +20,7 @@ import type {
   StackMemberWithCard,
   Template,
   TemplateWithSnapshot,
+  ToolDefinition,
   UpdateCardInput,
   UpdateTemplateSnapshotInput,
   UserSettings,
@@ -128,6 +131,16 @@ export const setHomePage = (pageId: string | null) =>
 export const searchPages = (q?: string) =>
   request<PageSummary[]>(`/pages${q ? `?q=${encodeURIComponent(q)}` : ""}`);
 export const listPinnedPages = () => request<PageSummary[]>("/pages/pinned");
+/** Every Home (a Page with no parent) — Homes + Pages hierarchy, Phase 1. */
+export const listHomes = () => request<PageSummary[]>("/pages/homes");
+/** Every Page whose parent is `id` — Homes + Pages hierarchy, Phase 1. */
+export const listPageChildren = (id: string) => request<PageSummary[]>(`/pages/${id}/children`);
+/** Root-first parent chain, excluding `id` itself — the breadcrumb's own data. */
+export const listPageAncestors = (id: string) => request<PageSummary[]>(`/pages/${id}/ancestors`);
+/** "Create from a page" (Homes + Pages hierarchy, Phase 2) — a new child Page under
+ *  `parentId`, with a link card attached to the parent so it can navigate back down. */
+export const createChildPage = (parentId: string, title?: string) =>
+  request<Page>(`/pages/${parentId}/children`, { method: "POST", body: JSON.stringify(title ? { title } : {}) });
 /** Find-or-create a Page by title — the Page-link picker's "link to missing title →
  *  create empty Page, link to it". */
 export const resolvePageByTitle = (title: string) =>
@@ -217,11 +230,24 @@ export const forkPageCardOccurrence = (pageCardId: string) =>
 export const forkDockCardOccurrence = (dockCardId: string) =>
   request<DockCardWithCard>(`/dock-cards/${dockCardId}/fork`, { method: "POST" });
 
-// Nearby — durable proximity + live re-rank (Wattle vault plan).
+// Nearby — durable proximity (Wattle vault plan). Card.tsx/VaultCardDetail.tsx's
+// own "related Cards" list, unrelated to the Dock's now-removed live Nearby panel.
 export const getDurableNearby = (cardId: string, limit = 8) =>
   request<NearbyItem[]>(`/nearby/durable/${cardId}?limit=${limit}`);
-export const getLiveNearby = (input: { pageId: string; focusedCardId?: string; draftText?: string; limit?: number }) =>
-  request<NearbyItem[]>("/nearby/live", { method: "POST", body: JSON.stringify(input) });
+
+// Agent — one non-streaming turn (Brilliantly Simple Generation Agent plan). The
+// loop itself lives client-side (hooks/useAgentLoop.ts) — this is just the one
+// model call per round, same "server stays dumb" reasoning `tools` travels in the
+// request body rather than being rebuilt server-side from a registry it can't
+// import.
+export const agentTurn = (body: {
+  scope: "page" | "cards";
+  instruction: string;
+  contextText: string;
+  messages: AgentMessage[];
+  tools: ToolDefinition[];
+  maxTokens?: number;
+}) => request<GenerateWithToolsResult>("/agent/turn", { method: "POST", body: JSON.stringify(body) });
 
 // Stacks — see registries/definitions/stackCardType.ts, stackService.ts, useCardStack.ts.
 export const createStack = (pageId: string) =>

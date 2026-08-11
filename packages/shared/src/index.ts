@@ -10,6 +10,7 @@ export * from "./registries/definitions/actionCardType.js";
 export * from "./registries/definitions/promptCardType.js";
 export * from "./registries/definitions/pageLinksCardType.js";
 export * from "./registries/definitions/searchCardType.js";
+export * from "./registries/definitions/inputCardType.js";
 export * from "./registries/templateSnapshot.js";
 export * from "./registries/init.js";
 export * from "./richText/cardEmbedNode.js";

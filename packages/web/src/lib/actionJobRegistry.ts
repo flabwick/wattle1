@@ -37,14 +37,37 @@ export interface ActionJobContext {
    *  data-card-id="...">` reference (inserted via ActionStepFields' own link
    *  picker), pointing at a hidden Card or any other Card — rendered as a normal
    *  embed like any note's. `pageId`, omitted, defaults to this button's own Page.
-   *  Returns the created Card/PageCard's own ids — see StepOutput above. */
-  onCreateCard: (pageCard: PageCardWithCard, title: string, content: string, pageId?: string) => Promise<StepOutput>;
+   *  `typeId`, omitted, creates a plain "note" (the server's own default —
+   *  cardMetadata.ts's `typeId` is left absent, not set to "note" explicitly — see
+   *  getCardTypeId.ts's `?? "note"` fallback) — every type-specific metadata
+   *  sub-object (action/input/prompt/etc.) is itself optional in
+   *  cardMetadataV1Schema, so `{ version: 1, typeId }` alone is enough to create a
+   *  valid Card of that type with its own type's defaults; "stack" is deliberately
+   *  not offered here (the `createStack` job below does the extra work a Stack
+   *  needs — an initial member — that a bare createCard can't). Returns the created
+   *  Card/PageCard's own ids — see StepOutput above. */
+  onCreateCard: (
+    pageCard: PageCardWithCard,
+    title: string,
+    content: string,
+    pageId?: string,
+    typeId?: string,
+  ) => Promise<StepOutput>;
   /** Opens a Template — a brand-new Tab (scope "tab") or a new Page in the current
    *  Tab (scope "page"), same as the Template browser's own Open action. */
   onOpenTemplate: (templateId: string) => Promise<void>;
   /** Triggers a generation anchored at this button's own position (ghost card
-   *  streams in immediately below it, then auto-saves on completion). */
-  onPromptCard: (pageCard: PageCardWithCard, instructions: string, contextMode: PromptCardContextMode) => Promise<void>;
+   *  streams in immediately below it, then auto-saves on completion) — awaitable
+   *  (useGeneration.ts's startAndWait), so a multi-step Run or the agent loop's own
+   *  generateCard tool can wait for the result before moving on, unlike this job's
+   *  original fire-and-forget behavior. Resolves the created Card's own ids (see
+   *  StepOutput above) once the stream lands and saves; `void` if nothing was
+   *  generated (an empty response). */
+  onPromptCard: (
+    pageCard: PageCardWithCard,
+    instructions: string,
+    contextMode: PromptCardContextMode,
+  ) => Promise<StepOutput | void>;
   /** A brand-new blank Page in the current Tab. */
   onNewBlankPage: () => Promise<void>;
   /** A brand-new Tab with one blank Page, navigated to immediately. */
@@ -296,6 +319,19 @@ actionJobRegistry.register({
     { kind: "text", key: "title", label: t("actionCard.field.title"), placeholder: t("card.titlePlaceholder") },
     { kind: "richtext", key: "content", label: t("actionCard.field.content") },
     { kind: "pagePicker", key: "page", label: t("actionCard.field.page") },
+    {
+      kind: "select",
+      key: "typeId",
+      label: t("actionCard.field.typeId"),
+      options: [
+        { value: "note", label: t("actionCard.createCard.typeNote") },
+        { value: "action", label: t("actionCard.createCard.typeAction") },
+        { value: "prompt", label: t("actionCard.createCard.typePrompt") },
+        { value: "input", label: t("actionCard.createCard.typeInput") },
+        { value: "pageLinks", label: t("actionCard.createCard.typePageLinks") },
+        { value: "search", label: t("actionCard.createCard.typeSearch") },
+      ],
+    },
   ],
   run: async (ctx, pageCard, jobParams) => {
     return await ctx.onCreateCard(
@@ -303,6 +339,7 @@ actionJobRegistry.register({
       str(jobParams, "title"),
       str(jobParams, "content"),
       str(jobParams, "page") || undefined,
+      str(jobParams, "typeId") || undefined,
     );
   },
 });
@@ -324,7 +361,7 @@ actionJobRegistry.register({
   ],
   run: async (ctx, pageCard, jobParams) => {
     const contextMode: PromptCardContextMode = jobParams.contextMode === "own" ? "own" : "context";
-    await ctx.onPromptCard(pageCard, str(jobParams, "instructions"), contextMode);
+    return await ctx.onPromptCard(pageCard, str(jobParams, "instructions"), contextMode);
   },
 });
 
@@ -534,6 +571,83 @@ actionJobRegistry.register({
 });
 
 actionJobRegistry.register({
+  id: "reorderCards",
+  label: () => t("actionCard.job.reorderCards"),
+  fields: [
+    { kind: "pagePicker", key: "page", label: t("actionCard.field.page") },
+    // No dedicated field kind for "a list of ids" — comma-separated text, same
+    // convention setInputValue's own "value" field already uses for its own
+    // multi-value case.
+    { kind: "text", key: "orderedIds", label: t("actionCard.field.orderedIds"), placeholder: "id1, id2, id3" },
+  ],
+  run: async (_ctx, pageCard, jobParams) => {
+    const pageId = str(jobParams, "page") || pageCard.pageId;
+    const orderedIds = str(jobParams, "orderedIds")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (orderedIds.length === 0) throw new Error(t("actionCard.error.missingField"));
+    await api.reorderPageCards(pageId, orderedIds);
+    notifySaved(pageCard.card.id);
+  },
+});
+
+actionJobRegistry.register({
+  id: "createStack",
+  label: () => t("actionCard.job.createStack"),
+  fields: [{ kind: "pagePicker", key: "page", label: t("actionCard.field.page") }],
+  run: async (_ctx, pageCard, jobParams) => {
+    const pageId = str(jobParams, "page") || pageCard.pageId;
+    const created = await api.createStack(pageId);
+    notifySaved(created.card.id);
+    return { cardId: created.card.id, pageCardId: created.id };
+  },
+});
+
+actionJobRegistry.register({
+  id: "convertToStack",
+  label: () => t("actionCard.job.convertToStack"),
+  fields: [{ kind: "cardPicker", key: "target", label: t("actionCard.field.target") }],
+  run: async (_ctx, pageCard, jobParams) => {
+    const targetPageCardId = requireStr(jobParams, "target");
+    const converted = await api.convertCardToStack(targetPageCardId);
+    notifySaved(pageCard.card.id);
+    return { cardId: converted.card.id, pageCardId: converted.id };
+  },
+});
+
+actionJobRegistry.register({
+  id: "addStackMember",
+  label: () => t("actionCard.job.addStackMember"),
+  // `target` picks the Stack's own PageCard on this Page — stackService's own
+  // routes key on the Stack container's *Card* id though (not its PageCard id), so
+  // this reads the cardPicker's own `{key}CardId` variant, same convention
+  // deleteCard/moveCard's "target" fields already rely on.
+  fields: [{ kind: "cardPicker", key: "target", label: t("actionCard.field.target") }],
+  run: async (_ctx, pageCard, jobParams) => {
+    const stackCardId = requireStr(jobParams, "targetCardId");
+    await api.addStackMember(stackCardId);
+    notifySaved(pageCard.card.id);
+  },
+});
+
+actionJobRegistry.register({
+  id: "removeStackMember",
+  label: () => t("actionCard.job.removeStackMember"),
+  // No picker kind covers a StackMember row id (distinct from any Card/PageCard id
+  // the existing pickers resolve) — plain text; the agent's own page context
+  // (useAgentLoop.ts) lists each Stack's member ids directly for this job to
+  // consume. The manual Action-card editor has no live picker for this field
+  // either, same limitation, until a dedicated field kind is worth adding.
+  fields: [{ kind: "text", key: "memberId", label: t("actionCard.field.memberId") }],
+  run: async (_ctx, pageCard, jobParams) => {
+    const memberId = requireStr(jobParams, "memberId");
+    await api.removeStackMember(memberId);
+    notifySaved(pageCard.card.id);
+  },
+});
+
+actionJobRegistry.register({
   id: "hideCard",
   label: () => t("actionCard.job.hideCard"),
   fields: [{ kind: "vaultCardPicker", key: "target", label: t("actionCard.field.target") }],
@@ -610,6 +724,31 @@ actionJobRegistry.register({
         ? properties.map((p, i) => (i === index ? { ...p, value, linkedCardId: null } : p))
         : [...properties, { key, value, linkedCardId: null }];
     editCard(cardId, { metadata: { ...card.metadata, properties: next } });
+    notifySaved(cardId);
+  },
+});
+
+actionJobRegistry.register({
+  id: "setInputValue",
+  label: () => t("actionCard.job.setInputValue"),
+  fields: [
+    { kind: "vaultCardPicker", key: "target", label: t("actionCard.field.target") },
+    { kind: "text", key: "value", label: t("actionCard.field.value") },
+  ],
+  // Comma-separated so this one field covers both single- and multi-value kinds —
+  // see cardMetadata.ts's own `input` field doc comment for why `value` is always
+  // an array. Doesn't validate against the target's own `options` (same "fail
+  // visibly but don't block the rest of the run" spirit used elsewhere in this
+  // file) — an unrecognized value just won't match anything in InputView.tsx.
+  run: async (_ctx, _pageCard, jobParams) => {
+    const cardId = requireStr(jobParams, "target");
+    const value = str(jobParams, "value")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+    const card = await ensureCardLoaded(cardId);
+    const input = card.metadata.input ?? { kind: "text" as const, options: [], value: [] };
+    editCard(cardId, { metadata: { ...card.metadata, input: { ...input, value } } });
     notifySaved(cardId);
   },
 });

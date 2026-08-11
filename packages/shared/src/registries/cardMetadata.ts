@@ -207,6 +207,23 @@ export const cardMetadataV1Schema = z.object({
    *  `cardIds`). All three new fields default so a pre-existing `{input, output}`
    *  Card (this field's previous shape) still parses — `output` itself is dropped,
    *  superseded by `iterations`. */
+  /** Set only on typeId "input" Cards — a single answerable form control (see
+   *  registries/definitions/inputCardType.ts). `title` is the question/label, same
+   *  convention `link`/`pageLinks` use. `options` only matters for the
+   *  option-based kinds (radio/dropdown/multiSelect/combobox); `placeholder` only
+   *  for the free-text kinds (text/textarea/number/combobox). `value` is always an
+   *  array so one write path (InputView.tsx, and the `setInputValue` action job)
+   *  covers every kind uniformly: single-value kinds read/write `value[0]`
+   *  (checkbox: `"true"` present or absent), multiSelect reads/writes every
+   *  entry. */
+  input: z
+    .object({
+      kind: z.enum(["text", "textarea", "number", "checkbox", "radio", "dropdown", "multiSelect", "combobox"]),
+      options: z.array(z.object({ value: z.string(), label: z.string() })).default([]),
+      placeholder: z.string().optional(),
+      value: z.array(z.string()).default([]),
+    })
+    .optional(),
   prompt: z
     .object({
       input: z.string(),

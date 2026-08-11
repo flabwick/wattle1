@@ -9,6 +9,7 @@ export function serializePage(page: {
   siblingGroupId: string | null;
   orderInGroup: number | null;
   pinnedOrder: number | null;
+  parentPageId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): Page {
@@ -19,6 +20,7 @@ export function serializePage(page: {
     siblingGroupId: page.siblingGroupId,
     orderInGroup: page.orderInGroup,
     pinnedOrder: page.pinnedOrder,
+    parentPageId: page.parentPageId,
     createdAt: page.createdAt.toISOString(),
     updatedAt: page.updatedAt.toISOString(),
   };
@@ -136,13 +138,79 @@ export async function listSiblingPages(pageId: string): Promise<PageSummary[]> {
   }));
 }
 
-/** Creates a brand-new, loose Page — no Tab required (Phase 1 onward: a Page is a
+/** Every Home — a Page with no parent (Homes + Pages hierarchy, Phase 1). "Detected
+ *  automatically" from the absence of a parent, not a separate flag: every existing
+ *  Page qualifies today, since `parentPageId` only gets set going forward. */
+export async function listHomes(): Promise<PageSummary[]> {
+  const pages = await prisma.page.findMany({
+    where: { parentPageId: null },
+    orderBy: { updatedAt: "desc" },
+    include: { pageCards: { orderBy: { order: "asc" }, take: 1, include: { card: true } } },
+  });
+  return pages.map((p) => ({
+    id: p.id,
+    title: p.title,
+    pinnedOrder: p.pinnedOrder,
+    updatedAt: p.updatedAt.toISOString(),
+    preview: p.pageCards[0]?.card.title || null,
+  }));
+}
+
+/** Every Page whose `parentPageId` is this one, in creation order (structural, not
+ *  "recently touched" — unlike searchPages/listPinnedPages above, a children list
+ *  shouldn't reshuffle every time one of them is edited). */
+export async function listChildren(pageId: string): Promise<PageSummary[]> {
+  const pages = await prisma.page.findMany({
+    where: { parentPageId: pageId },
+    orderBy: { createdAt: "asc" },
+    include: { pageCards: { orderBy: { order: "asc" }, take: 1, include: { card: true } } },
+  });
+  return pages.map((p) => ({
+    id: p.id,
+    title: p.title,
+    pinnedOrder: p.pinnedOrder,
+    updatedAt: p.updatedAt.toISOString(),
+    preview: p.pageCards[0]?.card.title || null,
+  }));
+}
+
+/** Walks the `parentPageId` chain from this Page's own *parent* up to the root,
+ *  root-first — the breadcrumb's own data ("Home › … › parent"), excluding the
+ *  Page itself. Capped at 50 hops: nothing in the app can create a cycle through
+ *  normal use (there's no re-parent operation yet), but a corrupted chain should
+ *  stop rather than hang the request. */
+export async function getAncestors(pageId: string): Promise<PageSummary[]> {
+  const ancestors: PageSummary[] = [];
+  const start = await prisma.page.findUnique({ where: { id: pageId }, select: { parentPageId: true } });
+  let parentId = start?.parentPageId ?? null;
+  for (let hop = 0; hop < 50 && parentId; hop++) {
+    const parent = await prisma.page.findUnique({
+      where: { id: parentId },
+      include: { pageCards: { orderBy: { order: "asc" }, take: 1, include: { card: true } } },
+    });
+    if (!parent) break;
+    ancestors.unshift({
+      id: parent.id,
+      title: parent.title,
+      pinnedOrder: parent.pinnedOrder,
+      updatedAt: parent.updatedAt.toISOString(),
+      preview: parent.pageCards[0]?.card.title || null,
+    });
+    parentId = parent.parentPageId;
+  }
+  return ancestors;
+}
+
+/** Creates a brand-new Page — no Tab required (Phase 1 onward: a Page is a
  *  destination in its own right). Loose/unlinked Pages are a fine, permanent state,
- *  not a staging area that needs cleaning up later. */
-export async function createPage(title?: string): Promise<Page> {
+ *  not a staging area that needs cleaning up later. `parentPageId`, omitted, means
+ *  a Home (Homes + Pages hierarchy, Phase 2's own "create child page" route is the
+ *  only caller that passes one — every other caller, including Search's own
+ *  "Create Home", wants the default). */
+export async function createPage(title?: string, parentPageId?: string): Promise<Page> {
   const top = await prisma.page.aggregate({ _max: { order: true } });
   const page = await prisma.page.create({
-    data: { order: (top._max.order ?? -1) + 1, title: title?.trim() || null },
+    data: { order: (top._max.order ?? -1) + 1, title: title?.trim() || null, parentPageId: parentPageId ?? null },
   });
   return serializePage(page);
 }

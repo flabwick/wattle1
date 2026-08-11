@@ -8,10 +8,6 @@ export interface CardTypeViewProps {
   selected: boolean;
   onSelect: () => void;
   onRequestEdit: () => void;
-  /** Every Card's top-right "expand" corner button (App.tsx's focusedPageCardId) —
-   *  optional since not every registered type necessarily surfaces it; currently
-   *  "stack" (StackView.tsx) and "file" (FileView.tsx) do. */
-  onOpenFullscreen?: (pageCardId: string) => void;
   /** Dispatches one job from the actionJobRegistry.ts vocabulary (lib/actionJobs.ts's
    *  runActionJob) — the "note" branch (Card.tsx, via CardEditingContext) has had
    *  this since the inline actionButton node; the "action" CardType
@@ -41,18 +37,13 @@ export interface CardTypeViewProps {
    *  (OperationCardBody.tsx) needs this even in View mode (unlike removeCard/
    *  saveCard's own picker, which only ever needs it while editing) to resolve a
    *  `runCardAction` step's target into the full PageCardWithCard onRunActionJob
-   *  expects. Optional since every other View ignores it, same as onOpenFullscreen. */
+   *  expects. Optional since every other View ignores it. */
   pageSiblings?: PageCardWithCard[];
-  /** The header's own bookmark-shaped Save button (App.tsx's handleSavePageCard) —
-   *  same as Card.tsx's own onSave prop, just unbound (takes the pageCardId) to match
-   *  onOpenFullscreen's convention above, since every CardHeaderActions consumer here
-   *  binds it itself. Optional since not every View shows the four-icon header row
-   *  (e.g. "stack" only shows three of them — see StackBody.tsx). */
-  onSave?: (pageCardId: string) => void;
-  /** Same header slot once there's nothing left to save — a tick in place of the
-   *  bookmark (Card.tsx's own onOpenInVault). Takes this Card's own live title,
-   *  same as Card.tsx's prop of the same name. */
-  onOpenInVault?: (title: string) => void;
+  /** The header's own "X" (App.tsx's handleRequestRemovePageCard) — unbound (takes
+   *  the pageCardId), same "every CardHeaderActions consumer here binds it itself"
+   *  convention onTurnIntoStack below already uses. Optional since not every View
+   *  shows the header action row at all. */
+  onRemove?: (pageCardId: string) => void;
   /** The header's "+" corner button — turns this Card into a Stack and immediately
    *  adds a second (blank) alternate (App.tsx's handleTurnIntoStackWithNewCard),
    *  same as Card.tsx's own onTurnIntoStack prop. Omitted by the "stack" CardType's
@@ -64,8 +55,6 @@ export interface CardTypeViewProps {
 export interface CardTypeEditorProps {
   pageCard: PageCardWithCard;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
-  /** Same as CardTypeViewProps.onOpenFullscreen above. */
-  onOpenFullscreen?: (pageCardId: string) => void;
   /** Same as CardTypeViewProps.onRunActionJob above. */
   onRunActionJob?: (
     pageCard: PageCardWithCard,

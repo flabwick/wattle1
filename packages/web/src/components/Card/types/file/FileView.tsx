@@ -7,6 +7,7 @@ import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { getCardFileUrl } from "../../../../api/client.js";
 import { isMarkdownFile } from "../../../../lib/isMarkdownFile.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { editCard } from "../../../../lib/cardStore.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
@@ -35,15 +36,7 @@ function extensionLabel(originalName: string): string | null {
  * own CardHeaderActions row, everything else (Edit, Move, Hide, remove) is reached
  * from the Dock.
  */
-export function FileView({
-  pageCard,
-  selected,
-  onSelect,
-  onOpenFullscreen,
-  onSave,
-  onOpenInVault,
-  onTurnIntoStack,
-}: CardTypeViewProps) {
+export function FileView({ pageCard, selected, onSelect, onRemove, onTurnIntoStack }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
   const file = pageCard.card.metadata.file;
@@ -51,7 +44,6 @@ export function FileView({
   const [markdownText, setMarkdownText] = useState<string | null>(null);
   const [showingInfo, setShowingInfo] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
 
   useEffect(() => {
     if (!markdown || !file) return;
@@ -68,22 +60,13 @@ export function FileView({
 
   const extension = file ? extensionLabel(file.originalName) : null;
   const header = (
-    <div className="card__header">
-      <CardHeaderStart
-        title={pageCard.card.title}
-        collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed((c) => !c)}
-        selected={selected}
-        onSelect={onSelect}
-      >
+    <div className="card__header" onClick={onSelect}>
+      <CardHeaderStart title={pageCard.card.title} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)}>
         {extension && <Badge>{extension}</Badge>}
       </CardHeaderStart>
       <CardHeaderActions
-        hasUnsavedChanges={hasUnsavedChanges}
-        onSave={() => onSave?.(pageCard.id)}
-        onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
         onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
-        onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+        onRemove={() => onRemove?.(pageCard.id)}
         showingInfo={showingInfo}
         onToggleInfo={() => setShowingInfo((v) => !v)}
       />
@@ -114,7 +97,11 @@ export function FileView({
     <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined}>
       {header}
       {!collapsed && (
-        <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+        <CardFlippableBody
+          card={canonicalCard}
+          showingInfo={showingInfo}
+          onChangeTitle={(title) => editCard(pageCard.card.id, { title })}
+        >
           {body}
         </CardFlippableBody>
       )}

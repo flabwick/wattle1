@@ -20,6 +20,13 @@ pagesRouter.get("/pinned", async (_req, res) => {
   res.json(await pageService.listPinnedPages());
 });
 
+// GET /api/pages/homes — every Home (a Page with no parent), Homes + Pages
+// hierarchy Phase 1. Registered before /:id, same required ordering /pinned and
+// /resolve already follow.
+pagesRouter.get("/homes", async (_req, res) => {
+  res.json(await pageService.listHomes());
+});
+
 // POST /api/pages/resolve  { title } — find-or-create by title, for the Page-link
 // picker's "link to missing title → create empty Page, link to it" (Phase 2).
 pagesRouter.post("/resolve", async (req, res) => {
@@ -46,6 +53,31 @@ pagesRouter.get("/:id", async (req, res) => {
 // the optional next/prev polish (Phase 3) — empty array if this Page has no group.
 pagesRouter.get("/:id/siblings", async (req, res) => {
   res.json(await pageService.listSiblingPages(req.params.id));
+});
+
+// GET /api/pages/:id/children — every Page whose parent is this one (Homes + Pages
+// hierarchy Phase 1).
+pagesRouter.get("/:id/children", async (req, res) => {
+  res.json(await pageService.listChildren(req.params.id));
+});
+
+// GET /api/pages/:id/ancestors — root-first parent chain, excluding this Page
+// itself, for the breadcrumb (Homes + Pages hierarchy Phase 1).
+pagesRouter.get("/:id/ancestors", async (req, res) => {
+  res.json(await pageService.getAncestors(req.params.id));
+});
+
+// POST /api/pages/:id/children  { title? } — "create from a page" (Homes + Pages
+// hierarchy Phase 2): a new child Page under :id, a link card attached to :id
+// itself so the parent can navigate back down to it, then PageLink resynced so
+// Search's orphan-detection sees it immediately. Returns the created child Page.
+pagesRouter.post("/:id/children", async (req, res) => {
+  const parentId = req.params.id;
+  const { title } = req.body ?? {};
+  const child = await pageService.createPage(typeof title === "string" ? title : undefined, parentId);
+  await pageCardService.addNewCardToPage(parentId, "", pageLinkService.buildPageLinkHtml(child.id, child.title));
+  await pageLinkService.syncPageLinksForPage(parentId);
+  res.status(201).json(child);
 });
 
 pagesRouter.patch("/:id", async (req, res) => {

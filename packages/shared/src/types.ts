@@ -72,6 +72,9 @@ export interface Page {
   orderInGroup: number | null;
   /** Non-null places this Page in the scarce pin rail, ascending display order. */
   pinnedOrder: number | null;
+  /** Homes + Pages hierarchy: null means this Page is a Home (a root — detected
+   *  automatically from the absence of a parent, not a separate flag). */
+  parentPageId: string | null;
   createdAt: string;
   updatedAt: string;
 }

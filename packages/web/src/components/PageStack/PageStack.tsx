@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PageCardWithCard, PageWithCards } from "@wattle/shared";
+import type { PageCardWithCard, PageSummary, PageWithCards } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
 import { GhostCard } from "../Card/GhostCard.js";
@@ -30,16 +30,11 @@ interface PageCardSlotProps {
    *  onActivateEditor doc comment. Every other CardType stays on its existing
    *  interaction model regardless. */
   onActivateEditor: () => void;
-  /** Card.tsx's own header Save button (App.tsx's handleSavePageCard) — unbound
+  /** Card.tsx's own header "X" (App.tsx's handleRequestRemovePageCard) — unbound
    *  (takes the pageCardId), same "note" branch binds it itself, generic
    *  cardTypeUiRegistry path passes it straight through" convention
-   *  onOpenFullscreen/onTurnIntoStack below already use. */
-  onSave: (pageCardId: string) => void;
-  /** Card.tsx's own header button once there's nothing left to save (App.tsx's
-   *  handleOpenCardInVault, takes this Card's own live title) — forwarded to both
-   *  the "note" branch and the generic cardTypeUiRegistry path unchanged, since
-   *  neither needs to bind anything beyond the title itself. */
-  onOpenInVault: (title: string) => void;
+   *  onTurnIntoStack below already uses. */
+  onRemove: (pageCardId: string) => void;
   onChangeDraft: (draft: { title?: string; content?: string }) => void;
   selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
@@ -76,10 +71,6 @@ interface PageCardSlotProps {
   /** Every PageCard on this same Page — removeCard/saveCard's "pick a card on this
    *  page" selector (an inline actionButton's ActionButtonConfigPopover.tsx). */
   pageSiblings: PageCardWithCard[];
-  /** Every Card's top-right "expand" corner button — opens it full-screen (App.tsx's
-   *  focusedPageCardId). Forwarded to both the "note" branch (CardView) and the
-   *  generic cardTypeUiRegistry path (currently only "stack" uses it). */
-  onOpenFullscreen: (pageCardId: string) => void;
   /** The "note" branch's top-right "+" corner button — turns this Card into a Stack
    *  and adds a second alternate in one step (App.tsx's
    *  handleTurnIntoStackWithNewCard). Not part of the generic CardTypeUi props: a
@@ -105,8 +96,7 @@ function PageCardSlot({
   onCloseEditor,
   onRequestEdit,
   onActivateEditor,
-  onSave,
-  onOpenInVault,
+  onRemove,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -121,7 +111,6 @@ function PageCardSlot({
   onRunActionJob,
   generatingPageCardId,
   pageSiblings,
-  onOpenFullscreen,
   onTurnIntoStack,
 }: PageCardSlotProps) {
   // Excluded from normal Page rendering (Apps feature spec §2) — everything else
@@ -145,8 +134,7 @@ function PageCardSlot({
         onSelect={onSelect}
         onCloseEditor={onCloseEditor}
         onActivateEditor={onActivateEditor}
-        onSave={() => onSave(pageCard.id)}
-        onOpenInVault={onOpenInVault}
+        onRemove={() => onRemove(pageCard.id)}
         onChangeDraft={onChangeDraft}
         selectedEmbedIds={selectedEmbedIds}
         onSelectEmbed={onSelectEmbed}
@@ -161,7 +149,6 @@ function PageCardSlot({
         onRunActionJob={onRunActionJob}
         generatingPageCardId={generatingPageCardId}
         pageSiblings={pageSiblings}
-        onOpenFullscreen={() => onOpenFullscreen(pageCard.id)}
         onTurnIntoStack={() => onTurnIntoStack(pageCard.id)}
       />
     );
@@ -172,7 +159,6 @@ function PageCardSlot({
       <ui.Editor
         pageCard={pageCard}
         onChangeDraft={onChangeDraft}
-        onOpenFullscreen={onOpenFullscreen}
         onRunActionJob={onRunActionJob}
         generatingPageCardId={generatingPageCardId}
         pageSiblings={pageSiblings}
@@ -185,12 +171,10 @@ function PageCardSlot({
       selected={selected}
       onSelect={onSelect}
       onRequestEdit={onRequestEdit}
-      onOpenFullscreen={onOpenFullscreen}
       onRunActionJob={onRunActionJob}
       generatingPageCardId={generatingPageCardId}
       pageSiblings={pageSiblings}
-      onSave={onSave}
-      onOpenInVault={onOpenInVault}
+      onRemove={onRemove}
       onTurnIntoStack={onTurnIntoStack}
     />
   );
@@ -240,9 +224,46 @@ function PageTitleHeader({ title, onRename }: { title: string | null; onRename: 
   }
 
   return (
-    <button type="button" className="page-stack__title" onClick={() => setEditing(true)}>
-      {title}
+    <button
+      type="button"
+      className={`page-stack__title${title ? "" : " page-stack__title--empty"}`}
+      onClick={() => setEditing(true)}
+    >
+      {/* A blank title would otherwise render an empty, near-zero-width button —
+          nothing to see or click. Same "Untitled" fallback PageBreadcrumb's own
+          ancestor rows already use, so there's always real, visible, clickable
+          text here. */}
+      {title || t("common.untitled")}
     </button>
+  );
+}
+
+/** "Home › … › parent" — root-first ancestor chain above the current Page's own
+ *  title (Homes + Pages hierarchy, Phase 1). Renders nothing for a Home (empty
+ *  `ancestors`): that absence *is* the "this Page is a Home" signal, so there's no
+ *  separate badge to render for that case. Same visibility gate as
+ *  PageTitleHeader — omitted for the fullscreen single-Card view. */
+function PageBreadcrumb({
+  ancestors,
+  onOpenAncestor,
+}: {
+  ancestors: PageSummary[];
+  onOpenAncestor: (id: string) => void;
+}) {
+  if (ancestors.length === 0) return null;
+  return (
+    <div className="page-stack__breadcrumb">
+      {ancestors.map((ancestor) => (
+        <span key={ancestor.id} className="page-stack__breadcrumb-item">
+          <button type="button" onClick={() => onOpenAncestor(ancestor.id)}>
+            {ancestor.title || t("common.untitled")}
+          </button>
+          <span className="page-stack__breadcrumb-sep" aria-hidden="true">
+            ›
+          </span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -255,6 +276,10 @@ interface PageStackProps {
   /** Omitted (no title header at all) for the fullscreen single-Card view — see
    *  PageTitleHeader's own doc comment. */
   onRenameTitle?: (title: string) => void;
+  /** Root-first ancestor chain above the current Page (Homes + Pages hierarchy,
+   *  Phase 1) — empty for a Home. See PageBreadcrumb's own doc comment. */
+  ancestors: PageSummary[];
+  onOpenAncestor: (id: string) => void;
   /** Which way the last navigation moved (App.tsx's navDirection) — drives the slide
    *  animation below. Null on first load, so there's no animation on initial mount. */
   direction: "up" | "down" | null;
@@ -280,13 +305,8 @@ interface PageStackProps {
   onRequestEditPageCard: (id: string) => void;
   /** See PageCardSlotProps.onActivateEditor above — "note" branch only. */
   onActivatePageCardEditor: (id: string) => void;
-  /** See PageCardSlotProps.onSave above — "note" branch only. */
-  onSavePageCard: (id: string) => void;
-  /** See PageCardSlotProps.onOpenInVault above — "note" branch only. Passed
-   *  straight through unwrapped (unlike the id-keyed callbacks above): Card.tsx
-   *  already knows its own live title, so there's nothing to bind per-PageCard
-   *  here. */
-  onOpenPageCardInVault: (title: string) => void;
+  /** See PageCardSlotProps.onRemove above. */
+  onRemovePageCard: (id: string) => void;
   onChangeDraft: (pageCardId: string, draft: { title?: string; content?: string }) => void;
   selectedEmbedIds: ReadonlySet<string>;
   onSelectEmbed: (cardId: string, onRemove: () => void) => void;
@@ -313,8 +333,7 @@ interface PageStackProps {
     jobParams: Record<string, unknown> | undefined,
   ) => Promise<StepOutput | void>;
   generatingPageCardId: string | null;
-  /** See PageCardSlotProps.onOpenFullscreen/onTurnIntoStack above. */
-  onOpenFullscreen: (pageCardId: string) => void;
+  /** See PageCardSlotProps.onTurnIntoStack above. */
   onTurnIntoStack: (pageCardId: string) => void;
   /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
    *  transit as one batch (Step 6 spec §4.2's "Move" on a multi-selection), or empty
@@ -354,12 +373,14 @@ interface PageStackProps {
     onGenerate: (instruction?: string) => void;
     onAddCard: (content: string) => void;
     onOpenVault: () => void;
+    onCreateChildPage: () => void;
     onUploadFile: (file: File) => void;
     onAddStack: () => void;
     onAddAction: () => void;
     onAddPrompt: () => void;
     onAddPageLinks: () => void;
     onAddSearch: () => void;
+    onAddInput: () => void;
   } | null;
 }
 
@@ -401,6 +422,8 @@ function DropZone({ onClick }: { onClick: () => void }) {
 export function PageStack({
   currentPage,
   onRenameTitle,
+  ancestors,
+  onOpenAncestor,
   direction,
   revealHidden,
   selectedPageCardIds,
@@ -409,8 +432,7 @@ export function PageStack({
   onCloseEditor,
   onRequestEditPageCard,
   onActivatePageCardEditor,
-  onSavePageCard,
-  onOpenPageCardInVault,
+  onRemovePageCard,
   onChangeDraft,
   selectedEmbedIds,
   onSelectEmbed,
@@ -424,7 +446,6 @@ export function PageStack({
   onUpdateAnnotationText,
   onRunActionJob,
   generatingPageCardId,
-  onOpenFullscreen,
   onTurnIntoStack,
   movingPageCardIds,
   onDropAt,
@@ -462,7 +483,10 @@ export function PageStack({
           key={currentPage.id}
           className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
         >
-          {onRenameTitle && <PageTitleHeader title={currentPage.title} onRename={onRenameTitle} />}
+          <div className="page-stack__header">
+            {onRenameTitle && <PageTitleHeader title={currentPage.title} onRename={onRenameTitle} />}
+          </div>
+          {onRenameTitle && <PageBreadcrumb ancestors={ancestors} onOpenAncestor={onOpenAncestor} />}
           {currentPage.pageCards.length === 0 && !anyMoving && (
             <p className="page-stack__page-empty">{t("pageStack.emptyPage")}</p>
           )}
@@ -483,8 +507,7 @@ export function PageStack({
                   onCloseEditor={() => onCloseEditor(pageCard.id)}
                   onRequestEdit={() => onRequestEditPageCard(pageCard.id)}
                   onActivateEditor={() => onActivatePageCardEditor(pageCard.id)}
-                  onSave={onSavePageCard}
-                  onOpenInVault={onOpenPageCardInVault}
+                  onRemove={onRemovePageCard}
                   onChangeDraft={(draft) => onChangeDraft(pageCard.id, draft)}
                   selectedEmbedIds={selectedEmbedIds}
                   onSelectEmbed={onSelectEmbed}
@@ -499,7 +522,6 @@ export function PageStack({
                   onRunActionJob={onRunActionJob}
                   generatingPageCardId={generatingPageCardId}
                   pageSiblings={currentPage.pageCards}
-                  onOpenFullscreen={onOpenFullscreen}
                   onTurnIntoStack={onTurnIntoStack}
                 />
                 {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}
@@ -530,12 +552,14 @@ export function PageStack({
               onGenerate={feedInput.onGenerate}
               onAddCard={feedInput.onAddCard}
               onOpenVault={feedInput.onOpenVault}
+              onCreateChildPage={feedInput.onCreateChildPage}
               onUploadFile={feedInput.onUploadFile}
               onAddStack={feedInput.onAddStack}
               onAddAction={feedInput.onAddAction}
               onAddPrompt={feedInput.onAddPrompt}
               onAddPageLinks={feedInput.onAddPageLinks}
               onAddSearch={feedInput.onAddSearch}
+              onAddInput={feedInput.onAddInput}
             />
           )}
         </div>

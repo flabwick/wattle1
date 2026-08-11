@@ -14,6 +14,7 @@ export function CardFlippableBody({
   showingInfo,
   pageSiblings,
   excludePageCardId,
+  onChangeTitle,
   children,
 }: {
   card: Card;
@@ -25,13 +26,23 @@ export function CardFlippableBody({
   /** This Card's own PageCard id, filtered out of that same selector — a job's own
    *  target is always a specific *other* card, never the action Card itself. */
   excludePageCardId?: string;
+  /** Renders an editable title field on the info face (Card design pass: title
+   *  editing moved off the header) — forwarded straight to CardInfoPanel. Omitted
+   *  entirely by a caller with nothing to write it through (most typed Views
+   *  already rename via their own Editor instead). */
+  onChangeTitle?: (title: string) => void;
   children: ReactNode;
 }) {
   return (
     <div className={`card__flip${showingInfo ? " card__flip--flipped" : ""}`}>
       <div className={`card__face card__face--front${showingInfo ? " card__face--hidden" : ""}`}>{children}</div>
       <div className={`card__face card__face--back${showingInfo ? "" : " card__face--hidden"}`}>
-        <CardInfoPanel card={card} pageSiblings={pageSiblings} excludePageCardId={excludePageCardId} />
+        <CardInfoPanel
+          card={card}
+          pageSiblings={pageSiblings}
+          excludePageCardId={excludePageCardId}
+          onChangeTitle={onChangeTitle}
+        />
       </div>
     </div>
   );

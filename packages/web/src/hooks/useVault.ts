@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Card, PageSummary } from "@wattle/shared";
+import type { Card, Page, PageSummary } from "@wattle/shared";
 import * as api from "../api/client.js";
 import { publishCard, subscribeToSaves } from "../lib/cardStore.js";
 
@@ -13,14 +13,23 @@ import { publishCard, subscribeToSaves } from "../lib/cardStore.js";
 export function useVault() {
   const [cards, setCards] = useState<Card[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
+  /** Every Home (Homes + Pages hierarchy, Phase 2) — Search's own empty-state
+   *  fallback (VaultView.tsx), so a zero-match search still offers somewhere to
+   *  go instead of a dead end. */
+  const [homes, setHomes] = useState<PageSummary[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async (q?: string) => {
     setLoading(true);
-    const [nextCards, nextPages] = await Promise.all([api.listCards(q), api.searchPages(q)]);
+    const [nextCards, nextPages, nextHomes] = await Promise.all([
+      api.listCards(q),
+      api.searchPages(q),
+      api.listHomes(),
+    ]);
     setCards(nextCards);
     setPages(nextPages);
+    setHomes(nextHomes);
     setLoading(false);
     // Every Card this fetch sees is the vault's current source of truth for it —
     // publish each into the shared cardStore so any mounted embed of the same id
@@ -77,15 +86,31 @@ export function useVault() {
     await api.deleteCard(id);
   }, []);
 
+  /** Search's own "Create Home" (Homes + Pages hierarchy, Phase 2) — a Home is just
+   *  a parentless Page (already `createPage`'s own default), so this is the exact
+   *  same `api.createPage` every other Page-creation path already calls, not a new
+   *  endpoint. "Create Home anything" — the caller passes the current search query
+   *  as the title, so the new Home starts named after whatever didn't match. */
+  const createHome = useCallback(
+    async (title?: string): Promise<Page> => {
+      const home = await api.createPage(title);
+      await refresh(query || undefined);
+      return home;
+    },
+    [query, refresh],
+  );
+
   return {
     cards,
     pages,
+    homes,
     query,
     setQuery,
     createCard,
     uploadFile,
     renameCard,
     deleteCard,
+    createHome,
     loading,
     refresh,
   };

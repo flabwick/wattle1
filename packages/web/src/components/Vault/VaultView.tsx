@@ -20,6 +20,13 @@ interface VaultViewProps {
   /** Open-on-hit — a Page result navigates immediately, no separate Dock action
    *  needed the way a Card's does. */
   onOpenPage: (id: string) => void;
+  /** Every Home (Homes + Pages hierarchy, Phase 2) — shown only in the true
+   *  zero-match empty state below, as somewhere to go instead of a dead end. */
+  homes: PageSummary[];
+  /** "Create Home" — the empty state's own escape hatch for when none of the
+   *  existing Homes are what the user meant either. Deliberately only offered
+   *  here, not as a standing button elsewhere — Create Home is meant to be rare. */
+  onCreateHome: () => void;
 
   selectedCardId: string | null;
   /** A plain row click/tap — only ever selects (IDE-file-manager convention), never
@@ -144,6 +151,8 @@ export function VaultView({
   searchResults,
   pageResults,
   onOpenPage,
+  homes,
+  onCreateHome,
   selectedCardId,
   onSelectCard,
   detailCardId,
@@ -211,7 +220,23 @@ export function VaultView({
         ))}
 
         {searchResults.length === 0 && pageResults.length === 0 && (
-          <li className="vault__empty">{t("vault.empty")}</li>
+          <>
+            <li className="vault__empty">{t("vault.empty")}</li>
+            {homes.map((home) => (
+              <li key={home.id} className="vault__item">
+                <button type="button" className="vault__item-open" onClick={() => onOpenPage(home.id)}>
+                  <Icon name="home" className="vault__item-icon" />
+                  <span className="vault__item-title">{home.title || home.preview}</span>
+                </button>
+              </li>
+            ))}
+            <li className="vault__item">
+              <button type="button" className="vault__item-open" onClick={onCreateHome}>
+                <Icon name="plus" className="vault__item-icon" />
+                <span className="vault__item-title">{t("vault.createHome")}</span>
+              </button>
+            </li>
+          </>
         )}
       </ul>
     </div>

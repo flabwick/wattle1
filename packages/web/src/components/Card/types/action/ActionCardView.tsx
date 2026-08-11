@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge, Button, CardShell, Icon } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { editCard } from "../../../../lib/cardStore.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
@@ -26,12 +27,10 @@ export function ActionCardView({
   pageCard,
   selected,
   onSelect,
-  onOpenFullscreen,
   onRunActionJob,
   generatingPageCardId,
   pageSiblings,
-  onSave,
-  onOpenInVault,
+  onRemove,
   onTurnIntoStack,
 }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
@@ -45,7 +44,6 @@ export function ActionCardView({
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const isRunning = running || generatingPageCardId === pageCard.id;
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
   // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
   // only while PageStack.tsx's revealHidden is on (see PageCardSlot), so this class
   // is always the "still hidden" indicator, never a false positive.
@@ -70,22 +68,13 @@ export function ActionCardView({
 
   return (
     <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined}>
-      <div className="card__header">
-        <CardHeaderStart
-          title={t("actionCard.pickerTileLabel")}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed((c) => !c)}
-          selected={selected}
-          onSelect={onSelect}
-        >
+      <div className="card__header" onClick={onSelect}>
+        <CardHeaderStart title={t("actionCard.pickerTileLabel")} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)}>
           {!configured && <Badge>{t("actionCard.job.none")}</Badge>}
         </CardHeaderStart>
         <CardHeaderActions
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSave={() => onSave?.(pageCard.id)}
-          onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
-          onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+          onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
         />
@@ -96,6 +85,7 @@ export function ActionCardView({
           showingInfo={showingInfo}
           pageSiblings={pageSiblings}
           excludePageCardId={pageCard.id}
+          onChangeTitle={(title) => editCard(pageCard.card.id, { title })}
         >
           <Button
             className="action-card__run"

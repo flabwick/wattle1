@@ -43,80 +43,49 @@
   cursor: not-allowed;
 }
 
-/* Card.tsx's own header only (`.card__header` itself is shared by every
-   CardType's own header row — StackBody.tsx, FileView.tsx, etc. — this modifier
-   is additional, opted into only there): sticky within the Card's own bounds (its
-   nearest scrolling ancestor is .app__main, global.css) so a tall Card's header
-   stays reachable the whole time you're scrolled through its content, only
-   scrolling away once the Card's own bottom edge passes the sticky point. Needs
-   its own background (matching whichever of the modifiers below is active) so
-   scrolling content doesn't show through, and enough z-index to sit above both
-   this Card's own content and the next Card's as they scroll underneath. */
-.card__header--pinned {
+/* Sticky within the Card's own bounds (its nearest scrolling ancestor is
+   .app__main, global.css) so a tall Card's header stays reachable the whole time
+   you're scrolled through its content — on touch as much as with a mouse, since
+   `position: sticky` is native scroll behavior, not JS — only scrolling away once
+   the Card's own bottom edge passes the sticky point. Every CardType's own header
+   row (StackBody.tsx, FileView.tsx, etc., not just note) gets this: negative top/
+   side margins escape CardShell.css's own padding (so the header's background can
+   reach the shell's actual edges once stuck, rather than showing a gap around it),
+   then that same amount comes back as this element's own padding to keep the
+   *visual* inset identical to before, whether stuck or not. Its own background +
+   border-bottom read as a distinct strip from the content below (rather than
+   blending into it), with enough z-index to sit above both this Card's own
+   content and the next Card's as they scroll underneath. */
+.card__header {
   position: sticky;
   top: 0;
   z-index: var(--z-raised);
-  background-color: var(--color-surface);
-  /* Negative top/side margins escape CardShell.css's own padding (so the sticky
-     header's background can reach the shell's actual top/left/right edges once
-     stuck, rather than showing a gap around it), then this same amount is re-added
-     as this element's own padding to keep the *visual* inset identical to before
-     when it's just sitting in normal flow, not yet stuck. Overrides the shared
-     .card__header rule's own margin-bottom (same value, just folded into this
-     shorthand alongside the new top/side values). */
-  margin: calc(var(--space-3) * -1) calc(var(--space-4) * -1) var(--space-1);
-  padding: var(--space-3) var(--space-4) 0;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-}
-
-.card-shell--selected .card__header--pinned {
-  background-color: color-mix(in srgb, var(--color-highlight) 20%, var(--color-surface));
-}
-
-.card-shell--hidden .card__header--pinned {
-  background-color: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface));
-}
-
-/* The header's own select button (beside the fold caret) — a small inline
- * checkbox rather than a full-height rail: toggles this Card's membership in the
- * current selection, entirely independent of the always-editable content below. */
-.card__select-btn {
-  flex-shrink: 0;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 24px;
+  margin: calc(var(--space-3) * -1) calc(var(--space-4) * -1) var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background-color: var(--color-surface-raised);
   cursor: pointer;
 }
 
-.card__select-btn:hover .card__select-box {
-  border-color: var(--color-accent);
+.card-shell--selected .card__header {
+  background-color: color-mix(in srgb, var(--color-highlight) 20%, var(--color-surface-raised));
 }
 
-.card__select-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: var(--border-width-bold) solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
+.card-shell--hidden .card__header {
+  background-color: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface-raised));
 }
 
-.card__select-box .icon {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-}
-
-.card__select-btn--selected .card__select-box {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--color-accent-text);
+/* Collapsed (no `.card__flip` sibling — see CardShell.css's own matching
+   `:has()` rule) — nothing follows this header, so its own spacing-before-content
+   margin would otherwise just be a trailing sliver of empty space below it. */
+.card__header:only-child {
+  margin-bottom: 0;
 }
 
 /* The info flip mechanic — both faces (this Card's normal content, and its
@@ -166,14 +135,6 @@
   pointer-events: none;
 }
 
-.card__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
-}
-
 .card__header-start {
   display: flex;
   align-items: center;
@@ -183,27 +144,6 @@
      pushed flush left by the outer .card__header's space-between) but lets the
      title *input* below grow to fill the same row in editing mode. */
   flex: 1;
-}
-
-/* Deliberately not the Button primitive — a small, quiet disclosure triangle, not
-   another bordered/shadowed tactile object competing with the title. Plain reset,
-   muted color, no border/background/shadow. */
-.card__caret-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.card__caret-btn:hover {
-  color: var(--color-text);
 }
 
 /* The fold caret is the "down" chevron, rotated and shrunk well below the standard
@@ -219,12 +159,10 @@
   transform: rotate(-90deg);
 }
 
-/* Every Card's own top-right corner controls (open fullscreen / add card) — same
-   quiet, borderless ghost-button treatment as CardStackRail.css's rail buttons, sized
-   down to --touch-target-sm/--icon-size-sm rather than the app-wide button default
-   since these sit in a header row, not the main action surface. Sits as a sibling of
-   .card__header-start inside .card__header, so that row's own flex layout (the start
-   group has flex: 1) pushes this flush to the right without any extra positioning. */
+/* Every Card's own top-right corner controls (turn into stack / info / remove) —
+   sits as a sibling of .card__header-start inside .card__header, so that row's
+   own flex layout (the start group has flex: 1) pushes this flush to the right
+   without any extra positioning. */
 .card__header-actions {
   display: flex;
   align-items: center;
@@ -235,14 +173,17 @@
 /* Small physical buttons — the same tactile press language the app-wide .button
    default uses (styling.md §7: bold outline, offset shadow, a press that flattens
    the shadow to read as sinking to the surface), just scaled down (thin border,
-   tight shadow offset, a smaller box) so a row of four still reads as buttons you
-   press rather than a bar of plain icons, without eating into the header's own
-   horizontal space the way full-size buttons would. */
+   tight shadow offset, a smaller box) so a row of several still reads as buttons
+   you press rather than a bar of plain icons, without eating into the header's own
+   horizontal space the way full-size buttons would. Covers both the fold caret
+   (.card__header-start) and the +/i/x row (.card__header-actions) — a fold toggle
+   is a button too now, not a bare icon (Card design pass). */
+.card__header-start .button,
 .card__header-actions .button {
   flex-shrink: 0;
   min-height: 26px;
   min-width: 26px;
-  padding: 0;
+  padding: var(--space-1);
   border: var(--border-width-thin) solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
@@ -250,14 +191,17 @@
   color: var(--color-text-muted);
 }
 
+.card__header-start .button.button--icon,
 .card__header-actions .button.button--icon {
   width: 26px;
 }
 
+.card__header-start .button:hover:not(:disabled),
 .card__header-actions .button:hover:not(:disabled) {
   color: var(--color-text);
 }
 
+.card__header-start .button:active:not(:disabled),
 .card__header-actions .button:active:not(:disabled) {
   box-shadow: 0 0 0 var(--color-shadow);
   transform: translate(1px, 1px);
@@ -277,24 +221,6 @@
 .card__header-actions .icon {
   width: var(--icon-size-sm);
   height: var(--icon-size-sm);
-}
-
-/* The header's Save/"open in Vault" button (Card.tsx) — a quiet icon like every
-   other header action (the rule above already strips background/border/
-   box-shadow from every .button here), distinguished only by its own icon shape
-   (bookmark vs. tick), not a loud color treatment; a faint tint on hover/focus is
-   the one hint that this one does something rather than just toggling a view. */
-.card__save-btn:hover:not(:disabled),
-.card__save-btn:focus-visible {
-  color: var(--color-accent);
-}
-
-/* Once saved (the tick state) — same faint-tint convention as above, just its own
-   quiet green rather than the accent color, so "this is saved" and "this needs
-   saving" read as two different colors at a glance without either one shouting. */
-.card__save-btn--saved:hover:not(:disabled),
-.card__save-btn--saved:focus-visible {
-  color: var(--color-accent-secondary);
 }
 
 .card__title {

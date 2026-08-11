@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CardShell, Icon } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { editCard } from "../../../../lib/cardStore.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
@@ -20,40 +21,32 @@ export function LinkView({
   selected,
   onSelect,
   onRequestEdit,
-  onSave,
-  onOpenInVault,
+  onRemove,
   onTurnIntoStack,
-  onOpenFullscreen,
 }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
   const url = canonicalCard.metadata.link?.url ?? "";
   const [showingInfo, setShowingInfo] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
 
   return (
     <CardShell selected={selected} onDoubleClick={onRequestEdit}>
-      <div className="card__header">
-        <CardHeaderStart
-          title={canonicalCard.title}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed((c) => !c)}
-          selected={selected}
-          onSelect={onSelect}
-        />
+      <div className="card__header" onClick={onSelect}>
+        <CardHeaderStart title={canonicalCard.title} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
         <CardHeaderActions
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSave={() => onSave?.(pageCard.id)}
-          onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
-          onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+          onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
         />
       </div>
       {!collapsed && (
-        <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+        <CardFlippableBody
+          card={canonicalCard}
+          showingInfo={showingInfo}
+          onChangeTitle={(title) => editCard(pageCard.card.id, { title })}
+        >
           {url ? (
             <a
               className="linkCard__url"

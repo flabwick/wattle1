@@ -1,4 +1,5 @@
 import type {
+  CardMetadataV1,
   GeneratedCardPart,
   GenerationContextEntry,
   GenerateResponse,
@@ -99,12 +100,34 @@ async function assembleContextForTarget(
   return entries;
 }
 
+/** Plain-text rendering of an "input" Card's current answer for generation context
+ *  — nothing else turns `metadata.input` into readable text (it isn't ordinary
+ *  rich-text `content`, same gap docs/adding-features.md calls out for search/
+ *  pageLinks/prompt/action), so without this a model would just see blank content
+ *  and have no way to react to what the user actually picked. */
+function renderInputContext(input: NonNullable<CardMetadataV1["input"]>): string {
+  const kindLabel = `[Input: ${input.kind}]`;
+  if (input.kind === "checkbox") {
+    return `${kindLabel} ${input.value.includes("true") ? "Checked" : "Unchecked"}`;
+  }
+  if (input.kind === "radio" || input.kind === "dropdown" || input.kind === "multiSelect" || input.kind === "combobox") {
+    const optionsList = input.options.length > 0 ? input.options.map((o) => o.label).join(", ") : "(no options configured)";
+    const selected = input.value.length > 0 ? input.value.join(", ") : "(none)";
+    return `${kindLabel} Options: ${optionsList}. Selected: ${selected}`;
+  }
+  return `${kindLabel} Value: ${input.value[0] ? `"${input.value[0]}"` : "(empty)"}`;
+}
+
 /** What a PageCard contributes to generation context — ordinarily just its own
- *  (draft-aware) title/content, but a "stack"-typed PageCard has none of its own to
- *  give: per the Generation Rule extended to Stacks, only the currently *visible*
- *  member counts as "in view", so this resolves straight through to that member's own
- *  (also draft-aware) title/content instead of the container's permanently-blank
- *  ones. An empty Stack (no members at all) contributes nothing. */
+ *  (draft-aware) title/content, with two special cases:
+ *  - a "stack"-typed PageCard has none of its own to give: per the Generation Rule
+ *    extended to Stacks, only the currently *visible* member counts as "in view",
+ *    so this resolves straight through to that member's own (also draft-aware)
+ *    title/content instead of the container's permanently-blank ones. An empty
+ *    Stack (no members at all) contributes nothing.
+ *  - an "input"-typed PageCard's real answer lives in `metadata.input`, not
+ *    `content` (which is always blank once materializeGeneratedInputCard has run)
+ *    — see renderInputContext above. */
 async function resolveContextContent(pc: {
   cardId: string;
   draftTitle: string | null;
@@ -112,16 +135,20 @@ async function resolveContextContent(pc: {
   card: { title: string; content: string; metadata: string };
 }): Promise<{ title: string; content: string }> {
   const meta = migrateMetadata(JSON.parse(pc.card.metadata));
-  if (meta.typeId !== "stack") {
-    return { title: pc.draftTitle ?? pc.card.title, content: pc.draftContent ?? pc.card.content };
+  const title = pc.draftTitle ?? pc.card.title;
+  if (meta.typeId === "stack") {
+    const stack = await getStackData(pc.cardId);
+    const active = stack.members[stack.activeIndex];
+    if (!active) return { title: "", content: "" };
+    return {
+      title: active.draftTitle ?? active.card.title,
+      content: active.draftContent ?? active.card.content,
+    };
   }
-  const stack = await getStackData(pc.cardId);
-  const active = stack.members[stack.activeIndex];
-  if (!active) return { title: "", content: "" };
-  return {
-    title: active.draftTitle ?? active.card.title,
-    content: active.draftContent ?? active.card.content,
-  };
+  if (meta.typeId === "input" && meta.input) {
+    return { title, content: renderInputContext(meta.input) };
+  }
+  return { title, content: pc.draftContent ?? pc.card.content };
 }
 
 /** Which Page (and, where there's one obvious answer, which Card) a generation target
@@ -256,14 +283,6 @@ async function* streamForTarget(
    *  the instruction. Distinct from the "prompt" CardType's own generation
    *  (streamPromptCardGeneration below), which has its own four-way context mode. */
   standalone?: boolean,
-  /** The runnable-action vocabulary, pre-rendered client-side (@wattle/web's
-   *  lib/actionScriptPrompt.ts) — only meaningful alongside `instruction` (only
-   *  "interactive" mode's own prompt has anywhere to splice it), see
-   *  InteractiveModeInput.actionsDoc's own doc comment. Lets this generation's model
-   *  respond with a self-running "action" card and chain into the next round of the
-   *  "guide the next generation" pipeline (App.tsx's onGenerationAccepted) — see
-   *  prompts/interactive/system.md's "Action cards" section. */
-  actionsDoc?: string,
 ): AsyncGenerator<CardBlockEvent> {
   const context = standalone ? [] : await assembleContextForTarget(target);
   const resolvedInstruction = instruction ? await resolveInstructionEmbeds(instruction) : undefined;
@@ -272,7 +291,7 @@ async function* streamForTarget(
   // prompt mode — it was already built for exactly this "override instruction
   // alongside the normal context" shape (context is just empty in standalone mode).
   const { systemPrompt, userMessage } = resolvedInstruction
-    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction, actionsDoc })
+    ? compilePrompt({ mode: "interactive", context, overridePrompt: resolvedInstruction })
     : compilePrompt({ mode: "generate", context });
   const nearbyAppendix = standalone ? "" : await buildNearbyAppendix(target);
   yield* streamCompiledPrompt(systemPrompt, `${userMessage}${nearbyAppendix}`);
@@ -285,29 +304,20 @@ export function streamGeneration(
   pageCardId: string,
   instruction?: string,
   standalone?: boolean,
-  actionsDoc?: string,
 ): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "card", pageCardId }, instruction, standalone, actionsDoc);
+  return streamForTarget({ type: "card", pageCardId }, instruction, standalone);
 }
 
 /** Page-level generation (nothing selected) — GET /api/generate/stream/page/:pageId. */
-export function streamGenerationForPage(
-  pageId: string,
-  instruction?: string,
-  actionsDoc?: string,
-): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "page", pageId }, instruction, undefined, actionsDoc);
+export function streamGenerationForPage(pageId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "page", pageId }, instruction);
 }
 
 /** A blank Stack alternate's own generation — GET
  *  /api/generate/stream/stack-member/:memberId (StackBody.tsx's Feed Input Button,
  *  shown in place of the alternate's body while it's still blank). */
-export function streamGenerationForStackMember(
-  memberId: string,
-  instruction?: string,
-  actionsDoc?: string,
-): AsyncGenerator<CardBlockEvent> {
-  return streamForTarget({ type: "stackMember", memberId }, instruction, undefined, actionsDoc);
+export function streamGenerationForStackMember(memberId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "stackMember", memberId }, instruction);
 }
 
 /** The "prompt" CardType's own four context modes (cardMetadata.ts's
@@ -374,17 +384,6 @@ export function streamPromptCardGeneration(
     const { systemPrompt, userMessage } = compilePrompt({ mode: "interactive", context, overridePrompt: input });
     yield* streamCompiledPrompt(systemPrompt, userMessage);
   })();
-}
-
-/** The text-selection quick-lookup popup's generation — GET
- *  /api/generate/stream/lookup. Not tied to any Card/PageCard at all: no context is
- *  assembled (confirmed default — a lookup should be fast and self-contained), and
- *  nothing is ever persisted server-side for it — the popup holds the result as local
- *  state until the user explicitly adds it to the Page or Dock (ordinary Card-creation
- *  calls at that point, not a generation-acceptance one). */
-export function streamSelectionLookup(selectedText: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
-  const { systemPrompt, userMessage } = compilePrompt({ mode: "selection", context: [], selectedText, instruction });
-  return streamCompiledPrompt(systemPrompt, userMessage);
 }
 
 function isRegisteredCardType(id: string): boolean {

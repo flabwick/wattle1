@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { Template, Card, GenerateResponse, PageCardWithCard } from "@wattle/shared";
+import type { Template, Card, GenerateResponse, PageCardWithCard, PageSummary } from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { Icon } from "./components/primitives/index.js";
@@ -11,20 +11,19 @@ import { TemplateBrowser } from "./components/Templates/TemplateBrowser.js";
 import * as api from "./api/client.js";
 import { usePage } from "./hooks/usePage.js";
 import { useSiblingPages } from "./hooks/useSiblingPages.js";
+import { usePageAncestors } from "./hooks/usePageAncestors.js";
 import { usePagesNav } from "./hooks/usePagesNav.js";
 import { useVault } from "./hooks/useVault.js";
 import { useDockCards } from "./hooks/useDockCards.js";
-import { useNearby } from "./hooks/useNearby.js";
 import { useGeneration } from "./hooks/useGeneration.js";
+import { useAgentLoop } from "./hooks/useAgentLoop.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
 import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
 import { registerPageNavHandler } from "./lib/pageNavRegistry.js";
 import { getCardTypeId } from "./lib/getCardTypeId.js";
 import { runActionJob, type StepOutput } from "./lib/actionJobs.js";
-import { runActionSteps } from "./lib/actionJobRegistry.js";
-import { materializeGeneratedActionCard } from "./lib/generatedActionCard.js";
-import { buildActionScriptActionsDoc } from "./lib/actionScriptPrompt.js";
+import { materializeGeneratedInputCard } from "./lib/generatedInputCard.js";
 import { t } from "./i18n/index.js";
 
 /** Move Mode never applies inside the fullscreen single-Card view (App.tsx's
@@ -32,13 +31,11 @@ import { t } from "./i18n/index.js";
  *  moving" props there don't churn on every render. */
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 const NOOP_INDEX = (_index: number) => {};
-
-/** The "guide the next generation" auto-run pipeline's own safety valve
- *  (onGenerationAccepted below) — caps how many consecutive AUTORUN action cards the
- *  model can chain through on its own before the app stops continuing automatically,
- *  so a model that keeps generating another self-running action card can't loop
- *  forever. Resets to 0 whenever a human explicitly starts a fresh generation. */
-const AUTO_RUN_ROUND_CAP = 20;
+/** The fullscreen single-Card view has no breadcrumb (no onRenameTitle either — see
+ *  PageBreadcrumb's own doc comment), so <PageStack>'s ancestors prop there is
+ *  always empty — same "stable reference" reasoning as EMPTY_ID_SET above. */
+const EMPTY_PAGE_SUMMARIES: PageSummary[] = [];
+const NOOP_ID = (_id: string) => {};
 
 export function App() {
   /** Every currently-selected top-level Card on the current Page — multiple Cards
@@ -183,6 +180,7 @@ export function App() {
     updateDraftLocally,
   } = usePage(currentPageId);
   const siblings = useSiblingPages(currentPageId);
+  const { ancestors } = usePageAncestors(currentPageId);
   const vault = useVault();
   const dockCards = useDockCards();
 
@@ -215,137 +213,85 @@ export function App() {
   // review step. onGenerationAccepted (below) always starts with `refresh()`
   // re-fetching `pages` so the newly-saved Card shows up — useGeneration.ts awaits
   // the whole handler before clearing its own ghost-card state, so there's no flash
-  // of "nothing there" in between — and then, only for a freshly generated,
-  // self-running ("AUTORUN") "action" Card, drives the rest of the "guide the next
-  // generation" auto-run pipeline (see that function's own doc comment).
+  // of "nothing there" in between.
   const generation = useGeneration(onGenerationAccepted);
+  const agentLoop = useAgentLoop();
   const annotations = useAnnotations();
-  /** True for the whole span of an auto-continuing chain (onGenerationAccepted
-   *  below) — including the brief gap between one round's own generation.isStreaming
-   *  going false and the next round's own stream opening, which generation.isStreaming
-   *  alone doesn't cover — so the Feed Input Button's Stop button (feedInput.generating
-   *  below) stays live the entire time, not just mid-stream. */
-  const [autoRunChaining, setAutoRunChaining] = useState(false);
-  /** How many consecutive AUTORUN rounds this chain has run so far — see
-   *  AUTO_RUN_ROUND_CAP. Reset to 0 whenever a human explicitly starts a fresh
-   *  generation (handleGeneratePage) or the Stop button is pressed. A ref, not state:
-   *  only ever read/written from inside onGenerationAccepted's own async flow, never
-   *  something a render needs to reflect directly. */
-  const autoRunRoundRef = useRef(0);
-  /** Set by the Stop button, checked (and cleared) the next time
-   *  onGenerationAccepted runs — since useGeneration.ts's finalize() still calls
-   *  onAccepted even for a user-stopped stream (whatever generated so far is saved
-   *  as-is), this is what actually prevents a Stop tap mid-chain from being
-   *  mistaken for "keep going". */
-  const autoRunAbortedRef = useRef(false);
-  /** Surfaced through the Dock's own generationError/generationNotice banner
-   *  (App.tsx's <Dock> below) — onGenerationAccepted's own two non-happy-path
-   *  outcomes (a generated action card that didn't parse; the round cap kicking in)
-   *  that useGeneration.ts's own error/notice slots can't carry, since they're
-   *  read-only outputs of that hook, not settable from outside it. */
-  const [autoRunError, setAutoRunError] = useState<string | null>(null);
-  const [autoRunNotice, setAutoRunNotice] = useState<string | null>(null);
+  /** The Feed/Circle "guide the next generation" flow's own in-flight agent run
+   *  (Brilliantly Simple Generation Agent plan) — replaces the old AUTORUN action-card
+   *  chain entirely; a typed instruction now runs useAgentLoop's tool-calling loop
+   *  instead of a self-driving interactive-mode generation. `agentAbortControllerRef`
+   *  is what the Stop button cancels; `agentNotice`/`agentError` surface through the
+   *  same Dock banner slots the old autoRunNotice/autoRunError did. */
+  const [agentRunning, setAgentRunning] = useState(false);
+  const agentAbortControllerRef = useRef<AbortController | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentNotice, setAgentNotice] = useState<string | null>(null);
 
-  /**
-   * The "guide the next generation" auto-run pipeline (App.tsx). Runs once every
-   * accepted generation lands — the ordinary case (nothing to do beyond refresh()) and
-   * the self-driving case are the same code path, distinguished only by what was
-   * actually generated: if the model chose to generate a card of type="action" whose
-   * own content is action-script text starting with `AUTORUN` (see
-   * prompts/interactive/system.md's "Action cards" section), this parses that text
-   * into real steps, runs them immediately via the same dispatcher the Run button
-   * uses (runActionSteps/handleRunActionJob), then triggers another round of
-   * generation with a short summary of what just happened — letting the model react
-   * (create/edit/delete/move a card, annotate, or simply stop) with, per the
-   * product's own framing, "complete freedom" over what happens next. `result` is
-   * undefined for a Stack alternate's own generation (useGeneration.ts's own
-   * onAccepted contract) — nothing here applies to that target.
-   *
-   * The next round's own generation.startForPage call is deliberately deferred via
-   * setTimeout rather than called directly: this whole function runs *inside*
-   * useGeneration.ts's own finalize(), awaited there immediately before its own
-   * `finally { setIsStreaming(false); ... }` runs. Calling startForPage synchronously
-   * here would open the next round's stream (setIsStreaming(true)) only for that
-   * stale `finally` to immediately clobber it back to false the instant this function
-   * returns. Deferring to a fresh macrotask lets that finally settle first.
-   */
   async function onGenerationAccepted(result?: GenerateResponse) {
     await refresh();
+    if (!result) return;
 
-    if (autoRunAbortedRef.current) {
-      autoRunAbortedRef.current = false;
-      setAutoRunChaining(false);
-      return;
+    // "input" Cards are answered by a human, not run — this just materializes the
+    // generated script into real metadata.input. See generatedInputCard.ts's own
+    // doc comment. (A plain, no-instruction generation essentially never produces
+    // one — generate/system.md doesn't teach the format — but a Prompt Card's own
+    // instruction-guided generation still can.)
+    if (getCardTypeId(result.card) === "input") {
+      const inputResult = await materializeGeneratedInputCard(result.card);
+      if (inputResult.errors.length > 0) {
+        setAgentError(`${t("generate.autoRunParseError")} ${inputResult.errors.join("; ")}`);
+      }
     }
-    if (!result || getCardTypeId(result.card) !== "action") {
-      setAutoRunChaining(false);
-      return;
-    }
-
-    const parsed = await materializeGeneratedActionCard(result.card);
-    if (parsed.errors.length > 0) {
-      setAutoRunChaining(false);
-      setAutoRunError(`${t("generate.autoRunParseError")} ${parsed.errors.join("; ")}`);
-      return;
-    }
-    if (!parsed.autoRun) {
-      setAutoRunChaining(false);
-      return;
-    }
-    if (autoRunRoundRef.current >= AUTO_RUN_ROUND_CAP) {
-      setAutoRunChaining(false);
-      setAutoRunNotice(t("generate.autoRunChainCapped"));
-      return;
-    }
-
-    autoRunRoundRef.current += 1;
-    setAutoRunChaining(true);
-    const runResult = await runActionSteps(
-      { ...result.pageCard, card: result.card },
-      parsed.steps,
-      handleRunActionJob,
-    );
-    await refresh();
-
-    if (autoRunAbortedRef.current) {
-      autoRunAbortedRef.current = false;
-      setAutoRunChaining(false);
-      return;
-    }
-
-    const pageId = currentPage?.id;
-    if (!pageId) {
-      setAutoRunChaining(false);
-      return;
-    }
-
-    const label = parsed.label || t("actionCard.defaultLabel");
-    const createdNote = runResult.created.length
-      ? ` Cards created this run, in case a later action card of yours needs to target one (write card:<id> in a cardPicker/vaultCardPicker field — cardPicker wants the pageCardId, vaultCardPicker wants the cardId): ${runResult.created
-          .map((c) => `${c.title ? `"${c.title}"` : "(untitled)"} — pageCardId=${c.pageCardId} cardId=${c.cardId}`)
-          .join("; ")}.`
-      : "";
-    const summary =
-      (runResult.error
-        ? `Your action card "${label}" ran and stopped at step ${runResult.ranCount + 1}: ${runResult.error}. Decide what, if anything, to do next.`
-        : `Your action card "${label}" finished running (${runResult.ranCount} step${runResult.ranCount === 1 ? "" : "s"}). Decide what, if anything, to do next.`) +
-      createdNote;
-
-    setTimeout(() => {
-      generation.startForPage(pageId, summary, buildActionScriptActionsDoc());
-    }, 0);
   }
 
-  /** The Feed Input Button's Stop action — also unconditionally aborts any pending
-   *  auto-run chain (onGenerationAccepted above), not just the in-flight stream:
-   *  without this, a stream stopped mid-chain would still save whatever generated so
-   *  far (useGeneration.ts's own finalize("stopped") behavior) and, if that happened
-   *  to be another AUTORUN action card, keep the chain going right past the tap that
-   *  was supposed to end it. */
+  /**
+   * Feed/Circle's own guide-text flow (Brilliantly Simple Generation Agent plan,
+   * replacing the old AUTORUN action-card chain) — runs useAgentLoop's tool-calling
+   * loop, scoped to the whole current Page, then refreshes so whatever it created/
+   * edited/reordered shows up. Empty Circle (handleGeneratePage below, no
+   * instruction) never reaches this — it stays on the plain, cheap single-card
+   * stream, unchanged.
+   */
+  async function handleRunAgentForPage(instruction: string) {
+    if (!currentPage) return;
+    setAgentError(null);
+    setAgentNotice(null);
+    const controller = new AbortController();
+    agentAbortControllerRef.current = controller;
+    setAgentRunning(true);
+    try {
+      const outcome = await agentLoop.runAgent({
+        scope: "page",
+        instruction,
+        page: currentPage,
+        onRunActionJob: handleRunActionJob,
+        // A round's own tool names as a live "Running X…" status, reusing the
+        // Dock's existing generationNotice banner rather than adding a new UI
+        // element — overwritten by the very next round, and by the final
+        // status below once the run actually ends.
+        onProgress: (event) => {
+          if (event.toolNames.length > 0) setAgentNotice(`${t("generate.agentRunning")} ${event.toolNames.join(", ")}…`);
+        },
+        signal: controller.signal,
+      });
+      await refresh();
+      if (outcome.status === "max_rounds") setAgentNotice(t("generate.autoRunChainCapped"));
+      else if (outcome.status === "paused_for_input") setAgentNotice(t("generate.agentPausedForInput"));
+      else setAgentNotice(null);
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : "Agent run failed");
+    } finally {
+      agentAbortControllerRef.current = null;
+      setAgentRunning(false);
+    }
+  }
+
+  /** The Feed Input Button's Stop action — aborts whichever of the two generation
+   *  paths is actually running (the plain stream, or the agent loop); both are safe
+   *  to call unconditionally when idle. */
   function handleStopGeneration() {
-    autoRunAbortedRef.current = true;
-    autoRunRoundRef.current = 0;
-    setAutoRunChaining(false);
+    agentAbortControllerRef.current?.abort();
     generation.stop();
   }
 
@@ -905,22 +851,6 @@ export function App() {
   // same as when none are.
   const singleSelectedCard = selectedPageCards.length === 1 ? selectedPageCards[0] : null;
 
-  // Nearby's live rank (Wattle vault plan) — re-scored against the current Page's
-  // open Cards plus whatever's actually being typed right now, if anything is being
-  // edited. Only fetches while the Nearby panel is actually open (useNearby.ts).
-  const nearbyFocusedCard = editingPageCard ?? singleSelectedCard;
-  const nearbyDraftText = editingPageCard
-    ? `${editingPageCard.draftTitle ?? editingPageCard.card.title}\n${
-        editingPageCard.draftContent ?? editingPageCard.card.content
-      }`
-    : "";
-  const nearby = useNearby(currentPage?.id ?? null, nearbyFocusedCard?.card.id ?? null, nearbyDraftText, openPanel === "nearby");
-
-  async function handleOpenNearbyCard(cardId: string) {
-    if (!currentPage) return;
-    await openCardIntoPage(currentPage.id, cardId);
-  }
-
   // Which Card a Dock process action would run against — a single selected embed
   // takes priority, same convention as selectedEmbedId elsewhere (Dock.tsx/richtext/
   // CardRichText.tsx). Null when nothing's selected (or more than one Card/embed is).
@@ -1000,84 +930,21 @@ export function App() {
   // this generation instead of relying purely on existing context (Step 6 spec §2.2).
   function handleGeneratePage(instruction?: string) {
     if (!currentPage) return;
-    // A human explicitly starting a fresh generation always resets any auto-run
-    // chain state left over from a previous one — see onGenerationAccepted/
-    // handleStopGeneration above.
-    autoRunAbortedRef.current = false;
-    autoRunRoundRef.current = 0;
-    setAutoRunChaining(false);
-    setAutoRunError(null);
-    setAutoRunNotice(null);
-    generation.startForPage(currentPage.id, instruction, buildActionScriptActionsDoc());
-  }
-
-  /** The Dock's magic button when a single plain (non-Stack) Card is selected
-   *  (Dock.tsx's rewriteBoxOpen flow) — no longer inserts a new sibling Card the way
-   *  every other generation in the app does. Instead this redoes the Card's own
-   *  content in place: an instructed "diff" annotation run (annotationService.ts's
-   *  broader system-instructed.md prompt, threaded through as `instruction`) whose
-   *  proposed edits land as ordinary pending diffs, reviewed via the same
-   *  accept/accept-all UI every other diff run already uses — never a freestanding
-   *  new Card. A blank instruction (the box left empty) falls back to "diff"'s
-   *  original narrow proofread-only behavior. A selected Stack keeps its own
-   *  separate "append a new alternate" generation (Dock.tsx's isStackSelected),
-   *  untouched by this. */
-  function handleRewriteSelected(instruction: string) {
-    if (!singleSelectedCard) return;
-    handleRunProcess(
-      singleSelectedCard.card.id,
-      "diff",
-      undefined,
-      singleSelectedCard.id,
-      instruction.trim() || undefined,
-    );
+    if (!instruction || !instruction.trim()) {
+      // Empty Circle — unchanged, today's cheap single-card stream (no agent, no
+      // instruction/actionsDoc vocabulary).
+      generation.startForPage(currentPage.id);
+      return;
+    }
+    // Guide text present — runs the tool-calling agent instead of the old
+    // interactive-mode/AUTORUN generation (Brilliantly Simple Generation Agent plan).
+    void handleRunAgentForPage(instruction);
   }
 
   async function handleFreezeSelected() {
     if (!singleSelectedCard) return;
     await api.freezeCard(singleSelectedCard.card.id);
     await refresh();
-  }
-
-  /** Saves every selected Card that has something pending to the vault — a no-op for
-   *  any that don't (Step 6 spec §4.2's batched Save). No title required — a Card can
-   *  have no title by default (see cardService.createCard's own doc comment). */
-  async function handleSaveSelected() {
-    const toSave = selectedPageCards.filter(
-      (pc) => pc.draftTitle !== null || pc.draftContent !== null || !pc.card.savedToVault,
-    );
-    if (toSave.length === 0) return;
-    await Promise.all(toSave.map((pc) => api.savePageCardToVault(pc.id)));
-    // Same reasoning as the old single-Card handleSave: a plain REST call per Card,
-    // not routed through cardStore, so notifySaved tells the Vault panel about each
-    // one directly rather than relying on subscribeToSaves to fire on its own.
-    for (const pc of toSave) notifySaved(pc.card.id);
-    await refresh();
-  }
-
-  /** Card.tsx's own header Save button — same save-a-not-yet-vaulted-draft flow as
-   *  handleSaveSelected above, just for one specific PageCard regardless of whether
-   *  it's currently selected — a note's header always shows this while it has
-   *  something pending, independent of the Dock's own batch Save (still reachable
-   *  for a selection of several Cards at once via the Dock, unaffected by this). */
-  async function handleSavePageCard(pageCardId: string) {
-    const pc = currentPage?.pageCards.find((p) => p.id === pageCardId);
-    if (!pc) return;
-    await api.savePageCardToVault(pageCardId);
-    notifySaved(pc.card.id);
-    await refresh();
-  }
-
-  /** Card.tsx's header button once there's nothing left to save (the tick state) —
-   *  opens the Vault panel and searches for this Card by its own title
-   *  (cardService.listCards' title/content substring match), the closest thing to
-   *  "jump straight to this Card" the Vault has today, since it's a flat search or
-   *  a folder browse rather than anything keyed by id. Good enough for a title
-   *  that's actually somewhat distinctive; a very generic or duplicate title may
-   *  surface more than just this one Card among the results. */
-  function handleOpenCardInVault(title: string) {
-    setOpenPanel("vault");
-    vault.setQuery(title);
   }
 
   /** The Dock's "Hide"/"Show" action (selectedCards row, Dock.tsx) — flips
@@ -1338,6 +1205,38 @@ export function App() {
     });
   }
 
+  /** The Feed Input Button's type-picker "Input" option — see
+   *  handleAddActionToCurrentPage above for the same reasoning. */
+  async function handleAddInputToCurrentPage() {
+    if (!currentPage) return;
+    await createCardInPage(currentPage.id, "", "", {
+      version: 1,
+      typeId: "input",
+      input: { kind: "text", options: [], value: [] },
+    });
+  }
+
+  /** The Feed Input Button's "New Page" tile (Homes + Pages hierarchy, Phase 2) —
+   *  "create from a page", the everyday way to grow: a new child Page under the
+   *  current one, a link back to it left on the current Page, then straight there
+   *  ("prefer open child" per the locked decisions). Not a CardType — no Card is
+   *  created on *this* Page, so this doesn't go through createCardInPage the way
+   *  every onAddX handler above does. */
+  async function handleCreateChildPage() {
+    if (!currentPageId) return;
+    const child = await api.createChildPage(currentPageId);
+    navigateToPage(child.id);
+  }
+
+  /** Search's own "Create Home" (Homes + Pages hierarchy, Phase 2) — deliberately
+   *  only reachable from the Vault panel's own zero-match empty state
+   *  (VaultView.tsx), not a standing button, per the plan's own "keep Create Home
+   *  rare" risk note. "Create Home anything" — titled from whatever was searched. */
+  async function handleCreateHome() {
+    const home = await vault.createHome(vault.query || undefined);
+    navigateToPage(home.id);
+  }
+
   /** "Opening" a Template — instantiates a fresh copy server-side, then navigates
    *  straight to it. Reused by both an "action" Card's "openTemplate" job
    *  (handleRunActionJob below) and the Template browser's own Open button. Neither
@@ -1357,8 +1256,13 @@ export function App() {
     jobParams: Record<string, unknown> | undefined,
   ): Promise<StepOutput | void> {
     return await runActionJob(pageCard, jobId, jobParams, {
-      onCreateCard: async (pc, title, content, pageId) => {
-        const created = await createCardInPage(pageId ?? pc.pageId, title, content);
+      onCreateCard: async (pc, title, content, pageId, typeId) => {
+        const created = await createCardInPage(
+          pageId ?? pc.pageId,
+          title,
+          content,
+          typeId ? { version: 1, typeId } : undefined,
+        );
         return { cardId: created.card.id, pageCardId: created.id };
       },
       onOpenTemplate: async (templateId) => {
@@ -1369,12 +1273,15 @@ export function App() {
       // uses (generationService.ts's GenerationTarget), just triggered by this
       // button instead of the Dock's Generate action. Auto-saves on completion,
       // same as every other generation in the app today (useGeneration.ts).
-      // generation.start itself only kicks the SSE stream off (not awaitable to
-      // completion) — a multi-step action's own run loop moves on to its next step
-      // immediately rather than waiting for the generation to finish, same as this
-      // job's existing single-job behavior always has.
+      // Awaitable (useGeneration.ts's startAndWait, Brilliantly Simple Generation
+      // Agent plan) — a multi-step action's own run loop now waits for the
+      // generation to actually land before moving on to whatever's next, rather
+      // than firing the stream and immediately continuing as this job's original
+      // behavior always did. No actionsDoc any more — interactive mode no longer
+      // teaches a self-running action-card vocabulary (see interactive/system.md);
+      // real mutation goes through the agent (handleRunAgentForPage) instead.
       onPromptCard: async (pc, instructions, contextMode) => {
-        generation.start(pc.id, instructions, contextMode === "own", buildActionScriptActionsDoc());
+        return await generation.startAndWait(pc.id, instructions, contextMode === "own");
       },
       onNewBlankPage: async () => {
         await handleCreateNewPage();
@@ -1449,17 +1356,13 @@ export function App() {
     setEditingTemplateName(null);
   }
 
-  /** Removes one Card from the Page — the per-Card unit handleRemoveSelected below
-   *  loops over for the Dock's own bulk "remove selected" action (there's no longer
-   *  a per-Card "X" button; removal now only ever happens for the whole selection
-   *  at once, see Card.tsx's headerActions doc comment). Same two rules the old
-   *  per-Card button had: a Stack Card closes as a whole (stackService.closeStack,
-   *  promoting any unsaved member to the vault first) since "remove" doesn't mean
-   *  anything at the per-alternate level; anything else just detaches from the
-   *  Page, vault Card untouched (pageCardService.removeFromPage). Deliberately
-   *  doesn't touch selection state itself — handleRemoveSelected below deselects
-   *  once, after every removal in the batch has gone through, rather than each
-   *  call here doing it mid-loop. */
+  /** Removes one Card from the Page — each CardType's own header "X"
+   *  (Card design pass: CardHeaderActions' onRemove, threaded through PageStack's
+   *  onRemovePageCard) calls this directly; there's no separate Dock bulk-remove
+   *  any more. A Stack Card closes as a whole (stackService.closeStack, promoting
+   *  any unsaved member to the vault first) since "remove" doesn't mean anything
+   *  at the per-alternate level; anything else just detaches from the Page, vault
+   *  Card untouched (pageCardService.removeFromPage). */
   async function handleRequestRemovePageCard(pageCardId: string) {
     const pageCard = currentPage?.pageCards.find((pc) => pc.id === pageCardId);
     if (!pageCard) return;
@@ -1470,19 +1373,6 @@ export function App() {
       await api.removePageCardFromPage(pageCardId);
     }
     await refresh();
-  }
-
-  /** The Dock's bulk "Remove" action (selectedCards row) — removes every currently
-   *  selected Card from the Page in one go, then clears the selection (there's
-   *  nothing left on the Page for it to point at). Sequential, not Promise.all: each
-   *  call's own refresh() re-fetches `pages`, so a later iteration's
-   *  currentPage.pageCards lookup (handleRequestRemovePageCard) sees the previous
-   *  removal already reflected rather than racing against a stale snapshot. */
-  async function handleRemoveSelected() {
-    for (const id of [...selectedPageCardIds]) {
-      await handleRequestRemovePageCard(id);
-    }
-    deselectAll();
   }
 
   /** The Dock's merged page-nav "+" control, repurposed while moving (see the
@@ -1534,6 +1424,8 @@ export function App() {
       <div className="fullscreen-card__body">
         <PageStack
           currentPage={focusedPage}
+          ancestors={EMPTY_PAGE_SUMMARIES}
+          onOpenAncestor={NOOP_ID}
           direction={null}
           revealHidden={revealHidden}
           selectedPageCardIds={selectedPageCardIds}
@@ -1542,8 +1434,7 @@ export function App() {
           onCloseEditor={exitEditPageCard}
           onRequestEditPageCard={requestEditPageCard}
           onActivatePageCardEditor={activatePageCardEditor}
-          onSavePageCard={handleSavePageCard}
-          onOpenPageCardInVault={handleOpenCardInVault}
+          onRemovePageCard={handleRequestRemovePageCard}
           onChangeDraft={handleChangeDraft}
           selectedEmbedIds={selectedEmbedIdSet}
           onSelectEmbed={selectEmbed}
@@ -1559,7 +1450,6 @@ export function App() {
           generatingPageCardId={
             generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
           }
-          onOpenFullscreen={setFocusedPageCardId}
           onTurnIntoStack={handleTurnIntoStackWithNewCard}
           movingPageCardIds={EMPTY_ID_SET}
           onDropAt={NOOP_INDEX}
@@ -1583,6 +1473,8 @@ export function App() {
           <PageStack
             currentPage={currentPage}
             onRenameTitle={handleRenamePage}
+            ancestors={ancestors}
+            onOpenAncestor={navigateToPage}
             direction={navDirection}
             revealHidden={revealHidden}
             selectedPageCardIds={selectedPageCardIds}
@@ -1591,8 +1483,7 @@ export function App() {
             onCloseEditor={exitEditPageCard}
             onRequestEditPageCard={requestEditPageCard}
             onActivatePageCardEditor={activatePageCardEditor}
-            onSavePageCard={handleSavePageCard}
-            onOpenPageCardInVault={handleOpenCardInVault}
+            onRemovePageCard={handleRequestRemovePageCard}
             onChangeDraft={handleChangeDraft}
             selectedEmbedIds={selectedEmbedIdSet}
             onSelectEmbed={selectEmbed}
@@ -1608,7 +1499,6 @@ export function App() {
             generatingPageCardId={
               generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
             }
-            onOpenFullscreen={setFocusedPageCardId}
             onTurnIntoStack={handleTurnIntoStackWithNewCard}
             movingPageCardIds={movingPageCardIds}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
@@ -1629,17 +1519,19 @@ export function App() {
             feedInput={
               currentPage
                 ? {
-                    generating: generation.isStreaming || autoRunChaining,
+                    generating: generation.isStreaming || agentRunning,
                     onStopGeneration: handleStopGeneration,
                     onGenerate: handleGeneratePage,
                     onAddCard: handleAddCardToCurrentPage,
                     onOpenVault: () => setOpenPanel("vault"),
+                    onCreateChildPage: handleCreateChildPage,
                     onUploadFile: handleUploadFileToCurrentPage,
                     onAddStack: handleAddStackToCurrentPage,
                     onAddAction: handleAddActionToCurrentPage,
                     onAddPrompt: handleAddPromptToCurrentPage,
                     onAddPageLinks: handleAddPageLinksToCurrentPage,
                     onAddSearch: handleAddSearchToCurrentPage,
+                    onAddInput: handleAddInputToCurrentPage,
                   }
                 : null
             }
@@ -1650,42 +1542,28 @@ export function App() {
 
       <Dock
         selectedCards={selectedPageCards}
+        currentPage={currentPage}
+        onRunActionJob={handleRunActionJob}
         selectedEmbedIds={selectedEmbedIdSet}
         selectedEmbedId={selectedPageCards.length === 0 ? singleSelectedEmbed?.cardId ?? null : null}
         isEditingActive={isEditingActive}
         onExitEditing={exitEditing}
         onRemoveEmbed={handleRemoveEmbed}
         onDeleteEmbed={handleDeleteEmbed}
-        generationError={generation.error ?? autoRunError}
+        generationError={generation.error ?? agentError}
         onDismissGenerationError={() => {
           generation.dismissError();
-          setAutoRunError(null);
+          setAgentError(null);
         }}
-        generationNotice={generation.notice ?? autoRunNotice}
+        generationNotice={generation.notice ?? agentNotice}
         onDismissGenerationNotice={() => {
           generation.dismissNotice();
-          setAutoRunNotice(null);
+          setAgentNotice(null);
         }}
         annotationError={annotations.error}
         onDismissAnnotationError={annotations.dismissError}
         onFreezeSelected={handleFreezeSelected}
-        onSaveSelected={handleSaveSelected}
-        onRemoveSelected={handleRemoveSelected}
         onToggleHiddenSelected={handleToggleHiddenSelected}
-        onRewriteSelected={handleRewriteSelected}
-        onRunProcess={
-          dockAnnotationCardId
-            ? (process) => {
-                console.debug("[annot] Dock onRunProcess fired", {
-                  process,
-                  dockAnnotationCardId,
-                  dockAnnotationPageCardId,
-                });
-                handleRunProcess(dockAnnotationCardId, process, undefined, dockAnnotationPageCardId);
-              }
-            : null
-        }
-        processRunning={annotations.running}
         pendingDiffCount={pendingDiffCount}
         onAcceptAllDiffs={
           dockAnnotationCardId
@@ -1698,7 +1576,6 @@ export function App() {
               }
             : null
         }
-        onDeselectAll={deselectAll}
         onMoveToDock={handleMoveToDock}
         moving={movingPageCardIds.size > 0}
         onEnterMoveMode={handleEnterMoveMode}
@@ -1713,9 +1590,6 @@ export function App() {
         openPanel={openPanel}
         onOpenPanel={setOpenPanel}
         onClosePanel={() => setOpenPanel(null)}
-        nearbyItems={nearby.items}
-        nearbyLoading={nearby.loading}
-        onOpenNearbyCard={handleOpenNearbyCard}
         revealHidden={revealHidden}
         onToggleRevealHidden={() => setRevealHidden((r) => !r)}
         vaultSearchResults={vault.cards}
@@ -1767,6 +1641,8 @@ export function App() {
         onOpenPage={(id) => navigateToPage(id)}
         vaultPageResults={vault.pages}
         onOpenPageFromSearch={(id) => navigateToPage(id)}
+        vaultHomes={vault.homes}
+        onCreateHome={handleCreateHome}
         onSaveAsTemplateFromPage={handleSaveAsTemplateFromPage}
         editingTemplateName={editingTemplateName}
         onStopEditingTemplate={handleStopEditingTemplate}

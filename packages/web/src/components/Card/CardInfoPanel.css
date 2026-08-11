@@ -137,6 +137,11 @@
   font-size: var(--font-size-sm);
 }
 
+.card-info__title-input {
+  width: 100%;
+  font-weight: var(--font-weight-bold);
+}
+
 .card-info__properties {
   display: flex;
   flex-direction: column;

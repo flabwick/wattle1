@@ -29,6 +29,14 @@ export type GenerationTarget =
   | { type: "page"; pageId: string }
   | { type: "stackMember"; memberId: string };
 
+/** What a stream ultimately produced, for `startAndWait`'s own Promise — `openStream`'s
+ *  ordinary callers (`start`/`startForPage`/`startForStackMember`) don't pass this at
+ *  all (fire-and-forget, unchanged), so nothing about this affects them. `cardId`/
+ *  `pageCardId` are only ever set for a "card" target (a `GenerateResponse` has both);
+ *  a "page"/"stackMember" target, or a stream that ended with nothing generated at
+ *  all, settles `ok: true` with neither. */
+type StreamOutcome = { ok: true; cardId?: string; pageCardId?: string } | { ok: false; error: string };
+
 interface CardBlockStreamEvent {
   type: "open" | "text" | "close" | "done" | "error";
   id?: number;
@@ -71,25 +79,39 @@ export interface UseGenerationResult {
    *  generation. Builds up the ghost card tree in local state as it streams in, and
    *  saves it automatically the moment the stream ends cleanly. `instruction`, if
    *  given, is the Feed Input Button's typed guide text (Step 6 spec §2.2) or a
-   *  Prompt Card's configured instructions (lib/actionJobs.ts). `standalone`, only
-   *  ever set by a Prompt Card's "on its own" mode, skips the Generation Rule
-   *  context entirely. `actionsDoc`, whenever `instruction` is also given, is the
-   *  runnable-action vocabulary (lib/actionScriptPrompt.ts's
-   *  buildActionScriptActionsDoc) — lets this "interactive"-mode turn's model
-   *  respond with a self-running "action" card (see App.tsx's onGenerationAccepted,
-   *  the "guide the next generation" auto-run pipeline). */
-  start: (pageCardId: string, instruction?: string, standalone?: boolean, actionsDoc?: string) => void;
+   *  Prompt Card's configured instructions (lib/actionJobs.ts) — Feed/Circle's own
+   *  guide-text case now runs the tool-calling agent instead (App.tsx's
+   *  handleRunAgentForPage), so in practice only a Prompt Card still reaches here
+   *  with a non-empty `instruction`. `standalone`, only ever set by a Prompt Card's
+   *  "on its own" mode, skips the Generation Rule context entirely. */
+  start: (pageCardId: string, instruction?: string, standalone?: boolean) => void;
   /** Same as `start`, but for the "nothing selected" case — generates at the bottom
    *  of a Page instead of directly below a specific Card. */
-  startForPage: (pageId: string, instruction?: string, actionsDoc?: string) => void;
+  startForPage: (pageId: string, instruction?: string) => void;
   /** Same as `start`, but for a blank Stack alternate (StackBody.tsx) — fills that
    *  alternate's own content in place instead of inserting a sibling PageCard. */
-  startForStackMember: (memberId: string, instruction?: string, actionsDoc?: string) => void;
+  startForStackMember: (memberId: string, instruction?: string) => void;
   /** Ends the stream early and immediately saves whatever's been generated so far as
    *  the real Card — the same save path a clean completion uses, just triggered by
    *  the user instead of the model finishing on its own. If nothing has streamed in
    *  yet (no root card opened), this just cancels — there's nothing to save. */
   stop: () => void;
+  /** Same as `start`, but awaitable — resolves once the stream ends *and* the result
+   *  is saved (or rejects if the stream/save failed), instead of firing the SSE
+   *  request and returning immediately. Used by the `promptCard` action job (agent
+   *  tool-calling, Brilliantly Simple Generation Agent plan) so a caller — a
+   *  multi-step Run, or the agent loop's own generateCard tool — can wait for a
+   *  generation to actually land before moving on to whatever's next, rather than
+   *  the fire-and-forget behavior `start` still has for its own direct callers
+   *  (e.g. a plain Prompt Card tap with nothing downstream needs to wait on it).
+   *  Resolves `undefined` if the stream ended with nothing generated at all (no root
+   *  card ever opened) — same "nothing to save" case `stop()`'s own doc comment
+   *  above describes, just surfaced to the awaiter instead of silently no-oping. */
+  startAndWait: (
+    pageCardId: string,
+    instruction?: string,
+    standalone?: boolean,
+  ) => Promise<{ cardId: string; pageCardId: string } | undefined>;
 }
 
 /** Converts a ghost node's parts into the structured payload persistGeneratedCard(ToPage)
@@ -157,7 +179,7 @@ export function useGeneration(
   const dismissNotice = useCallback(() => setNotice(null), []);
 
   const openStream = useCallback(
-    (streamTarget: GenerationTarget, url: string) => {
+    (streamTarget: GenerationTarget, url: string, onSettled?: (outcome: StreamOutcome) => void) => {
       sourceRef.current?.close();
       reset();
       setError(null);
@@ -194,6 +216,7 @@ export function useGeneration(
           console.debug(`[gen] finalize(${reason}): nothing generated yet, nothing to save`);
           setIsStreaming(false);
           reset();
+          onSettled?.({ ok: true });
           return;
         }
 
@@ -211,9 +234,16 @@ export function useGeneration(
           if (reason === "truncated") setNotice(t("generate.truncatedNotice"));
           else if (reason === "stopped") setNotice(t("generate.stoppedNotice"));
           await onAccepted?.(streamTarget.type === "stackMember" ? undefined : (saved as GenerateResponse));
+          onSettled?.(
+            streamTarget.type === "card"
+              ? { ok: true, cardId: (saved as GenerateResponse).card.id, pageCardId: (saved as GenerateResponse).pageCard.id }
+              : { ok: true },
+          );
         } catch (err) {
           console.debug(`[gen] finalize(${reason}) FAILED to save:`, err);
-          setError(err instanceof Error ? err.message : "Failed to save the generated card");
+          const message = err instanceof Error ? err.message : "Failed to save the generated card";
+          setError(message);
+          onSettled?.({ ok: false, error: message });
         } finally {
           setIsStreaming(false);
           reset();
@@ -298,6 +328,7 @@ export function useGeneration(
             source.close();
             setIsStreaming(false);
             setError(event.message ?? "Generation failed");
+            onSettled?.({ ok: false, error: event.message ?? "Generation failed" });
             break;
         }
       };
@@ -307,28 +338,52 @@ export function useGeneration(
         source.close();
         setIsStreaming(false);
         setError((prev) => prev ?? "Streaming connection failed");
+        onSettled?.({ ok: false, error: "Streaming connection failed" });
       };
     },
     [reset, onAccepted],
   );
 
   const start = useCallback(
-    (pageCardId: string, instruction?: string, standalone?: boolean, actionsDoc?: string) => {
+    (pageCardId: string, instruction?: string, standalone?: boolean) => {
       const params = new URLSearchParams();
       if (instruction) params.set("instruction", instruction);
       if (standalone) params.set("standalone", "1");
-      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
       const query = params.toString();
       openStream({ type: "card", pageCardId }, `/api/generate/stream/${pageCardId}${query ? `?${query}` : ""}`);
     },
     [openStream],
   );
 
-  const startForPage = useCallback(
-    (pageId: string, instruction?: string, actionsDoc?: string) => {
+  const startAndWait = useCallback(
+    (pageCardId: string, instruction?: string, standalone?: boolean) => {
       const params = new URLSearchParams();
       if (instruction) params.set("instruction", instruction);
-      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
+      if (standalone) params.set("standalone", "1");
+      const query = params.toString();
+      return new Promise<{ cardId: string; pageCardId: string } | undefined>((resolve, reject) => {
+        openStream(
+          { type: "card", pageCardId },
+          `/api/generate/stream/${pageCardId}${query ? `?${query}` : ""}`,
+          (outcome) => {
+            if (!outcome.ok) {
+              reject(new Error(outcome.error));
+            } else if (outcome.cardId && outcome.pageCardId) {
+              resolve({ cardId: outcome.cardId, pageCardId: outcome.pageCardId });
+            } else {
+              resolve(undefined);
+            }
+          },
+        );
+      });
+    },
+    [openStream],
+  );
+
+  const startForPage = useCallback(
+    (pageId: string, instruction?: string) => {
+      const params = new URLSearchParams();
+      if (instruction) params.set("instruction", instruction);
       const query = params.toString();
       openStream({ type: "page", pageId }, `/api/generate/stream/page/${pageId}${query ? `?${query}` : ""}`);
     },
@@ -338,10 +393,9 @@ export function useGeneration(
   /** A blank Stack alternate's own Feed Input Button (StackBody.tsx) — fills that
    *  alternate's content in place rather than inserting a sibling PageCard. */
   const startForStackMember = useCallback(
-    (memberId: string, instruction?: string, actionsDoc?: string) => {
+    (memberId: string, instruction?: string) => {
       const params = new URLSearchParams();
       if (instruction) params.set("instruction", instruction);
-      if (instruction && actionsDoc) params.set("actionsDoc", actionsDoc);
       const query = params.toString();
       openStream(
         { type: "stackMember", memberId },
@@ -365,6 +419,7 @@ export function useGeneration(
     rootId,
     target,
     start,
+    startAndWait,
     startForPage,
     startForStackMember,
     stop,

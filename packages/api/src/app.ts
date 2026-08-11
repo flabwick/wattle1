@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from "express";
 import "express-async-errors";
 import { ZodError } from "zod";
 import { actionScriptsRouter } from "./routes/actionScripts.js";
+import { agentRouter } from "./routes/agent.js";
 import { annotationsRouter } from "./routes/annotations.js";
 import { templatesRouter } from "./routes/templates.js";
 import { cardsRouter } from "./routes/cards.js";
@@ -37,6 +38,7 @@ export function createApp() {
   app.use("/api/stacks", stacksRouter);
   app.use("/api/dock-cards", dockCardsRouter);
   app.use("/api/generate", generateRouter);
+  app.use("/api/agent", agentRouter);
   app.use("/api/nearby", nearbyRouter);
   app.use("/api/annotations", annotationsRouter);
   app.use("/api/rich-text-images", richTextImagesRouter);

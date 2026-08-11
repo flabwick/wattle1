@@ -52,16 +52,6 @@ function standaloneParam(req: { query: Record<string, unknown> }): boolean {
   return req.query.standalone === "1";
 }
 
-/** The runnable-action vocabulary (lib/actionScriptPrompt.ts's buildActionScriptActionsDoc,
- *  built client-side) — same query-param convention as instructionParam above, for the
- *  same EventSource-can't-carry-a-body reason. Always sent alongside `instruction` by
- *  the client now (App.tsx) so any "guide the next generation" turn can respond with a
- *  self-running "action" card — see generationService.ts's streamForTarget. */
-function actionsDocParam(req: { query: Record<string, unknown> }): string | undefined {
-  const raw = req.query.actionsDoc;
-  return typeof raw === "string" && raw.trim() ? raw : undefined;
-}
-
 /** The "prompt" CardType's context-mode selector (cardMetadata.ts's `prompt.context`)
  *  — same query-param convention as the above, defaulting to "none" if missing/invalid
  *  rather than throwing, since a stale/malformed value shouldn't break generation. */
@@ -77,22 +67,6 @@ function contextCardIdsParam(req: { query: Record<string, unknown> }): string[] 
   return typeof raw === "string" && raw.trim() ? raw.split(",").filter(Boolean) : [];
 }
 
-// GET /api/generate/stream/lookup?text=&instruction= — the text-selection quick-lookup
-// popup (QuickLookupMenu.tsx). Not tied to any Card/PageCard: no context is assembled,
-// and nothing is persisted here either — the popup holds the result as local state
-// until the user explicitly adds it to the Page or Dock. Registered *before*
-// /stream/:pageCardId below — both are single-path-segment routes, and Express
-// matches registration order, so a literal "/stream/lookup" would otherwise be
-// swallowed by that wildcard param route (pageCardId="lookup") and never reach this
-// one.
-generateRouter.get("/stream/lookup", async (req, res) => {
-  const text = typeof req.query.text === "string" ? req.query.text : "";
-  const instruction = typeof req.query.instruction === "string" && req.query.instruction.trim()
-    ? req.query.instruction
-    : undefined;
-  await pipeGenerationEvents(res, generationService.streamSelectionLookup(text, instruction));
-});
-
 // GET /api/generate/stream/:pageCardId — the sole model invocation for a generation
 // triggered from a selected Card (there is no separate preview call and persist call
 // any more). Read-only: it does not create a PageCard or persist anything — the
@@ -101,12 +75,7 @@ generateRouter.get("/stream/lookup", async (req, res) => {
 generateRouter.get("/stream/:pageCardId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGeneration(
-      req.params.pageCardId,
-      instructionParam(req),
-      standaloneParam(req),
-      actionsDocParam(req),
-    ),
+    generationService.streamGeneration(req.params.pageCardId, instructionParam(req), standaloneParam(req)),
   );
 });
 
@@ -114,10 +83,7 @@ generateRouter.get("/stream/:pageCardId", async (req, res) => {
 // at the bottom of the Page instead of directly below a specific Card, using
 // everything already on that Page (and every Page above it) as context.
 generateRouter.get("/stream/page/:pageId", async (req, res) => {
-  await pipeGenerationEvents(
-    res,
-    generationService.streamGenerationForPage(req.params.pageId, instructionParam(req), actionsDocParam(req)),
-  );
+  await pipeGenerationEvents(res, generationService.streamGenerationForPage(req.params.pageId, instructionParam(req)));
 });
 
 // GET /api/generate/stream/stack-member/:memberId — a blank Stack alternate's own
@@ -126,11 +92,7 @@ generateRouter.get("/stream/page/:pageId", async (req, res) => {
 generateRouter.get("/stream/stack-member/:memberId", async (req, res) => {
   await pipeGenerationEvents(
     res,
-    generationService.streamGenerationForStackMember(
-      req.params.memberId,
-      instructionParam(req),
-      actionsDocParam(req),
-    ),
+    generationService.streamGenerationForStackMember(req.params.memberId, instructionParam(req)),
   );
 });
 

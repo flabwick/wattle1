@@ -180,11 +180,16 @@
    surface color already (no boxed border/background of its own — a thin divider is
    enough), so it reads as one continuous strip attached to the Dock rather than a
    separate floating card stacked on top of it. */
+/* Layout only, no padding/box of its own — the ask textarea's own border
+   (.dock__lookup-input below) is the one visible box now, extending the full
+   width of the row instead of sitting inset inside a second, padded container
+   (Card design pass: was "a box within a box"). Just a thin bottom rule left to
+   separate this from the row of buttons below, not a full frame. */
 .dock__lookup-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  padding-bottom: 2px;
   border-bottom: var(--border-width-thin) solid var(--color-border);
   max-height: 40vh;
   overflow-y: auto;
@@ -224,52 +229,73 @@
   pointer-events: none;
 }
 
+/* Just a text box with its own send icon embedded in it (Card design pass) — a
+   single relatively-positioned wrapper, skinnier than the app-wide default row
+   height, no separate close button any more: dismissing is Escape (in the
+   input's own onKeyDown) or simply deselecting the underlying Card/embed/Quote. */
 .dock__lookup-ask {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 
-/* Same shrink-to-sm convention as the rest of the Dock's own rows (.dock__row
-   .button above) — these buttons sit right inside an already-compact panel, so the
-   full 44px touch target read as oversized next to everything else here. */
-.dock__lookup-ask .button {
-  min-height: var(--touch-target-sm);
-  min-width: var(--touch-target-sm);
-}
-
-.dock__lookup-ask .button.button--icon {
-  width: var(--touch-target-sm);
-}
-
-/* "12 words, 2 cards, 1 quote" (Dock.tsx's lookupWordCount) — a quiet status line,
-   not another action, so it reads distinctly from the ask row above it. */
-.dock__lookup-summary {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-family-mono);
-}
-
-.dock__lookup-input {
+/* A wrapping textarea, not a single-line input — a longer question wraps onto a
+   second/third line instead of scrolling sideways. Starts at one line tall
+   (min-height, matching .dock__lookup-send's
+   own footprint below so both sit flush) and grows with its own content up to
+   half the viewport (max-height: 50vh) — Dock.tsx's own auto-grow effect drives
+   the actual height from scrollHeight on every keystroke; this max-height is
+   just the clamp past which the textarea's native scrolling (overflow-y) takes
+   over instead of growing further. A thin (not the app-wide bold) border and
+   tight padding — smaller/quieter than a standalone form field reads right for
+   something embedded in the Dock's own already-compact chrome. `resize: none`
+   since a drag-handle reads wrong once the box already grows on its own.
+   Right padding clears the embedded send icon so typed text never runs under
+   it. Chained with .input-field (matching Card.css's own .input-field.card__
+   title-input precedent) so this reliably outranks InputField.css's own
+   .input-field--multiline defaults regardless of stylesheet import order. */
+.input-field.dock__lookup-input {
   flex: 1;
   min-width: 0;
-  font: inherit;
+  min-height: 28px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px 32px 4px var(--space-1);
+  border-width: var(--border-width-thin);
   font-size: var(--font-size-sm);
-  color: var(--color-text);
-  background: none;
+  line-height: 1.25;
+  resize: none;
+  overflow-wrap: break-word;
+}
+
+/* Embedded in the text box's own right edge (search-box/chat-input convention)
+   rather than a separate bordered button beside it — quiet and borderless so it
+   reads as part of the input, not another tactile object competing with it, and
+   deliberately smaller than the app's own --touch-target-sm floor (which this
+   whole panel is already a quieter, secondary surface than) — just enough to
+   comfortably tap. Compound selector (parent + own class + .button), same
+   "guaranteed to outrank Button.css's own base .button/.button--icon regardless
+   of import order" convention .card__header-actions .button.button--icon
+   already uses. */
+.dock__lookup-ask .button.dock__lookup-send {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  min-height: 28px;
+  min-width: 28px;
+  width: 28px;
   border: none;
-  border-bottom: var(--border-width-thin) solid var(--color-border);
-  padding: 0 0 2px;
-}
-
-.dock__lookup-input:focus {
-  outline: none;
-  border-bottom-color: var(--color-accent);
-}
-
-.dock__lookup-input::placeholder {
+  background: none;
+  box-shadow: none;
   color: var(--color-text-muted);
-  font-style: italic;
+}
+
+.dock__lookup-ask .button.dock__lookup-send:hover:not(:disabled) {
+  color: var(--color-accent);
+}
+
+.dock__lookup-ask .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .dock__lookup-generating {
@@ -303,20 +329,6 @@
 
 .dock__lookup-rail .button:hover:not(:disabled) {
   color: var(--color-text);
-}
-
-.dock__lookup-rail-arrow--left {
-  transform: rotate(-90deg);
-}
-
-.dock__lookup-rail-arrow--right {
-  transform: rotate(90deg);
-}
-
-.dock__lookup-rail-position {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-family-mono);
 }
 
 /* The generated result, rendered as an actual bordered card (same "thick stock"
@@ -365,46 +377,23 @@
   align-items: center;
 }
 
-/* The "reveal hidden Cards" toggle — a fixed sibling of .dock__row, same reasoning
-   as .dock__page-nav below: .dock__row scrolls horizontally once its own buttons
-   overflow, and this needs to stay reachable without ever being scrolled out of
-   view. Same shrink-to-sm sizing as everything inside .dock__row, for visual
-   consistency even though it sits outside it. */
-.dock__reveal-hidden-button {
+/* "12 words, 2 cards, 1 quote" (Dock.tsx's lookupWordCount) — pinned to the
+   bottom-right corner of the Dock (same flex-shrink:0/fixed-width-content
+   convention as .dock__page-nav just below, which this sits directly beside —
+   the two are near-complementary, rarely both visible at once). A quiet status
+   readout, not another action, so the monospace figures read distinctly from
+   the row's own buttons. */
+/* Smaller/more muted still than the app's own --font-size-sm floor — same
+   deliberately-subtle treatment .dock__page-nav-count--tabs already uses for a
+   comparable corner readout, since there's no smaller font-size token to reach
+   for directly. */
+.dock__selection-summary {
   flex-shrink: 0;
-  min-height: var(--touch-target-sm);
-  min-width: var(--touch-target-sm);
-  width: var(--touch-target-sm);
-}
-
-.dock__reveal-hidden-button .icon {
-  width: var(--icon-size-sm);
-  height: var(--icon-size-sm);
-}
-
-/* The magic button's rewrite-in-place text box (Dock.tsx's rewriteBoxOpen) — sits
-   between the row's back-caret and send buttons, same inline-underline convention as
-   FeedInputButton.css's own feed-input__inline-input. */
-.dock__rewrite-input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--font-size-base);
-  color: var(--color-text);
-  background: none;
-  border: none;
-  border-bottom: var(--border-width-bold) solid var(--color-border);
-  padding: 0 0 2px;
-}
-
-.dock__rewrite-input:focus {
-  outline: none;
-  border-bottom-color: var(--color-accent);
-}
-
-.dock__rewrite-input::placeholder {
   color: var(--color-text-muted);
-  font-style: italic;
+  font-size: calc(var(--font-size-sm) * 0.8);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 /* The Page nav cluster (merged up/down/add + Pages panel toggle — formerly the
@@ -495,17 +484,11 @@
   opacity: 0.55;
 }
 
-/* Wraps the process button so Dock.tsx can hold a ref to it — ProcessPicker itself
-   renders as a position: fixed sibling outside .dock__row (see Dock.tsx), not
-   anchored via CSS, since this row's overflow-x: auto would clip an
-   absolutely-positioned popover that escapes it upward. */
-.dock__process-wrap {
-  display: flex;
-}
-
-/* Same reasoning as .dock__process-wrap above — wraps "insert card link"/"insert
-   field" so Dock.tsx can hold a ref to whichever one was clicked; both open a
-   position: fixed sibling popover (CardLinkPicker/ActionFieldKindPicker). */
+/* Wraps "convert"/"insert card link"/"insert field" etc. so Dock.tsx can hold a
+   ref to whichever one was clicked — each opens a position: fixed sibling popover
+   (ConvertPicker/CardLinkPicker/ActionFieldKindPicker), not anchored via CSS,
+   since this row's overflow-x: auto would clip an absolutely-positioned popover
+   that escapes it upward. */
 .dock__insert-wrap {
   display: flex;
 }

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Icon, InputField } from "../../../primitives/index.js";
 import { CardRichText } from "../../richtext/CardRichText.js";
 import { GhostCard } from "../../GhostCard.js";
 import { FeedInputButton } from "../../../FeedInputButton/FeedInputButton.js";
@@ -7,8 +6,8 @@ import { CardStackRail } from "../../../CardStack/CardStackRail.js";
 import { useCardStack } from "../../../../hooks/useCardStack.js";
 import { useGeneration } from "../../../../hooks/useGeneration.js";
 import { getActiveStackControls, setActiveStackControls } from "../../../../lib/activeStackRegistry.js";
+import { CardCaretButton } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
-import { CardSelectButton } from "../../CardHeaderStart.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
@@ -34,17 +33,18 @@ import "../../Card.css";
  * whichever of GhostCard/FeedInputButton/CardRichText below is currently showing —
  * folds away.
  *
- * Save for the active alternate also lives in the Dock (Dock.tsx's isStackSelected
- * row) — this still publishes the same callback it needs (activeStackRegistry.ts)
- * while `selected` is true — but the header's own CardHeaderActions row now offers
- * the same save/open-in-vault/fullscreen/info actions inline too, same as every other
- * CardType's View. "Turn into stack" is the one action deliberately left out: a Stack
- * already has its own way to add an alternate (CardStackRail's own "+"). The
- * header's own select-checkbox (CardSelectButton — the same one CardHeaderStart.tsx
- * uses for every other CardType, just placed inline here since a Stack's own title
- * is a genuinely editable input rather than that shared component's plain read-only
- * span) toggles the container's own selection in/out; removing the whole Stack from
- * the Page is the Dock's bulk "Remove" action (App.tsx's handleRemoveSelected).
+ * Card design pass: the header shows the active alternate's title only while
+ * folded (same "no title when expanded" rule every other CardType's header now
+ * follows) — renaming happens on the Info face instead (CardInfoPanel's own
+ * onChangeTitle, wired here to `stack.updateActiveDraft`). "Turn into stack" is the
+ * one CardHeaderActions action deliberately left out: a Stack already has its own
+ * way to add an alternate (CardStackRail's own "+"). The header bar itself
+ * (`.card__header`, click anywhere) toggles the container's own selection in/out —
+ * same skinny-header-is-the-hit-target convention every other CardType's header
+ * uses now, no checkbox. `onRemove` closes the whole Stack (App.tsx's
+ * handleRequestRemovePageCard already special-cases a Stack Card to close as a
+ * unit, promoting any unsaved member to the vault first) — the header's own "X",
+ * same as every other CardType, not just the Dock's bulk action any more.
  *
  * A blank alternate (added via the rail's "+", never touched since) shows its own
  * Feed Input Button — Generate + a typed guide, same as a blank Page — instead of
@@ -63,28 +63,22 @@ export function StackBody({
   stackCardId,
   selected,
   onSelect,
-  onOpenFullscreen,
-  onOpenInVault,
+  onRemove,
 }: {
   stackCardId: string;
   selected: boolean;
-  /** The header's own select-checkbox — see CardHeaderStart.tsx's own doc comment
-   *  on the equivalent prop every other CardType's View passes straight through
-   *  from CardTypeViewProps.onSelect. Optional/omits the checkbox entirely when
-   *  absent — StackEditor.tsx has no such callback to give it (CardTypeEditorProps
-   *  has no onSelect at all; that render path is only ever reached for a Stack
-   *  that's already selected, with no in-editor way to deselect today). */
+  /** The header bar's own click-to-select — see CardHeaderStart.tsx's own doc
+   *  comment on the equivalent CardTypeViewProps.onSelect every other CardType's
+   *  header now uses the same way. Optional/inert when absent — StackEditor.tsx
+   *  has no such callback to give it (CardTypeEditorProps has no onSelect at all;
+   *  that render path is only ever reached for a Stack that's already selected,
+   *  with no in-editor way to deselect today). */
   onSelect?: () => void;
-  /** The header's "expand" corner button — see Card.tsx's own prop of the same
-   *  name; StackView/StackEditor forward this down from the generic CardTypeUi
-   *  props (registries/cardTypeUi.ts). */
-  onOpenFullscreen?: () => void;
-  /** The header's Save button once the active alternate has nothing left to save —
-   *  opens the Vault panel searching for it (App.tsx's handleOpenCardInVault, same
-   *  as Card.tsx's own onOpenInVault). Saving itself still goes through
-   *  useCardStack's own saveActive below, not this — a Stack's own PageCard row
-   *  never carries a draft, only its active member does. */
-  onOpenInVault?: (title: string) => void;
+  /** The header's "X" — see Card.tsx's own onRemove prop of the same name;
+   *  StackView/StackEditor forward this down from the generic CardTypeUi props
+   *  (registries/cardTypeUi.ts). Optional/omitted by StackEditor, same reasoning
+   *  as onSelect above. */
+  onRemove?: () => void;
 }) {
   const stack = useCardStack(stackCardId);
   const data = stack.data;
@@ -140,35 +134,10 @@ export function StackBody({
 
   return (
     <>
-      <div className="card__header">
+      <div className="card__header" onClick={onSelect}>
         <div className="card__header-start">
-          <button
-            type="button"
-            className="card__caret-btn"
-            aria-label={collapsed ? t("card.expand") : t("card.collapse")}
-            title={collapsed ? t("card.expand") : t("card.collapse")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setCollapsed((c) => !c);
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          >
-            <Icon name="down" className={`card__caret${collapsed ? " card__caret--collapsed" : ""}`} />
-          </button>
-          {onSelect && <CardSelectButton selected={selected} onSelect={onSelect} />}
-          <InputField
-            className="card__title-input"
-            value={title}
-            placeholder={t("card.titlePlaceholder")}
-            onChange={(e) => stack.updateActiveDraft({ title: e.target.value })}
-            // Clicking into the title to place the cursor (or drag-selecting its
-            // text to retype it) shouldn't also select/deselect this Stack — same
-            // belt-and-suspenders reasoning CardEmbed.tsx's own title input uses,
-            // even though selection is only ever the checkbox now (CardShell no
-            // longer has an onSelect of its own to accidentally trigger either).
-            onClick={(e) => e.stopPropagation()}
-          />
+          <CardCaretButton collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+          {collapsed && title && <span className="card__title">{title}</span>}
         </div>
         <CardStackRail
           index={data.activeIndex}
@@ -181,16 +150,17 @@ export function StackBody({
           disabled={generation.isStreaming}
         />
         <CardHeaderActions
-          hasUnsavedChanges={hasUnsavedDraft}
-          onSave={() => stack.saveActive()}
-          onOpenInVault={() => onOpenInVault?.(active.card.title)}
-          onOpenFullscreen={onOpenFullscreen}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
+          onRemove={() => onRemove?.()}
         />
       </div>
       {!collapsed && (
-        <CardFlippableBody card={active.card} showingInfo={showingInfo}>
+        <CardFlippableBody
+          card={active.card}
+          showingInfo={showingInfo}
+          onChangeTitle={(title) => stack.updateActiveDraft({ title })}
+        >
           {generation.isStreaming && generation.rootId !== null ? (
             <GhostCard nodeId={generation.rootId} nodes={generation.nodes} />
           ) : isBlank ? (

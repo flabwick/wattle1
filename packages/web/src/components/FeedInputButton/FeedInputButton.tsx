@@ -23,6 +23,13 @@ interface FeedInputButtonProps {
   /** Opens a Vault picker so the user can pick a Card to add. Unused while
    *  showMoreOptions is false. */
   onOpenVault?: () => void;
+  /** "Create from a page" (Homes + Pages hierarchy, Phase 2) — a new child Page
+   *  under the current one, with a link back to it. Not a CardType (no Card is
+   *  created here), same "own tile, page-level action" shape as onOpenVault above,
+   *  rendered alongside it rather than through cardTypeUiRegistry. Omitted (as on
+   *  a Stack alternate's own Feed Input Button) where there's no current Page to
+   *  nest a child under. */
+  onCreateChildPage?: () => void;
   /** Uploads a file as a new file-typed Card. Unused while showMoreOptions is false. */
   onUploadFile?: (file: File) => void;
   /** Creates a new Stack Card (registries/definitions/stackCardType.ts) — the type
@@ -44,6 +51,9 @@ interface FeedInputButtonProps {
   /** Creates a new "search"-typed Card (registries/definitions/searchCardType.ts) —
    *  same shape as onAddAction above. */
   onAddSearch?: () => void;
+  /** Creates a new "input"-typed Card (registries/definitions/inputCardType.ts) —
+   *  same shape as onAddAction above. */
+  onAddInput?: () => void;
   /** False inside the Dock Card panel's own creation flow (Step 6 spec §3.3): Dock
    *  Cards have no Page/Tab to draw generation context from, so there's no Circle —
    *  Add is the only way a Card actually gets created either way. */
@@ -87,12 +97,14 @@ export function FeedInputButton({
   onGenerate,
   onAddCard,
   onOpenVault,
+  onCreateChildPage,
   onUploadFile,
   onAddStack,
   onAddAction,
   onAddPrompt,
   onAddPageLinks,
   onAddSearch,
+  onAddInput,
   showGenerate = true,
   showMoreOptions = true,
   placeholder,
@@ -136,6 +148,11 @@ export function FeedInputButton({
     collapse();
   }
 
+  function handleCreateChildPage() {
+    onCreateChildPage?.();
+    collapse();
+  }
+
   function handleUploadClick() {
     fileInputRef.current?.click();
   }
@@ -154,6 +171,7 @@ export function FeedInputButton({
     ...(onAddPrompt ? [{ typeId: "prompt", onSelect: () => { onAddPrompt(); collapse(); } }] : []),
     ...(onAddPageLinks ? [{ typeId: "pageLinks", onSelect: () => { onAddPageLinks(); collapse(); } }] : []),
     ...(onAddSearch ? [{ typeId: "search", onSelect: () => { onAddSearch(); collapse(); } }] : []),
+    ...(onAddInput ? [{ typeId: "input", onSelect: () => { onAddInput(); collapse(); } }] : []),
   ];
 
   return (
@@ -177,6 +195,12 @@ export function FeedInputButton({
               <button type="button" className="card-type-picker-tile" onClick={handleOpen}>
                 <Icon name="vault" />
                 <span>{t("feedInput.open")}</span>
+              </button>
+            )}
+            {onCreateChildPage && (
+              <button type="button" className="card-type-picker-tile" onClick={handleCreateChildPage}>
+                <Icon name="pages" />
+                <span>{t("feedInput.newPage")}</span>
               </button>
             )}
             {typeOptions.map(({ typeId, onSelect }) => {

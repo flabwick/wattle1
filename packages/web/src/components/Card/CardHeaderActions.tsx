@@ -2,71 +2,34 @@ import { Button, Icon } from "../primitives/index.js";
 import { t } from "../../i18n/index.js";
 
 interface CardHeaderActionsProps {
-  /** Whether there's still something pending to commit to the vault — same formula
-   *  Card.tsx's own header button uses: `pageCard.draftTitle !== null ||
-   *  pageCard.draftContent !== null || !pageCard.card.savedToVault`. */
-  hasUnsavedChanges: boolean;
-  onSave: () => void;
-  onOpenInVault: () => void;
   /** Omitted entirely (not just disabled) for the "stack" CardType's own View,
    *  which already has its own way to add an alternate (CardStackRail's "+") —
    *  turning a Stack into a Stack of Stacks doesn't mean anything. */
   onTurnIntoStack?: () => void;
-  onOpenFullscreen?: () => void;
   showingInfo: boolean;
   onToggleInfo: () => void;
+  /** Removes this Card from the Page (App.tsx's handleRequestRemovePageCard) — the
+   *  per-Card "X" every CardType's header now ends with (Card design pass). A
+   *  Stack Card closes as a whole; anything else just detaches, vault Card
+   *  untouched — see that handler's own doc comment. */
+  onRemove: () => void;
 }
 
 /**
- * The four-icon header action row (Save/Saved, turn into Stack, open fullscreen,
- * flip to info) every registered CardType's own View shows in its top-right corner —
- * extracted from Card.tsx's own inline header-actions block so every type gets the
- * same four actions without re-implementing them. Card.tsx (the "note" CardType)
- * keeps its own original copy rather than switching to this one, to avoid touching
- * its already-working, most-exercised render path.
+ * The three-icon header action row (turn into Stack, flip to info, remove) every
+ * registered CardType's own View shows in its top-right corner — extracted from
+ * Card.tsx's own inline header-actions block so every type gets the same actions
+ * without re-implementing them. No Save/bookmark/fullscreen here any more (Card
+ * design pass): every Card is treated as saved in the UI now, and fullscreen's own
+ * header trigger is gone (the feature itself is untouched — see App.tsx's
+ * focusedPageCardId — just not reachable from here until a Dock trigger, if ever,
+ * replaces this one). Card.tsx (the "note" CardType) keeps its own original copy
+ * rather than switching to this one, to avoid touching its already-working,
+ * most-exercised render path.
  */
-export function CardHeaderActions({
-  hasUnsavedChanges,
-  onSave,
-  onOpenInVault,
-  onTurnIntoStack,
-  onOpenFullscreen,
-  showingInfo,
-  onToggleInfo,
-}: CardHeaderActionsProps) {
+export function CardHeaderActions({ onTurnIntoStack, showingInfo, onToggleInfo, onRemove }: CardHeaderActionsProps) {
   return (
     <div className="card__header-actions">
-      {hasUnsavedChanges ? (
-        <Button
-          iconOnly
-          className="card__save-btn"
-          aria-label={t("dock.action.save")}
-          title={t("dock.action.save")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSave();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="bookmark" />
-        </Button>
-      ) : (
-        <Button
-          iconOnly
-          className="card__save-btn card__save-btn--saved"
-          aria-label={t("card.openInVault")}
-          title={t("card.openInVault")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenInVault();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="done" />
-        </Button>
-      )}
       {onTurnIntoStack && (
         <Button
           iconOnly
@@ -82,27 +45,6 @@ export function CardHeaderActions({
           <Icon name="plus" />
         </Button>
       )}
-      {onOpenFullscreen && (
-        <Button
-          iconOnly
-          aria-label={t("card.openFullscreen")}
-          title={t("card.openFullscreen")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenFullscreen();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          <Icon name="expand" />
-        </Button>
-      )}
-      {/* The only flip/back control now — CardInfoPanel.tsx no longer has its own
-          header/back button (that used to duplicate this). Toggling stays on this
-          one icon; `button--pressed` (Button.css's own "currently on" treatment —
-          same sunk/accent look the Dock's formatting toolbar uses for e.g. an
-          active Bold) is what reads as "you're on the back face, click to return"
-          instead of a separate labeled back arrow. */}
       <Button
         iconOnly
         className={showingInfo ? "button--pressed" : undefined}
@@ -117,6 +59,19 @@ export function CardHeaderActions({
         onTouchStart={(e) => e.stopPropagation()}
       >
         <Icon name="info" />
+      </Button>
+      <Button
+        iconOnly
+        aria-label={t("card.remove")}
+        title={t("card.remove")}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <Icon name="close" />
       </Button>
     </div>
   );

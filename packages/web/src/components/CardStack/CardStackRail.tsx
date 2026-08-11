@@ -47,7 +47,10 @@ export function CardStackRail({
             aria-label={t("cardStack.previous")}
             title={t("cardStack.previous")}
             disabled={atStart || disabled}
-            onClick={onPrevious}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPrevious();
+            }}
           >
             <Icon name="up" className="card-stack-rail__arrow card-stack-rail__arrow--left" />
           </Button>
@@ -61,7 +64,10 @@ export function CardStackRail({
         aria-label={atEnd ? t("cardStack.addAlternate") : t("cardStack.next")}
         title={atEnd ? t("cardStack.addAlternate") : t("cardStack.next")}
         disabled={disabled}
-        onClick={atEnd ? onAdd : onNext}
+        onClick={(e) => {
+          e.stopPropagation();
+          (atEnd ? onAdd : onNext)();
+        }}
       >
         <Icon
           name={atEnd ? "plus" : "up"}

@@ -4,21 +4,18 @@ import type {
   Card,
   CalloutKind,
   DockCardWithCard,
-  NearbyItem,
   PageCardWithCard,
   PageSummary,
+  PageWithCards,
 } from "@wattle/shared";
 import { cardTypeRegistry, flattenToPlainText, htmlToDoc, operationRegistry } from "@wattle/shared";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
-import type { AnnotationProcess } from "../../api/client.js";
-import { Button, Icon } from "../primitives/index.js";
+import { Button, Icon, InputField } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
 import { DockCardsPanel } from "./DockCardsPanel.js";
-import { NearbyPanel } from "./NearbyPanel.js";
 import { PagesPanel } from "./PagesPanel.js";
-import { ProcessPicker } from "./ProcessPicker.js";
 import { ConvertPicker } from "./ConvertPicker.js";
 import { CardLinkPicker } from "../Card/CardLinkPicker.js";
 import { PageLinkPicker } from "../Card/PageLinkPicker.js";
@@ -32,10 +29,10 @@ import { isMarkdownFile } from "../../lib/isMarkdownFile.js";
 import { convertMarkdownToWattleHtml } from "../../lib/markdownToWattleHtml.js";
 import { getCachedCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
-import { useActiveStackControls } from "../../lib/activeStackRegistry.js";
 import { clearQuotes, useQuotes } from "../../lib/quotesRegistry.js";
 import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
-import { useSelectionLookup } from "../../hooks/useSelectionLookup.js";
+import { useAgentLoop } from "../../hooks/useAgentLoop.js";
+import type { StepOutput } from "../../lib/actionJobRegistry.js";
 import { quickAddToDock, quickAddToPage } from "../../lib/quickAddRegistry.js";
 import { t } from "../../i18n/index.js";
 import "./Dock.css";
@@ -53,7 +50,7 @@ function escapeHtml(text: string): string {
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
  *  independent booleans so that's structurally guaranteed, not just convention. */
-export type DockPanel = "vault" | "dockCards" | "pages" | "nearby";
+export type DockPanel = "vault" | "dockCards" | "pages";
 
 interface DockProps {
   /** Every currently-selected Card — multiple Cards can be selected at once now
@@ -63,6 +60,21 @@ interface DockProps {
    *  selected Stack's own generation, annotate/diff processes) gate on
    *  `.length === 1` and disappear otherwise. Empty when nothing's selected. */
   selectedCards: PageCardWithCard[];
+  /** The Page currently in view, full pageCards list included — Quick Lookup's own
+   *  "Ask AI" (the Brilliantly Simple Generation Agent, scope: "cards") needs this
+   *  for the rest-of-page orientation context alongside `selectedCards` itself; see
+   *  useAgentLoop.ts's buildCardsContextText. Null only in the fullscreen
+   *  single-Card view, where Ask AI isn't reachable anyway (no multi-Card
+   *  selection is possible there). */
+  currentPage: PageWithCards | null;
+  /** Same ActionJobContext-bound dispatcher PageStack.tsx's own onRunActionJob
+   *  prop already is (App.tsx's handleRunActionJob) — Quick Lookup's "Ask AI" runs
+   *  tool calls through this exact same path, not a separate one. */
+  onRunActionJob: (
+    pageCard: PageCardWithCard,
+    jobId: string | undefined,
+    jobParams: Record<string, unknown> | undefined,
+  ) => Promise<StepOutput | void>;
   /** Every currently-selected embedded Card's id (App.tsx's selectEmbed toggles
    *  membership the same way toggleSelectPageCard does for top-level Cards — several
    *  can be selected at once, alongside `selectedCards` and Quotes, all feeding the
@@ -132,51 +144,16 @@ interface DockProps {
    *  from here on; only shown once it's savedToVault, still Open, and has nothing
    *  unsaved pending (see this action's own gating above). */
   onFreezeSelected: () => void;
-  /** Saves every selected Card that has something pending — a no-op for any that
-   *  don't (App.tsx batches the existing per-Card save-to-vault call). */
-  onSaveSelected: () => void;
-  /** Removes every selected Card from the Page in one go, then clears the
-   *  selection (App.tsx's handleRemoveSelected) — the only way to remove a Card
-   *  from the Page now; a tap on a Card itself just toggles its own selection
-   *  in/out (Card.tsx's onSelect). */
-  onRemoveSelected: () => void;
   /** Flips `metadata.hidden` on every selected Card at once (App.tsx's
    *  handleToggleHiddenSelected) — hidden Cards are skipped during normal Page
    *  rendering unless the Dock's own "reveal hidden cards" toggle (revealHidden
    *  below) is on. Works uniformly across every CardType, so — unlike Save/Move —
    *  it's never gated by operationId/supportsOperations. */
   onToggleHiddenSelected: () => void;
-  /** The magic button's rewrite-in-place flow for a single selected plain (non-Stack)
-   *  Card (rewriteBoxOpen/rewriteText below): tapping it once opens an inline text
-   *  box in this same row (replacing every other selectedCards action for as long as
-   *  it's open); tapping it again sends whatever's typed (or nothing) as
-   *  `instruction` and collapses back to the normal row. Redoes the Card's own
-   *  content via an instructed "diff" annotation run (App.tsx's
-   *  handleRewriteSelected) instead of inserting a new sibling Card — its proposed
-   *  edits surface as ordinary pending diffs afterward, reviewed via the same
-   *  process/acceptAllDiffs actions below. A selected Stack keeps its own separate
-   *  "append a new alternate" generation (isStackSelected below), untouched by this. */
-  onRewriteSelected: (instruction: string) => void;
-  /** The diff/footnote/highlight processes (a separate, parallel system from
-   *  Generate — see annotationService.ts) — null whenever there's no Card/embed
-   *  context to run one against, including when more than one Card is selected at
-   *  once (App.tsx only resolves this for a single selected Card — annotations
-   *  running across a multi-selection isn't a case Step 6 defines). Runs against the
-   *  *whole* selected Card (root + any nested Cards); a text-selection-scoped run
-   *  instead goes through SelectionMenu.tsx directly, not through the Dock at all. */
-  onRunProcess: ((process: AnnotationProcess) => void) | null;
-  /** True while a process run is streaming/awaiting its model response — disables
-   *  the action and spins its icon, same convention as `generating` above. */
-  processRunning: boolean;
   /** How many pending diff annotations the selected Card/embed currently has — the
    *  "Accept all diffs" action only appears once this is > 0. */
   pendingDiffCount: number;
   onAcceptAllDiffs: (() => void) | null;
-  /** Deselects every selected Card — the row's own back-caret action. Pure
-   *  deselect: every Card stays right where it is on the Page. Tapping an
-   *  already-selected Card jumps into editing it instead of deselecting
-   *  (App.tsx's toggleSelectPageCard) — this is the only way back out. */
-  onDeselectAll: () => void;
   /** Moves every selected Card off its Page and onto the Dock's persistent
    *  scratchpad, as one batch (Step 6 spec §4.2's simple one-off "Move to Dock"). */
   onMoveToDock: () => void;
@@ -199,17 +176,15 @@ interface DockProps {
   openPanel: DockPanel | null;
   onOpenPanel: (panel: DockPanel) => void;
   onClosePanel: () => void;
-  /** The live Nearby list for whatever Page/Card is currently in view (useNearby.ts,
-   *  driven from App.tsx) — re-scored against what's open and what's being typed,
-   *  not a fixed list (Wattle vault plan). */
-  nearbyItems: NearbyItem[];
-  nearbyLoading: boolean;
-  onOpenNearbyCard: (cardId: string) => void;
   vaultSearchResults: Card[];
   /** Page title matches (Pages + Links + Search rebuild, Phase 2) — the Vault panel's
    *  own "Search finds Pages/Cards" half, shown above vaultSearchResults. */
   vaultPageResults: PageSummary[];
   onOpenPageFromSearch: (id: string) => void;
+  /** Every Home (Homes + Pages hierarchy, Phase 2) — VaultView's own zero-match
+   *  empty-state fallback. */
+  vaultHomes: PageSummary[];
+  onCreateHome: () => void;
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
   /** Create a new blank Card directly in the vault — IDE-"new file" style. Returns
@@ -378,6 +353,8 @@ function supportedOperationIds(typeId: string): Set<string> {
  */
 export function Dock({
   selectedCards,
+  currentPage,
+  onRunActionJob,
   selectedEmbedIds,
   selectedEmbedId,
   isEditingActive,
@@ -396,15 +373,9 @@ export function Dock({
   annotationError,
   onDismissAnnotationError,
   onFreezeSelected,
-  onSaveSelected,
-  onRemoveSelected,
   onToggleHiddenSelected,
-  onRewriteSelected,
-  onRunProcess,
-  processRunning,
   pendingDiffCount,
   onAcceptAllDiffs,
-  onDeselectAll,
   onMoveToDock,
   moving,
   onEnterMoveMode,
@@ -414,9 +385,6 @@ export function Dock({
   openPanel,
   onOpenPanel,
   onClosePanel,
-  nearbyItems,
-  nearbyLoading,
-  onOpenNearbyCard,
   vaultSearchResults,
   vaultQuery,
   onVaultQueryChange,
@@ -458,6 +426,8 @@ export function Dock({
   onOpenPage,
   vaultPageResults,
   onOpenPageFromSearch,
+  vaultHomes,
+  onCreateHome,
   revealHidden,
   onToggleRevealHidden,
   onSaveAsTemplateFromPage,
@@ -467,7 +437,6 @@ export function Dock({
   const vaultOpen = openPanel === "vault";
   const dockCardsOpen = openPanel === "dockCards";
   const pagesOpen = openPanel === "pages";
-  const nearbyOpen = openPanel === "nearby";
 
   // Content stays mounted one tick behind `openPanel` going to null, so the slide-
   // closed CSS transition below has something to animate away rather than the panel
@@ -490,15 +459,6 @@ export function Dock({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [openPanel, onClosePanel]);
-  // Closes the rewrite box the moment it's no longer meaningful to have open — the
-  // selection changed (a different/no Card selected any more) or editing started —
-  // rather than leaving it open pointed at a Card the row can no longer act on.
-  useEffect(() => {
-    if (selectedCards.length === 0 || isEditingActive) {
-      setRewriteBoxOpen(false);
-      setRewriteText("");
-    }
-  }, [selectedCards, isEditingActive]);
   /** Which vault Card is selected — clicking one selects it instead of acting on it
    *  immediately, so the Dock can show what to do with it (see vaultModeActions
    *  below). The Vault is search-only now (Pages + Links + Search rebuild): no
@@ -520,12 +480,6 @@ export function Dock({
    *  rename). Drives VaultView.tsx's renamingIsNewCard (blank rename input, no
    *  "Untitled" default). */
   const [vaultNewCardId, setVaultNewCardId] = useState<string | null>(null);
-  /** The magic button's rewrite-in-place text box (onRewriteSelected above) — open
-   *  while the selectedCards row shows the instruction input instead of its normal
-   *  actions. Reset below whenever the selection changes or editing starts, so it
-   *  never lingers open pointed at a Card that's no longer selected. */
-  const [rewriteBoxOpen, setRewriteBoxOpen] = useState(false);
-  const [rewriteText, setRewriteText] = useState("");
   /** The quick-lookup/prompt panel — appears automatically the moment anything is
    *  selected: one or more Cards (selectedCards — same multi-selection Save/Hide/
    *  Move/removeSelected already batch over), one or more embeds (selectedEmbedIds
@@ -547,43 +501,63 @@ export function Dock({
    *  old question/answer history no longer applies, but the selection change itself
    *  is never undone by this — only dismissLookup touches Quotes/selection. */
   const [lookupInstruction, setLookupInstruction] = useState("");
-  // Every past question/answer for the *current* selection, oldest first — same
-  // "iterations" shape as the "prompt" CardType's own metadata.prompt.iterations
-  // (cardMetadata.ts), just kept as local component state instead of persisted:
-  // this panel's whole context resets the moment the selection changes anyway (see
-  // below), so there's nothing meaningful to persist across a reload.
-  const [lookupIterations, setLookupIterations] = useState<{ instruction: string; text: string }[]>([]);
-  const [lookupActiveIndex, setLookupActiveIndex] = useState(0);
-  // Flips the panel from the ask input over to the rendered result the moment a
+  /** Auto-grow for the ask textarea (.dock__lookup-input, rendered with
+   *  `rows={1}` below so its own native intrinsic height — a bare `<textarea>`
+   *  defaults to 2 rows otherwise — is already correct before this ever runs,
+   *  not just once JS catches up) — starts at one line and grows to fit
+   *  whatever's typed, up to the CSS
+   *  max-height (50vh) beyond which the textarea's own native scrolling takes
+   *  over. Resetting to "auto" before measuring is what lets it *shrink* back
+   *  down too (deleting text/clearing the box), not just grow — scrollHeight
+   *  alone only ever reports "at least as tall as the current height". Adds the
+   *  element's own border width on top of scrollHeight: `scrollHeight` never
+   *  counts border (only content + padding — true regardless of box-sizing),
+   *  but global.css sets `box-sizing: border-box` app-wide, under which the
+   *  `height` this sets *does* include border — without this adjustment the box
+   *  ends up a couple px short of its own content on every measurement, which is
+   *  exactly what made it look "a bit more than one line" and start scrolling
+   *  before it actually needed to. */
+  const lookupInputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = lookupInputRef.current;
+    if (!el) return;
+    const borderHeight = el.offsetHeight - el.clientHeight;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + borderHeight}px`;
+  }, [lookupInstruction]);
+  // Flips the panel from the ask input over to the result view the moment a
   // question is sent — same 3D flip mechanic as the "prompt" CardType's own
   // PromptCardBody.tsx (front face = input, back face = rendered output).
   const [lookupFlipped, setLookupFlipped] = useState(false);
   const quotes = useQuotes();
-  const lookup = useSelectionLookup();
-  const lookupActiveIndexClamped =
-    lookupIterations.length === 0 ? 0 : Math.min(Math.max(lookupActiveIndex, 0), lookupIterations.length - 1);
-  const activeLookupIteration = lookupIterations[lookupActiveIndexClamped] ?? null;
-  // Whenever a new iteration lands, jump straight to it — browsing to an older one
-  // via the rail's prev/next (goToLookupIteration) doesn't change `.length`, so it
-  // doesn't retrigger this.
-  useEffect(() => {
-    setLookupActiveIndex(lookupIterations.length - 1);
-  }, [lookupIterations.length]);
+  // "Ask AI" (Brilliantly Simple Generation Agent plan, scope: "cards") — replaces
+  // the old read-only Quick Lookup stream entirely. No iteration history any more
+  // (unlike the old lookup, this can create/edit/delete real Cards each time it
+  // runs — browsing "past answers" doesn't make sense the same way once asking
+  // again means a fresh round of real mutations, not just a new read-only reply);
+  // one result at a time, cleared on every new ask.
+  const agentLoop = useAgentLoop();
+  const agentAskAbortRef = useRef<AbortController | null>(null);
+  const [agentAskResultText, setAgentAskResultText] = useState<string | null>(null);
+  const [agentAskNotice, setAgentAskNotice] = useState<string | null>(null);
+  const [agentAskError, setAgentAskError] = useState<string | null>(null);
+  const [agentAskStatus, setAgentAskStatus] = useState<string | null>(null);
   const lookupActive =
     selectedCards.length > 0 ||
     selectedEmbedIds.size > 0 ||
     quotes.length > 0 ||
-    lookup.streaming ||
-    lookupIterations.length > 0 ||
-    !!lookup.error;
+    agentLoop.running ||
+    agentAskResultText !== null ||
+    agentAskNotice !== null ||
+    !!agentAskError;
   // The moment the underlying selection (which Cards/embeds/Quotes) actually
-  // changes, the whole question/answer history resets — a different selection is a
-  // different topic, so the old iterations no longer apply. Deliberately doesn't
-  // touch selectedCards/selectedEmbedIds/quotes themselves (those changing is what
-  // triggers this, not something this responds by further mutating) — only
-  // dismissLookup's own explicit close button does that (clearQuotes). Skipped on
-  // mount (the ref starts equal to the first signature) and whenever there's
-  // nothing yet to reset, so selecting the very first Card doesn't do anything.
+  // changes, the whole panel resets — a different selection is a different topic.
+  // Deliberately doesn't touch selectedCards/selectedEmbedIds/quotes themselves
+  // (those changing is what triggers this, not something this responds by further
+  // mutating) — only dismissLookup's own explicit close button does that
+  // (clearQuotes). Skipped on mount (the ref starts equal to the first signature)
+  // and whenever there's nothing yet to reset, so selecting the very first Card
+  // doesn't do anything.
   const selectionSignature = [
     "c:" + selectedCards.map((pc) => pc.id).sort().join(","),
     "e:" + [...selectedEmbedIds].sort().join(","),
@@ -599,11 +573,13 @@ export function Dock({
   useEffect(() => {
     if (prevSelectionSignatureRef.current === selectionSignature) return;
     prevSelectionSignatureRef.current = selectionSignature;
-    if (lookupIterations.length > 0 || lookupInstruction !== "" || lookupFlipped) {
+    if (agentAskResultText !== null || agentAskNotice !== null || agentAskError !== null || lookupInstruction !== "" || lookupFlipped) {
+      agentAskAbortRef.current?.abort();
       setLookupInstruction("");
-      lookup.reset();
-      setLookupIterations([]);
-      setLookupActiveIndex(0);
+      setAgentAskResultText(null);
+      setAgentAskNotice(null);
+      setAgentAskError(null);
+      setAgentAskStatus(null);
       setLookupFlipped(false);
     }
     // A different selection makes the old convert output/error stale the same way —
@@ -618,11 +594,11 @@ export function Dock({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionSignature]);
-  const [processPickerPos, setProcessPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const processButtonRef = useRef<HTMLDivElement>(null);
-  /** "Convert" (selectedCards/quote rows) — same anchored-popover convention as
-   *  processPickerPos/processButtonRef above, picking which form to convert the
-   *  current selection into. convertOutput/convertError hold the compiled result (or
+  /** "Convert" (selectedCards/quote rows) — an anchored popover positioned from its
+   *  own trigger button's rect (computed at click time, same convention every
+   *  other *PickerPos/*ButtonRef pair here uses — see linkPickerPos below), picking
+   *  which form to convert the current selection into. convertOutput/convertError
+   *  hold the compiled result (or
    *  the file-Card error) once a target's actually been picked. Mostly a static
    *  panel, not a live generation — convertLoading is the one exception, true only
    *  while a selected markdown File Card's raw text is being fetched/parsed
@@ -636,7 +612,7 @@ export function Dock({
   /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
    *  every rich-text insert action lives here now, not a Card's own header (see
    *  Card.tsx/CardRichText.tsx). Same anchored-popover convention as
-   *  processPickerPos/processButtonRef above. */
+   *  convertPickerPos/convertButtonRef above. */
   const [linkPickerPos, setLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const linkButtonRef = useRef<HTMLDivElement>(null);
   /** "Insert Page link" (Pages + Links + Search rebuild, Phase 2) — same
@@ -675,9 +651,6 @@ export function Dock({
   // formatting buttons specifically for that title-field moment (see the `actions`
   // ternary further down).
   const activeEditorFocused = useActiveEditorFocused();
-  // The selected Stack's active alternate — Save/Remove for it render in this row
-  // (below) rather than as inline buttons on the Card itself (activeStackRegistry.ts).
-  const activeStack = useActiveStackControls();
   const formattingState = useEditorState({
     editor: activeEditor,
     selector: ({ editor }: { editor: Editor | null }) => ({
@@ -733,23 +706,24 @@ export function Dock({
   /** The panel's own explicit close button — the *only* thing that clears the
    *  underlying selection (every Quote, via clearQuotes; selectedCards/
    *  selectedEmbedIds are App.tsx state, deselected the same way they always are —
-   *  tapping each one, or the row's own back-caret) alongside the question/answer
-   *  history itself. Everything else (Add to page/Dock, Ask again, browsing past
-   *  outputs) leaves both the selection and the history alone. */
+   *  tapping each one, or the row's own back-caret) alongside the current result.
+   *  Aborts an in-flight agent run first, same as the back face's own explicit
+   *  Stop. */
   function dismissLookup() {
+    agentAskAbortRef.current?.abort();
     setLookupInstruction("");
-    lookup.reset();
-    setLookupIterations([]);
-    setLookupActiveIndex(0);
+    setAgentAskResultText(null);
+    setAgentAskNotice(null);
+    setAgentAskError(null);
+    setAgentAskStatus(null);
     setLookupFlipped(false);
     clearQuotes();
   }
 
   /** The back face's own rail "Ask again"/edit button — same as PromptCardBody.tsx's
    *  rail edit button, just flips back to the front face to send another question.
-   *  Every past iteration, the current selection, and whatever's typed in the
-   *  instruction box all stay exactly as they are — sending appends a *new*
-   *  iteration (handleAskLookup) rather than replacing anything. */
+   *  The current selection and whatever's typed in the instruction box stay exactly
+   *  as they are — only the instruction text itself changes before sending again. */
   function handleAskAgain() {
     setLookupFlipped(false);
   }
@@ -831,8 +805,8 @@ export function Dock({
    *  Standard Wattle Card's content when converting a multi-selection. A markdown
    *  File Card's content is fetched and converted (fetchAndConvertMarkdownCard); any
    *  other Card reads through the existing draft-aware/cache-fresh
-   *  resolveCardContent. Unlike buildLookupContextText below, this keeps the real
-   *  HTML rather than flattening to plain text: the whole point of "convert" is a
+   *  resolveCardContent. Keeps the real HTML rather than flattening to plain text
+   *  (unlike useAgentLoop.ts's own context builder) — the whole point of "convert" is a
    *  real, editable Card at the end, not a text summary for a model prompt. Async
    *  only because of that markdown fetch — every other source resolves
    *  synchronously, but Promise.all doesn't care either way. */
@@ -910,28 +884,6 @@ export function Dock({
     setConvertLoading(false);
   }
 
-  /** Combines every selected Card's own (draft-aware) plain-text content, every
-   *  selected embed's own content (a plain cardStore cache read, not a live
-   *  subscription — embeds are rarely mid-edit while also gathering lookup context,
-   *  and Dock re-renders often enough regardless that this stays close enough to
-   *  fresh), and every confirmed Quote into one context blob for the lookup/prompt
-   *  endpoint — same draft-over-committed precedence every other read of a
-   *  PageCard's content in this app uses. */
-  function buildLookupContextText(): string {
-    const cardBlocks = selectedCards.map((pc) => {
-      const title = pc.draftTitle ?? pc.card.title;
-      const content = pc.draftContent ?? pc.card.content;
-      const text = flattenToPlainText(htmlToDoc(content)).text;
-      return `[Card: ${title || t("common.untitled")}]\n${text}`;
-    });
-    const embedBlocks = [...selectedEmbedIds]
-      .map((cardId) => getCachedCard(cardId))
-      .filter((card): card is Card => !!card)
-      .map((card) => `[Card: ${card.title || t("common.untitled")}]\n${flattenToPlainText(htmlToDoc(card.content)).text}`);
-    const quoteBlocks = quotes.map((q) => `[Quote]\n${q.text}`);
-    return [...cardBlocks, ...embedBlocks, ...quoteBlocks].join("\n\n");
-  }
-
   /** "12 words, 2 cards, 1 quote" — a plain word count across every selected Card's/
    *  embed's own content plus every Quote's text, alongside how many of each are
    *  selected (embeds count toward the "cards" figure — see the summary JSX below). */
@@ -949,69 +901,57 @@ export function Dock({
       return sum + (card ? countWords(flattenToPlainText(htmlToDoc(card.content)).text) : 0);
     }, 0) +
     quotes.reduce((sum, q) => sum + countWords(q.text), 0);
+  // Embeds count toward "cards" too — see the summary readout below.
+  const lookupCardCount = selectedCards.length + selectedEmbedIds.size;
 
-  function handleAskLookup() {
-    const text = buildLookupContextText();
-    if (!text || lookup.streaming) return;
+  /** "Ask AI" (Brilliantly Simple Generation Agent plan) — runs the tool-calling
+   *  agent scoped to `selectedCards` (scope: "cards"), rather than the old
+   *  read-only lookup stream. Requires at least one top-level Card selected (the
+   *  agent's tools address Cards by pageCardId/cardId — a bare Quote or an embed
+   *  alone has nothing addressable for it to mutate); the send button below is
+   *  disabled otherwise. Any mutation the agent makes lands as real, immediate
+   *  edits to the Page itself (via the same runActionJob path every other action
+   *  in this app uses) — the result text shown on the back face is just the
+   *  model's own closing status line, not something that itself needs adding
+   *  anywhere. */
+  async function handleAskAgent() {
+    if (!currentPage || selectedCards.length === 0 || agentLoop.running) return;
     const instructionAtSend = lookupInstruction;
-    lookup.start(text, instructionAtSend, (output) => {
-      setLookupIterations((prev) => [...prev, { instruction: instructionAtSend, text: output }]);
-    });
+    setAgentAskResultText(null);
+    setAgentAskNotice(null);
+    setAgentAskError(null);
+    setAgentAskStatus(null);
     setLookupFlipped(true);
-  }
-
-  /** The back face's rail prev/next (mirrors PromptCardBody.tsx's goToIteration) —
-   *  browsing to an older answer doesn't touch `lookupIterations` itself, so the
-   *  "jump to the latest on append" effect above doesn't get retriggered by this. */
-  function goToLookupIteration(index: number) {
-    setLookupActiveIndex(Math.max(0, Math.min(index, lookupIterations.length - 1)));
+    const controller = new AbortController();
+    agentAskAbortRef.current = controller;
+    try {
+      const outcome = await agentLoop.runAgent({
+        scope: "cards",
+        instruction: instructionAtSend,
+        page: currentPage,
+        selectedCards,
+        onRunActionJob,
+        onProgress: (event) => {
+          if (event.toolNames.length > 0) setAgentAskStatus(`${t("generate.agentRunning")} ${event.toolNames.join(", ")}…`);
+        },
+        signal: controller.signal,
+      });
+      if (outcome.status === "done") setAgentAskResultText(outcome.text || t("quickLookup.done"));
+      else if (outcome.status === "max_rounds") setAgentAskNotice(t("generate.autoRunChainCapped"));
+      else if (outcome.status === "paused_for_input") setAgentAskNotice(t("generate.agentPausedForInput"));
+    } catch (err) {
+      setAgentAskError(err instanceof Error ? err.message : "Agent run failed");
+    } finally {
+      agentAskAbortRef.current = null;
+    }
   }
 
   /** Shared by both the `selected` and `selectedEmbedId` branches below — a Card and
-   *  an embedded Card get the same process/accept-all-diffs actions, same precedent
-   *  as their existing Edit/Save/Remove set. Rendered specially in the row below
-   *  (not a plain onClick) since "process" opens ProcessPicker anchored to its own
-   *  button rather than firing immediately. */
+   *  an embedded Card get the same accept-all-diffs action, same precedent as their
+   *  existing Edit/Move/Remove set. The annotate/process trigger that used to live
+   *  here (Card design pass) was cut from both rows — still reachable, when there's
+   *  something to accept, via acceptAllDiffs below. */
   const processActions: DockAction[] = [
-    ...(onRunProcess
-      ? [
-          {
-            key: "process",
-            operationId: null,
-            icon: "annotate" as const,
-            spin: processRunning,
-            label: processRunning ? t("dock.action.processRunning") : t("dock.action.process"),
-            // Computes a fixed viewport position from the button's own rect rather
-            // than anchoring via CSS position:absolute — .dock__row scrolls
-            // horizontally (overflow-x: auto), which clips an absolutely-positioned
-            // popover that escapes upward even though it still "renders" (same
-            // ancestor-overflow clipping behavior SelectionMenu.tsx's fixed
-            // positioning already sidesteps for the same reason).
-            onClick: () => {
-              // TEMP DEBUG — remove once the annotation-run-doesn't-do-anything
-              // issue is diagnosed.
-              console.debug("[annot] Dock process button clicked", {
-                hasRef: !!processButtonRef.current,
-                processRunning,
-              });
-              setProcessPickerPos((open) => {
-                if (open) {
-                  console.debug("[annot] closing ProcessPicker");
-                  return null;
-                }
-                const rect = processButtonRef.current?.getBoundingClientRect();
-                if (!rect) {
-                  console.debug("[annot] process button has no rect yet — picker will NOT open");
-                  return null;
-                }
-                console.debug("[annot] opening ProcessPicker at", rect);
-                return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
-              });
-            },
-            disabled: processRunning,
-          },
-        ]
-      : []),
     ...(onAcceptAllDiffs && pendingDiffCount > 0
       ? [
           {
@@ -1097,15 +1037,38 @@ export function Dock({
     },
   };
 
-  // Same toggle convention as vaultAction alongside it — stays in the default row,
-  // just swaps its icon/label between open and closed rather than disappearing.
-  const nearbyLabel = nearbyOpen ? t("dock.nearby.close") : t("dock.nearby.open");
-  const nearbyAction: DockAction = {
-    key: "nearby",
+  // The idle Dock row's fixed left-to-right set (feedback: "Redo... home, search,
+  // dock, undo/redo, vertical ellipses"). Home/Undo/Redo/More are placeholders on
+  // purpose — the request was explicit that they don't need to do anything yet;
+  // Search (vaultAction) and Dock (dockCardsAction) alongside them keep their real
+  // behavior unchanged.
+  const homeAction: DockAction = {
+    key: "home",
     operationId: null,
-    icon: nearbyOpen ? "close" : "compass",
-    label: nearbyLabel,
-    onClick: () => (nearbyOpen ? onClosePanel() : onOpenPanel("nearby")),
+    icon: "home",
+    label: t("pages.home"),
+    onClick: () => {},
+  };
+  const undoAction: DockAction = {
+    key: "undo",
+    operationId: null,
+    icon: "undo",
+    label: t("dock.action.undo"),
+    onClick: () => {},
+  };
+  const redoAction: DockAction = {
+    key: "redo",
+    operationId: null,
+    icon: "redo",
+    label: t("dock.action.redo"),
+    onClick: () => {},
+  };
+  const moreAction: DockAction = {
+    key: "more",
+    operationId: null,
+    icon: "moreVertical",
+    label: t("dock.action.more"),
+    onClick: () => {},
   };
 
   const vaultViewContent = renderedPanel === "vault" && (
@@ -1116,6 +1079,8 @@ export function Dock({
         searchResults={vaultSearchResults}
         pageResults={vaultPageResults}
         onOpenPage={onOpenPageFromSearch}
+        homes={vaultHomes}
+        onCreateHome={onCreateHome}
         selectedCardId={selectedVaultCardId}
         onSelectCard={(id) => setSelectedVaultCardId((prev) => (prev === id ? null : id))}
         // Only non-null once selection and the explicit "Preview" action
@@ -1335,51 +1300,12 @@ export function Dock({
     const available = selectedCards
       .map((pc) => supportedOperationIds(getCardTypeId(pc.card)))
       .reduce((a, b) => new Set([...a].filter((id) => b.has(id))));
-    // Whether a Stack's own generation targets its active alternate instead of the
-    // page-level generate below — only meaningful for a single selected Stack, same
-    // "single selection only" scoping processActions/pendingDiffCount already use.
-    const isStackSelected =
-      selectedCards.length === 1 && getCardTypeId(selectedCards[0].card) === "stack";
     // Whether the Hide action should read "Show" instead — true only once every
     // selected Card is already hidden, same "every, not some" bulk-toggle
     // convention a "select all" checkbox uses; a mixed selection (some hidden,
     // some not) defaults back to "Hide", which then hides the rest too.
     const allSelectedHidden = selectedCards.every((pc) => pc.card.metadata.hidden);
-    // "Generate", for a selected Stack, targets the Stack's own generation instance
-    // (activeStackRegistry.ts) instead of the rewrite-in-place flow below: it appends
-    // a new alternate and streams into *that*. For any other selected Card, the same
-    // button instead opens the rewrite text box (rewriteBoxOpen) rather than firing
-    // anything immediately — see onRewriteSelected's doc comment above.
-    const stackGenerating = isStackSelected && !!activeStack?.isGenerating;
-    const generateOnClick = isStackSelected
-      ? stackGenerating
-        ? activeStack?.stopGenerating
-        : activeStack?.generateNewAlternate
-      : () => setRewriteBoxOpen(true);
     modeActions = [
-      {
-        key: "back",
-        operationId: null,
-        icon: "back" as const,
-        label: t("dock.action.back"),
-        onClick: onDeselectAll,
-      },
-      // Rewrite-in-place/"append a new alternate" only ever makes sense against a
-      // single definite target (a diff needs one Card's content to anchor against;
-      // a Stack's own generation needs one Stack to append to) — hidden entirely
-      // once a second Card joins the selection rather than trying to generalize it.
-      ...(selectedCards.length === 1
-        ? [
-            {
-              key: "generateSelected",
-              operationId: null,
-              icon: stackGenerating ? ("stop" as const) : ("generate" as const),
-              spin: stackGenerating,
-              label: stackGenerating ? t("feedInput.stopGeneration") : t("feedInput.generate"),
-              onClick: generateOnClick ?? (() => setRewriteBoxOpen(true)),
-            },
-          ]
-        : []),
       // Freeze (Open/Frozen — Wattle vault plan): only offered for a single, already-
       // saved, still-Open Card — nothing to freeze yet if it's still page-local
       // scratch content or a draft is pending (hasUnsavedDraft), and freezing an
@@ -1398,39 +1324,6 @@ export function Dock({
             },
           ]
         : []),
-      ...(hasUnsavedDraft
-        ? [
-            {
-              key: "save",
-              operationId: "card.save",
-              icon: "save" as const,
-              label: t("dock.action.save"),
-              onClick: onSaveSelected,
-            },
-          ]
-        : []),
-      // ^ Present only while there's something to commit — once saved, it just
-      // disappears from the row entirely rather than sticking around as a
-      // disabled checkmark.
-      // The selected Stack's active alternate — Save acts on whichever member
-      // CardStackRail currently has in view (activeStackRegistry.ts), not the
-      // container itself (which never has anything of its own to save — see
-      // stackCardType.ts). Kept out of the generic `save` action above since that one
-      // is gated on operationId "card.save", which a Stack container never supports.
-      // Same position in the row as the generic `save` above (before Move) — the two
-      // are mutually exclusive (a Stack container never matches hasUnsavedDraft), so
-      // this just fills the same "Save" slot for a Stack selection instead.
-      ...(isStackSelected && activeStack?.hasUnsavedDraft
-        ? [
-            {
-              key: "saveStackAlternate",
-              operationId: null,
-              icon: "save" as const,
-              label: t("cardStack.save"),
-              onClick: activeStack.save,
-            },
-          ]
-        : []),
       {
         key: "move",
         operationId: null,
@@ -1446,7 +1339,10 @@ export function Dock({
         onClick: onToggleHiddenSelected,
       },
       // Opens ConvertPicker anchored to its own button (same as "process" above),
-      // rather than firing an action directly.
+      // rather than firing an action directly. Icon.tsx's own "convert" glyph
+      // (Card design pass) is an arrow feeding into a document now, not the
+      // original circular-arrows/sync symbol it used to be — reads directly as
+      // "compile this selection into a Standard Wattle Card".
       {
         key: "convert",
         operationId: null,
@@ -1458,15 +1354,8 @@ export function Dock({
       // destinations — tap the Dock Cards toggle itself while moving (see
       // dockCardsAction below). No "Make a Stack" action here either — that lives
       // directly on the Card itself (its header's "+" button, Card.tsx/
-      // StackBody.tsx/FileView.tsx) rather than the Dock.
-      {
-        key: "removeSelected",
-        operationId: null,
-        icon: "close" as const,
-        label: t("card.remove"),
-        onClick: onRemoveSelected,
-        danger: true,
-      },
+      // StackBody.tsx/FileView.tsx) rather than the Dock. Bulk remove is gone too
+      // (Card design pass) — each Card's own header "X" covers it one at a time now.
       ...processActions,
     ].filter((action) => action.operationId === null || available.has(action.operationId));
   } else if (selectedDockCardIds.size > 0) {
@@ -1523,7 +1412,8 @@ export function Dock({
         label: t("dock.action.back"),
         onClick: clearQuotes,
       },
-      // Opens the same ConvertPicker as the selectedCards row's own Convert.
+      // Opens the same ConvertPicker as the selectedCards row's own Convert — same
+      // "convert" icon as there.
       {
         key: "convertQuotes",
         operationId: null,
@@ -1870,18 +1760,22 @@ export function Dock({
           ? (vaultModeActions ?? modeActions)
           : isEditingActive
             ? formattingActions
-            : [vaultAction, dockCardsAction, nearbyAction, ...(vaultModeActions ?? modeActions)];
+            : [
+                homeAction,
+                vaultAction,
+                dockCardsAction,
+                undoAction,
+                redoAction,
+                moreAction,
+                ...(vaultModeActions ?? modeActions),
+                // Tucked in last, not pinned first — a real, working toggle, but low
+                // priority next to Home/Search/Dock (feedback: "doesn't need to look
+                // different... not that high priority"). Plain row button now, same
+                // as everything else here, instead of a fixed sibling of .dock__row.
+                revealHiddenAction,
+              ];
 
   const rowActions: DockAction[] = actions;
-
-  // True default state only (nothing selected, not editing, not moving) — same
-  // condition the row above resolves to its final [vaultAction, dockCardsAction, …]
-  // branch. Rendered as its own fixed button *outside* .dock__row (see the JSX
-  // below) rather than folded into that array: .dock__row scrolls horizontally once
-  // its buttons overflow, and this toggle needs to stay reachable without scrolling
-  // to it every time.
-  const showRevealHiddenButton =
-    !moving && !dockCardMoving && !embedMoving && !isEditingActive && !embedOrPageCardSelected;
 
   const dockCardsViewContent = renderedPanel === "dockCards" && (
     <div className="dock__extended-panel-view">
@@ -1896,19 +1790,6 @@ export function Dock({
         onUploadFile={onUploadDockCardFile}
         openCardId={dockCardToOpen}
         onOpenedCard={onOpenedDockCard}
-      />
-    </div>
-  );
-
-  const nearbyViewContent = renderedPanel === "nearby" && (
-    <div className="dock__extended-panel-view">
-      <NearbyPanel
-        items={nearbyItems}
-        loading={nearbyLoading}
-        onOpenCard={(cardId) => {
-          onOpenNearbyCard(cardId);
-          onClosePanel();
-        }}
       />
     </div>
   );
@@ -1961,13 +1842,30 @@ export function Dock({
     >
       {vaultViewContent}
       {dockCardsViewContent}
-      {nearbyViewContent}
       {pagesViewContent}
     </div>
   );
 
   return (
-    <footer className="dock">
+    <footer
+      className="dock"
+      // Prevents any Dock button from taking focus on click — same technique
+      // format/insert buttons already used individually for a different reason
+      // (not stealing focus from the ProseMirror editor), generalized here to
+      // every button in the Dock: a focused button inside .dock__row's own
+      // `overflow-x: auto` (or any other scrolling ancestor) can trigger the
+      // browser's default "scroll the focused element into view" behavior,
+      // which reads as the row randomly jumping/scrolling on an ordinary tap.
+      // Delegated once here rather than on every individual button — mousedown's
+      // preventDefault only suppresses the focus (and thus that scroll), the
+      // click itself (and so every button's own onClick) still fires normally.
+      // Scoped to actual <button> elements via closest() so text inputs
+      // elsewhere in the Dock (Quick Lookup's own textarea, Vault search, rename
+      // fields) still focus normally on click.
+      onMouseDown={(e) => {
+        if ((e.target as Element).closest("button")) e.preventDefault();
+      }}
+    >
       {extendedPanel}
       {generationNotice && (
         <div className="dock__notice-banner" role="status">
@@ -2043,68 +1941,56 @@ export function Dock({
         <div className="dock__lookup-panel">
           {/* Same 3D flip mechanic as the "prompt" CardType's own PromptCardBody.tsx
               (PromptCard.css) — front face is the ask input, back face is the
-              generated result rendered as its own bordered card rather than bare
-              text, flipping over the moment a question is sent (handleAskLookup). */}
+              agent's own run (Brilliantly Simple Generation Agent plan, scope:
+              "cards"), flipping over the moment a question is sent
+              (handleAskAgent). Any mutation the agent makes lands as real edits to
+              the Page itself, not just to what's shown here — the back face is a
+              status readout, not a review step. */}
           <div className={`dock__lookup-flip${lookupFlipped ? " dock__lookup-flip--flipped" : ""}`}>
             <div
               className={`dock__lookup-face dock__lookup-face--front${lookupFlipped ? " dock__lookup-face--hidden" : ""}`}
             >
+              {/* Just a text box with its own send icon embedded in it now (Card
+                  design pass) — no placeholder, no separate close button;
+                  Escape (below) still dismisses, and deselecting the underlying
+                  Card/embed/Quote makes the whole panel disappear on its own
+                  (lookupActive above). */}
               <div className="dock__lookup-ask">
-                <input
+                <InputField
+                  multiline
+                  rows={1}
+                  ref={lookupInputRef}
                   className="dock__lookup-input"
                   value={lookupInstruction}
                   onChange={(e) => setLookupInstruction(e.target.value)}
-                  placeholder={t("quickLookup.placeholder")}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") dismissLookup();
-                    else if (e.key === "Enter") {
+                    else if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      handleAskLookup();
+                      void handleAskAgent();
                     }
                   }}
                 />
                 <Button
                   iconOnly
-                  onClick={handleAskLookup}
-                  disabled={
-                    lookup.streaming ||
-                    (selectedCards.length === 0 && selectedEmbedIds.size === 0 && quotes.length === 0)
-                  }
+                  className="dock__lookup-send"
+                  onClick={() => void handleAskAgent()}
+                  disabled={agentLoop.running || selectedCards.length === 0}
                   aria-label={t("quickLookup.ask")}
-                  title={t("quickLookup.ask")}
+                  title={selectedCards.length === 0 ? t("quickLookup.needsCardSelected") : t("quickLookup.ask")}
                 >
-                  <Icon name="generate" spin={lookup.streaming} />
-                </Button>
-                <Button
-                  iconOnly
-                  onClick={dismissLookup}
-                  aria-label={t("quickLookup.dismiss")}
-                  title={t("quickLookup.dismiss")}
-                >
-                  <Icon name="close" />
+                  <Icon name="generate" spin={agentLoop.running} />
                 </Button>
               </div>
-              {(selectedCards.length > 0 || selectedEmbedIds.size > 0 || quotes.length > 0) && (
-                <div className="dock__lookup-summary">
-                  {(() => {
-                    const cardCount = selectedCards.length + selectedEmbedIds.size;
-                    return (
-                      <>
-                        {lookupWordCount} word{lookupWordCount === 1 ? "" : "s"}, {cardCount} card
-                        {cardCount === 1 ? "" : "s"}, {quotes.length} quote{quotes.length === 1 ? "" : "s"}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
             </div>
             <div
               className={`dock__lookup-face dock__lookup-face--back${lookupFlipped ? "" : " dock__lookup-face--hidden"}`}
             >
-              {/* Same small rail as PromptCardBody.tsx's own (CardStackRail.tsx's
-                  "n / total" convention) — the edit button flips back to the front
-                  face to ask another question; prev/next browse past answers for
-                  the *current* selection without losing any of them. */}
+              {/* Same small rail as PromptCardBody.tsx's own — the edit button
+                  flips back to the front face to ask another question. No prev/
+                  next any more (unlike the old read-only lookup): each ask is a
+                  fresh round of real mutations, not one more answer to browse
+                  back to. */}
               <div className="dock__lookup-rail">
                 <Button
                   iconOnly
@@ -2114,63 +2000,22 @@ export function Dock({
                 >
                   <Icon name="edit" />
                 </Button>
-                {lookupIterations.length > 1 && (
-                  <>
-                    <Button
-                      iconOnly
-                      aria-label={t("cardStack.previous")}
-                      title={t("cardStack.previous")}
-                      disabled={lookupActiveIndexClamped === 0}
-                      onClick={() => goToLookupIteration(lookupActiveIndexClamped - 1)}
-                    >
-                      <Icon name="up" className="dock__lookup-rail-arrow dock__lookup-rail-arrow--left" />
-                    </Button>
-                    <span className="dock__lookup-rail-position">
-                      {lookupActiveIndexClamped + 1} / {lookupIterations.length}
-                    </span>
-                    <Button
-                      iconOnly
-                      aria-label={t("cardStack.next")}
-                      title={t("cardStack.next")}
-                      disabled={lookupActiveIndexClamped === lookupIterations.length - 1}
-                      onClick={() => goToLookupIteration(lookupActiveIndexClamped + 1)}
-                    >
-                      <Icon name="up" className="dock__lookup-rail-arrow dock__lookup-rail-arrow--right" />
-                    </Button>
-                  </>
-                )}
               </div>
-              {lookup.streaming ? (
+              {agentLoop.running ? (
                 <div className="dock__lookup-generating">
                   <Icon name="generate" spin />
-                  <span>{t("promptCard.sending")}</span>
-                  <Button onClick={lookup.stop}>
+                  <span>{agentAskStatus ?? t("promptCard.sending")}</span>
+                  <Button onClick={() => agentAskAbortRef.current?.abort()}>
                     <Icon name="stop" />
                     {t("promptCard.stop")}
                   </Button>
                 </div>
-              ) : activeLookupIteration ? (
+              ) : agentAskResultText !== null || agentAskNotice !== null ? (
                 <>
                   <div className="dock__lookup-result-card">
-                    <CardRichText
-                      key={lookupActiveIndexClamped}
-                      content={activeLookupIteration.text}
-                      onChangeContent={() => {}}
-                      editable={false}
-                      cardId="quick-lookup-result"
-                      ancestorIds={EMPTY_ANCESTOR_IDS}
-                      depth={0}
-                    />
+                    <p>{agentAskResultText ?? agentAskNotice}</p>
                   </div>
                   <div className="dock__lookup-actions">
-                    <Button onClick={() => quickAddToPage(activeLookupIteration.text)}>
-                      <Icon name="plus" />
-                      {t("quickLookup.addToPage")}
-                    </Button>
-                    <Button onClick={() => quickAddToDock(activeLookupIteration.text)}>
-                      <Icon name="tray" />
-                      {t("quickLookup.addToDock")}
-                    </Button>
                     <Button
                       iconOnly
                       onClick={dismissLookup}
@@ -2184,7 +2029,7 @@ export function Dock({
               ) : null}
             </div>
           </div>
-          {lookup.error && <p className="dock__lookup-error">{lookup.error}</p>}
+          {agentAskError && <p className="dock__lookup-error">{agentAskError}</p>}
         </div>
       )}
       {/* Convert's own result panel — same bordered-card-plus-actions shape as the
@@ -2246,76 +2091,15 @@ export function Dock({
         </div>
       )}
       <div className="dock__bottom-row">
-        {showRevealHiddenButton && (
-          <Button
-            iconOnly
-            className={`dock__reveal-hidden-button${revealHiddenAction.active ? " button--pressed" : ""}`}
-            onClick={revealHiddenAction.onClick}
-            aria-label={revealHiddenAction.label}
-            title={revealHiddenAction.label}
-          >
-            <Icon name={revealHiddenAction.icon} />
-          </Button>
-        )}
         <div className="dock__row">
-          {rewriteBoxOpen ? (
-            // The magic button's rewrite-in-place text box (onRewriteSelected) —
-            // replaces every other selectedCards action while open, same "collapse
-            // to just what's relevant" convention formattingActions already uses for
-            // isEditingActive. The send button re-lists as the same "generate" icon
-            // the row's own magic button already showed — tapping it a second time
-            // is what "sends" the typed (or blank) instruction.
-            <>
-              <Button
-                iconOnly
-                onClick={() => {
-                  setRewriteBoxOpen(false);
-                  setRewriteText("");
-                }}
-                aria-label={t("dock.action.back")}
-                title={t("dock.action.back")}
-              >
-                <Icon name="back" />
-              </Button>
-              <input
-                className="dock__rewrite-input"
-                value={rewriteText}
-                onChange={(e) => setRewriteText(e.target.value)}
-                placeholder={t("dock.action.rewritePlaceholder")}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setRewriteBoxOpen(false);
-                    setRewriteText("");
-                  } else if (e.key === "Enter") {
-                    onRewriteSelected(rewriteText);
-                    setRewriteBoxOpen(false);
-                    setRewriteText("");
-                  }
-                }}
-              />
-              <Button
-                iconOnly
-                onClick={() => {
-                  onRewriteSelected(rewriteText);
-                  setRewriteBoxOpen(false);
-                  setRewriteText("");
-                }}
-                aria-label={t("feedInput.generate")}
-                title={t("feedInput.generate")}
-              >
-                <Icon name="generate" />
-              </Button>
-            </>
-          ) : (
-            rowActions.map((action, index) => {
+          {rowActions.map((action, index) => {
             // Vault-specific actions (New Card/Upload with nothing selected;
             // Add to Page/Rename/Delete once a Card in the vault is selected —
             // vaultModeActions above) get a visibly different treatment and a
             // divider ahead of the first one, so they read as their own cluster
             // rather than blending into the row's other actions — the
             // exact toggle button itself (key "vault") is excluded, since that one
-            // belongs with dockCardsAction/nearbyAction as a plain panel toggle, not
+            // belongs with dockCardsAction as a plain panel toggle, not
             // a vault-content action. Same `key.startsWith(...)` convention the
             // onMouseDown formatting-button check below already uses.
             const isVaultAction = action.key !== "vault" && action.key.startsWith("vault");
@@ -2329,26 +2113,13 @@ export function Dock({
             <Fragment key={action.key}>
             {showDivider && <span className="dock__action-divider" aria-hidden="true" />}
             {
-            // "process" opens ProcessPicker anchored to its own button, rather
-            // than firing an action directly — needs its own positioned wrapper,
-            // unlike every other plain-click DockAction below.
-            action.key === "process" ? (
-              <div key="process" className="dock__process-wrap" ref={processButtonRef}>
-                <Button
-                  iconOnly
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  title={action.label}
-                >
-                  <Icon name={action.icon} spin={action.spin} />
-                </Button>
-              </div>
-            ) : action.key === "convert" || action.key === "convertQuotes" ? (
-              // Same "needs its own positioned wrapper" reasoning as "process" above
-              // — one shared ref, since only one of "convert"/"convertQuotes" is ever
-              // present in a given row's actions at once (selectedCards vs. the
-              // quotes-only row), so there's no risk of two DOM nodes fighting over it.
+            action.key === "convert" || action.key === "convertQuotes" ? (
+              // "convert" opens ConvertPicker anchored to its own button, rather
+              // than firing an action directly — needs its own positioned wrapper,
+              // unlike every other plain-click DockAction below. One shared ref,
+              // since only one of "convert"/"convertQuotes" is ever present in a
+              // given row's actions at once (selectedCards vs. the quotes-only
+              // row), so there's no risk of two DOM nodes fighting over it.
               <div key={action.key} className="dock__convert-wrap" ref={convertButtonRef}>
                 <Button
                   iconOnly
@@ -2454,15 +2225,27 @@ export function Dock({
             }
             </Fragment>
             );
-            })
-          )}
+            })}
         </div>
+        {/* "12 words, 2 cards, 1 quote" — pinned to the bottom-right corner of the
+            Dock, same slot family as .dock__page-nav just below (the two are
+            near-complementary: this shows exactly while something's selected for
+            Quick Lookup, the page nav hides then). Was inline inside the ask
+            panel itself; moved here so that panel stays just a text box and a
+            magic icon (Card design pass). */}
+        {(selectedCards.length > 0 || selectedEmbedIds.size > 0 || quotes.length > 0) && (
+          <div className="dock__selection-summary">
+            {lookupWordCount} word{lookupWordCount === 1 ? "" : "s"}, {lookupCardCount} card
+            {lookupCardCount === 1 ? "" : "s"}, {quotes.length} quote{quotes.length === 1 ? "" : "s"}
+          </div>
+        )}
         {/* The Page nav cluster (formerly the standalone PageNav component, merged
             here per feedback) — up/down (the optional sibling trail, Phase 3) /add,
             Home, pin, and the Pages panel toggle, pinned to the bottom-right corner
             of the Dock. (The hidden-Cards reveal toggle used to live here too — it's
-            its own DockAction in the default row now, revealHiddenAction above,
-            alongside Vault/Dock Cards.) Hidden while a Page Card/embed is selected
+            its own standalone button now, revealHiddenAction above, visible on the
+            idle screen too rather than gated with this cluster.) Hidden while a
+            Page Card/embed is selected
             and NOT mid-move (Selection Lock, Step 6 spec §4.3) — a selected *Dock*
             Card deliberately leaves it visible, same as Vault (see
             embedOrPageCardSelected above). Moving either kind of Card (page or Dock)
@@ -2471,8 +2254,12 @@ export function Dock({
             (via Search/Home/pins), so this cluster has to stay reachable the whole
             time a move is in progress even though the selection it carries forward
             (handleEnterMoveMode/handleEnterDockCardMoveMode) is still technically
-            non-empty. */}
-        {(!embedOrPageCardSelected || moving || dockCardMoving) && (
+            non-empty. Also hidden on the true idle screen (`openPanel === null`) —
+            the idle row's own Home stub covers that slot there; this fuller cluster
+            (back/forward/pin/Pages toggle/add) reappears once Vault/Dock Cards/
+            Pages is open, still reachable, just not part of the very first screen
+            any more. */}
+        {((!embedOrPageCardSelected && openPanel !== null) || moving || dockCardMoving) && (
           <div className="dock__page-nav">
             <button
               type="button"
@@ -2556,16 +2343,6 @@ export function Dock({
           </div>
         )}
       </div>
-      {processPickerPos && (
-        <ProcessPicker
-          style={{ left: processPickerPos.left, bottom: processPickerPos.bottom }}
-          onPick={(process) => {
-            setProcessPickerPos(null);
-            onRunProcess?.(process);
-          }}
-          onClose={() => setProcessPickerPos(null)}
-        />
-      )}
       {convertPickerPos && (
         <ConvertPicker
           style={{ left: convertPickerPos.left, bottom: convertPickerPos.bottom }}

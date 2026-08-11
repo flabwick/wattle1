@@ -1,0 +1,55 @@
+.inputCard__control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.inputCard__checkboxRow,
+.inputCard__optionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.inputCard__optionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inputCard__kindSelect {
+  margin-top: var(--space-1);
+}
+
+.inputCard__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  list-style: none;
+  padding: 0;
+}
+
+.inputCard__list--editing li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
+}
+
+.inputCard__add-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.inputCard__add-wrap .input-field {
+  flex: 1;
+}

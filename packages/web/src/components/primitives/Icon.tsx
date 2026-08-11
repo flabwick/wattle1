@@ -64,7 +64,10 @@ export type IconName =
   | "convert"
   | "lock"
   | "compass"
-  | "info";
+  | "info"
+  | "undo"
+  | "redo"
+  | "moreVertical";
 
 interface IconProps {
   name: IconName;
@@ -492,15 +495,17 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
     </>
   ),
-  // Two opposing curved arrows forming a loop — the Dock's "Convert" action
-  // (selectedCards/quote rows), distinct from "move" (repositioning, not a type
-  // change) by the cyclical rather than directional shape.
+  // An arrow feeding into a document — the Dock's "Convert" action
+  // (selectedCards/quote rows). Reuses "file"'s own document shape (shifted
+  // right to make room for the arrow) so "converting into a Standard Wattle
+  // Card" reads unambiguously — replaces an earlier circular-arrows/sync glyph
+  // (Card design pass) that read as "refresh", not "convert".
   convert: (
     <>
-      <path d="M4 9a8 8 0 0 1 14-5" />
-      <path d="M18 4v5h-5" />
-      <path d="M20 15a8 8 0 0 1-14 5" />
-      <path d="M6 20v-5h5" />
+      <path d="M11 3h6l4 4v14H11V3z" />
+      <path d="M17 3v4h4" />
+      <path d="M2 12h7" />
+      <path d="M6 9l3 3-3 3" />
     </>
   ),
   // A padlock — the Dock's "Freeze" action (selectedCards row) and a Frozen Card's
@@ -529,6 +534,30 @@ const PATHS: Record<IconName, JSX.Element> = {
       <circle cx="12" cy="12" r="9" />
       <circle cx="12" cy="8" r="0.2" fill="currentColor" stroke="currentColor" strokeWidth="2" />
       <path d="M12 11v6" />
+    </>
+  ),
+  // A counter-clockwise curling arrow — the idle Dock row's Undo stub.
+  undo: (
+    <>
+      <path d="M9 14L4 9l5-5" />
+      <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+    </>
+  ),
+  // Redo, the mirror of "undo" above.
+  redo: (
+    <>
+      <path d="M15 14l5-5-5-5" />
+      <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+    </>
+  ),
+  // Three vertically-stacked dots — distinct from "more" (horizontal, the Feed Input
+  // Button's own trigger) so the two don't read as the same control in different
+  // spots. The idle Dock row's own "more" stub.
+  moreVertical: (
+    <>
+      <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
     </>
   ),
 };

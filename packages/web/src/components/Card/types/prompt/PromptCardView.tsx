@@ -3,6 +3,7 @@ import { CardShell } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { PromptCardBody } from "./PromptCardBody.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { editCard } from "../../../../lib/cardStore.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
@@ -16,15 +17,7 @@ import "../../Card.css";
  *  is independently always-interactive regardless of selection — same "content
  *  isn't gated behind edit mode" precedent StackBody.tsx uses; folding it away is a
  *  separate, orthogonal control (the caret), not tied to selection either. */
-export function PromptCardView({
-  pageCard,
-  selected,
-  onSelect,
-  onOpenFullscreen,
-  onSave,
-  onOpenInVault,
-  onTurnIntoStack,
-}: CardTypeViewProps) {
+export function PromptCardView({ pageCard, selected, onSelect, onRemove, onTurnIntoStack }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
   // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
@@ -33,29 +26,23 @@ export function PromptCardView({
   const isHidden = Boolean(pageCard.card.metadata.hidden);
   const [showingInfo, setShowingInfo] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const hasUnsavedChanges = pageCard.draftTitle !== null || pageCard.draftContent !== null || !pageCard.card.savedToVault;
   return (
     <CardShell selected={selected} className={isHidden ? "card-shell--hidden" : undefined}>
-      <div className="card__header">
-        <CardHeaderStart
-          title={t("promptCard.title")}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed((c) => !c)}
-          selected={selected}
-          onSelect={onSelect}
-        />
+      <div className="card__header" onClick={onSelect}>
+        <CardHeaderStart title={t("promptCard.title")} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
         <CardHeaderActions
-          hasUnsavedChanges={hasUnsavedChanges}
-          onSave={() => onSave?.(pageCard.id)}
-          onOpenInVault={() => onOpenInVault?.(canonicalCard.title)}
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
-          onOpenFullscreen={onOpenFullscreen && (() => onOpenFullscreen(pageCard.id))}
+          onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
         />
       </div>
       {!collapsed && (
-        <CardFlippableBody card={canonicalCard} showingInfo={showingInfo}>
+        <CardFlippableBody
+          card={canonicalCard}
+          showingInfo={showingInfo}
+          onChangeTitle={(title) => editCard(pageCard.card.id, { title })}
+        >
           <PromptCardBody pageCard={pageCard} />
         </CardFlippableBody>
       )}
