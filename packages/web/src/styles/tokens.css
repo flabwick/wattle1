@@ -44,6 +44,10 @@
   --on-walnut: var(--material-cardstock-raised);
   --on-oxblood: var(--material-cardstock-raised);
   --on-brass: var(--material-ink);
+  /* Card Materials feature: slate is darker than oak in light mode (needs the
+     same light-text treatment walnut/leather get, not oak's dark-ink one) and,
+     like every other material, flips in dark mode. */
+  --on-slate: var(--material-cardstock-raised);
 
   /* Spacing scale */
   --space-1: 4px;
@@ -233,6 +237,7 @@
     --on-walnut: #201810;
     --on-oxblood: #201810;
     --on-brass: #201810;
+    --on-slate: #201810;
 
     --color-hidden-border: var(--material-slate);
   }
@@ -256,6 +261,7 @@
   --on-walnut: #201810;
   --on-oxblood: #201810;
   --on-brass: #201810;
+  --on-slate: #201810;
   --color-hidden-border: var(--material-slate);
 }
 :root[data-theme="light"] {
@@ -277,5 +283,6 @@
   --on-walnut: var(--material-cardstock-raised);
   --on-oxblood: var(--material-cardstock-raised);
   --on-brass: var(--material-ink);
+  --on-slate: var(--material-cardstock-raised);
   --color-hidden-border: var(--material-slate);
 }

@@ -27,14 +27,23 @@ pagesRouter.get("/homes", async (_req, res) => {
   res.json(await pageService.listHomes());
 });
 
-// POST /api/pages/resolve  { title } — find-or-create by title, for the Page-link
-// picker's "link to missing title → create empty Page, link to it" (Phase 2).
+// POST /api/pages/resolve  { title, parentPageId? } — find-or-create by title, for
+// the Page-link picker's "link to missing title → create empty Page, link to it"
+// (Phase 2). `parentPageId`, when given, nests a newly-created Page under it (an
+// inline link inserted from within a Page reads as "a new page within this one",
+// same as the Feed Input's own "New Page" tile) — ignored when an existing Page
+// is reused instead.
 pagesRouter.post("/resolve", async (req, res) => {
-  const { title } = req.body ?? {};
+  const { title, parentPageId } = req.body ?? {};
   if (typeof title !== "string") {
     return res.status(400).json({ error: "title is required" });
   }
-  res.status(200).json(await pageLinkService.resolveOrCreatePageByTitle(title));
+  res.status(200).json(
+    await pageLinkService.resolveOrCreatePageByTitle(
+      title,
+      typeof parentPageId === "string" ? parentPageId : undefined,
+    ),
+  );
 });
 
 pagesRouter.post("/", async (req, res) => {
@@ -70,14 +79,21 @@ pagesRouter.get("/:id/ancestors", async (req, res) => {
 // POST /api/pages/:id/children  { title? } — "create from a page" (Homes + Pages
 // hierarchy Phase 2): a new child Page under :id, a link card attached to :id
 // itself so the parent can navigate back down to it, then PageLink resynced so
-// Search's orphan-detection sees it immediately. Returns the created child Page.
+// Search's orphan-detection sees it immediately. Returns the created child Page
+// plus the link-back Card's own ids (linkPageCardId/linkCardId), so agent-facing
+// callers (actionJobRegistry's createChildPage job) can report a StepOutput
+// pointing at the Card just added to the parent, same as createStack/createCard do.
 pagesRouter.post("/:id/children", async (req, res) => {
   const parentId = req.params.id;
   const { title } = req.body ?? {};
   const child = await pageService.createPage(typeof title === "string" ? title : undefined, parentId);
-  await pageCardService.addNewCardToPage(parentId, "", pageLinkService.buildPageLinkHtml(child.id, child.title));
+  const linkPageCard = await pageCardService.addNewCardToPage(
+    parentId,
+    "",
+    pageLinkService.buildPageLinkHtml(child.id, child.title),
+  );
   await pageLinkService.syncPageLinksForPage(parentId);
-  res.status(201).json(child);
+  res.status(201).json({ ...child, linkPageCardId: linkPageCard.id, linkCardId: linkPageCard.card.id });
 });
 
 pagesRouter.patch("/:id", async (req, res) => {

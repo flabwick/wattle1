@@ -2,13 +2,32 @@
    offset shadow give the card physical thickness instead of a flat drop-shadow
    blur. */
 .card-shell {
+  /* Card Materials feature: every material-dependent visual reads through one of
+     these five custom properties, never a property CardShell/Card.css declare
+     directly more than once — `--card-bg` (the content background, always the
+     plain cardstock default — see the material rules further down, none of which
+     touch this any more: feedback was explicit that the reading surface itself
+     must stay blank), `--card-header-bg`/`--card-header-pattern` (Card.css's own
+     `.card__header` reads both — the header is where a material's actual texture
+     now lives, since it's a small non-reading strip, not the content), and
+     `--card-border-color`/`--card-shadow-color` (this rule's own `border`/
+     `box-shadow` below). `--selected`/`--hidden` mix relative to `--card-bg`
+     unchanged; nothing about them needs to know materials exist. */
+  --card-bg: var(--color-surface);
+  --card-border-color: var(--color-border-strong);
+  --card-border-width: var(--border-width-bold);
+  --card-border-style: solid;
+  --card-shadow-color: var(--color-shadow);
   display: block;
   width: 100%;
   text-align: left;
-  background: var(--color-surface);
-  border: var(--border-width-bold) solid var(--color-border-strong);
+  position: relative;
+  background-color: var(--card-bg);
+  border-width: var(--card-border-width);
+  border-style: var(--card-border-style);
+  border-color: var(--card-border-color);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
+  box-shadow: 3px 3px 0 var(--card-shadow-color);
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-3);
   min-height: var(--touch-target-min);
@@ -24,7 +43,7 @@
    something you'd "pick up"). */
 .card-shell:not(.card-shell--editing, .card-shell--ghost):hover {
   transform: translate(-1px, -3px);
-  box-shadow: var(--shadow-card-lifted);
+  box-shadow: 5px 6px 0 var(--card-shadow-color);
 }
 
 /* A selected card keeps its accent-colored shadow while lifted, rather than
@@ -63,7 +82,7 @@
 .card-shell--selected {
   border-color: var(--color-accent);
   box-shadow: 3px 3px 0 var(--color-accent);
-  background: color-mix(in srgb, var(--material-highlighter) 20%, var(--color-surface));
+  background: color-mix(in srgb, var(--material-highlighter) 20%, var(--card-bg));
 }
 
 .card-shell:focus-visible {
@@ -102,5 +121,221 @@
 .card-shell--hidden {
   border-style: dashed;
   border-color: var(--color-hidden-border);
-  background: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-hidden-border) 18%, var(--card-bg));
 }
+
+/* Card Materials feature (Card.metadata.material) — a named physical material for
+   the Card's own background, set via CardInfoPanel.tsx's picker and forwarded here
+   as a plain `data-material` attribute (Card.tsx).
+
+   Round 4 after feedback ("make the patterns actually genuinely look like the
+   materials… the content part of the cards shouldn't have patterns within them,
+   should be blank… allow the borders, the header and surroundings, maybe even
+   the dropshadows or shape of the cards to be different"): every earlier round
+   put the material's own texture in the Card's own reading surface — even at a
+   light tint, that's exactly the part of the Card this feedback says must stay
+   plain. Materials no longer touch `--card-bg` at all: the content area is
+   always the ordinary cardstock surface, full stop. Everything a material
+   actually changes now lives in the parts of the Card that are never something
+   you read line-by-line: `--card-header-bg`/`--card-header-pattern` (the title
+   strip — Card.css's own `.card__header` reads both), `--card-border-color`/
+   `--card-border-width`/`--card-border-style` (this file's own base rule), and
+   `--card-shadow-color` (ditto) — border, header, and dropshadow, exactly the
+   "surroundings" the feedback names, plus a genuine shape change for two
+   materials (brass's double-line hardware edge, parchment's own deckle-edge
+   dashed border) rather than only ever a color swap. Each pattern is designed to
+   read as that *specific* material rather than an interchangeable stripe/dot —
+   see each rule's own comment for what real-world texture it's standing in for. */
+.card-shell[data-material="parchment"] {
+  --card-header-bg: color-mix(in srgb, var(--material-parchment) 70%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 90%, var(--material-parchment) 10%);
+  --card-border-color: color-mix(in srgb, var(--material-parchment) 55%, var(--color-border-strong));
+  --card-border-style: dashed;
+  --card-shadow-color: color-mix(in srgb, var(--material-parchment) 35%, var(--color-shadow));
+  /* Laid paper: fine horizontal "laid lines" (the ribbing a mould-made sheet is
+     pressed with) crossed by widely-spaced vertical "chain lines" — real laid
+     paper always has both, at very different frequencies, which is what reads as
+     paper rather than a generic hatch. */
+  --card-header-pattern: repeating-linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-shadow) 16%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 16%, transparent) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    repeating-linear-gradient(
+      to right,
+      color-mix(in srgb, var(--color-shadow) 22%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 22%, transparent) 1px,
+      transparent 1px,
+      transparent 22px
+    );
+}
+.card-shell[data-material="oak"] {
+  --card-header-bg: color-mix(in srgb, var(--material-oak) 62%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 88%, var(--material-oak) 12%);
+  --card-border-color: color-mix(in srgb, var(--material-oak) 55%, var(--color-border-strong));
+  --card-shadow-color: color-mix(in srgb, var(--material-oak) 45%, var(--color-shadow));
+  /* Wood grain: three overlapping streak frequencies (fine/medium/wide), each a
+     different opacity — real grain is irregular, never one repeat interval, and
+     three staggered layers is enough to read as organic rather than mechanical. */
+  --card-header-pattern: repeating-linear-gradient(
+      91deg,
+      color-mix(in srgb, var(--color-shadow) 24%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 24%, transparent) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    repeating-linear-gradient(
+      93deg,
+      color-mix(in srgb, var(--color-shadow) 14%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 14%, transparent) 2px,
+      transparent 2px,
+      transparent 11px
+    ),
+    repeating-linear-gradient(
+      89deg,
+      color-mix(in srgb, var(--color-shadow) 9%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 9%, transparent) 3px,
+      transparent 3px,
+      transparent 27px
+    );
+}
+.card-shell[data-material="walnut"] {
+  --card-header-bg: color-mix(in srgb, var(--material-walnut) 55%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 88%, var(--material-walnut) 12%);
+  --card-border-color: color-mix(in srgb, var(--material-walnut) 60%, var(--color-border-strong));
+  --card-border-width: 3px;
+  --card-shadow-color: color-mix(in srgb, var(--material-walnut) 50%, var(--color-shadow));
+  /* Same three-frequency grain as oak, tighter and darker — walnut's own grain is
+     denser and more dramatic than oak's in reality, not just a different hue. */
+  --card-header-pattern: repeating-linear-gradient(
+      91deg,
+      color-mix(in srgb, var(--color-shadow) 32%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 32%, transparent) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    repeating-linear-gradient(
+      93deg,
+      color-mix(in srgb, var(--color-shadow) 20%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 20%, transparent) 2px,
+      transparent 2px,
+      transparent 8px
+    ),
+    repeating-linear-gradient(
+      89deg,
+      color-mix(in srgb, var(--color-shadow) 12%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 12%, transparent) 3px,
+      transparent 3px,
+      transparent 19px
+    );
+}
+.card-shell[data-material="leather"] {
+  --card-header-bg: color-mix(in srgb, var(--material-leather) 48%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 88%, var(--material-leather) 12%);
+  --card-border-color: color-mix(in srgb, var(--material-leather) 55%, var(--color-border-strong));
+  --card-border-width: 3px;
+  --card-shadow-color: color-mix(in srgb, var(--material-leather) 50%, var(--color-shadow));
+  /* Pebbled hide grain (small irregular dots, the way tanned leather's surface
+     actually looks under light — not a hatch, which reads as woven fabric
+     instead) plus a saddle-stitch: the header's own separating rule (Card.css's
+     .card__header border-bottom) turns dashed for both leathers, standing in for
+     a stitched seam along the edge of a leather panel — reusing an element
+     that's already there rather than adding a new one. */
+  --card-header-pattern: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--color-shadow) 30%, transparent) 0.6px,
+      transparent 1px
+    ),
+    radial-gradient(circle, color-mix(in srgb, var(--color-shadow) 22%, transparent) 0.5px, transparent 0.9px);
+  --card-header-pattern-size: 4px 4px, 3px 3px;
+  --card-header-pattern-position: 0 0, 1.5px 2px;
+  --card-header-border-bottom-style: dashed;
+}
+.card-shell[data-material="leatherDark"] {
+  --card-header-bg: color-mix(in srgb, var(--material-leather-dark) 46%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 87%, var(--material-leather-dark) 13%);
+  --card-border-color: color-mix(in srgb, var(--material-leather-dark) 60%, var(--color-border-strong));
+  --card-border-width: 3px;
+  --card-shadow-color: color-mix(in srgb, var(--material-leather-dark) 55%, var(--color-shadow));
+  /* Same pebbled-hide technique as leather, denser and darker — a heavier, more
+     worked strap rather than only a darker shade. */
+  --card-header-pattern: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--color-shadow) 38%, transparent) 0.7px,
+      transparent 1.1px
+    ),
+    radial-gradient(circle, color-mix(in srgb, var(--color-shadow) 28%, transparent) 0.6px, transparent 1px);
+  --card-header-pattern-size: 3.5px 3.5px, 2.5px 2.5px;
+  --card-header-pattern-position: 0 0, 1.5px 1.5px;
+  --card-header-border-bottom-style: dashed;
+}
+.card-shell[data-material="slate"] {
+  --card-header-bg: color-mix(in srgb, var(--material-slate) 55%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 88%, var(--material-slate) 12%);
+  --card-border-color: color-mix(in srgb, var(--material-slate) 55%, var(--color-border-strong));
+  --card-shadow-color: color-mix(in srgb, var(--material-slate) 45%, var(--color-shadow));
+  /* Cleaved stone: irregular fine speckle (no grain direction — unlike wood/
+     leather, stone doesn't have one) plus faint straight hairline fractures, the
+     way slate actually splits along flat, slightly uneven planes. */
+  --card-header-pattern: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--color-shadow) 26%, transparent) 0.5px,
+      transparent 0.9px
+    ),
+    repeating-linear-gradient(
+      100deg,
+      transparent 0px,
+      transparent 13px,
+      color-mix(in srgb, var(--color-shadow) 14%, transparent) 13px,
+      color-mix(in srgb, var(--color-shadow) 14%, transparent) 14px
+    );
+  --card-header-pattern-size: 3px 3px, auto;
+}
+.card-shell[data-material="brass"] {
+  --card-header-bg: color-mix(in srgb, var(--material-brass) 62%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 88%, var(--material-brass) 12%);
+  --card-border-color: color-mix(in srgb, var(--material-brass) 65%, var(--color-border-strong));
+  --card-border-width: 4px;
+  --card-border-style: double;
+  --card-shadow-color: color-mix(in srgb, var(--material-brass) 55%, var(--color-shadow));
+  /* Brushed, polished metal: a tight single-direction brushing hatch (the fine
+     parallel scratches a brushed-metal finish actually has) layered under a
+     vertical light/dark/light band standing in for a sheen catching a curved
+     surface — plus the base rule's own `double` border above, an ornamental
+     hardware edge rather than only a color change, since brass is the one
+     material here that's decorative trim, not a surface you'd read text on. */
+  --card-header-pattern: repeating-linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--color-shadow) 16%, transparent) 0px,
+      color-mix(in srgb, var(--color-shadow) 16%, transparent) 1px,
+      transparent 1px,
+      transparent 2px
+    ),
+    linear-gradient(
+      100deg,
+      color-mix(in srgb, white 45%, transparent) 0%,
+      transparent 30%,
+      transparent 70%,
+      color-mix(in srgb, white 45%, transparent) 100%
+    );
+}
+.card-shell[data-material="oxblood"] {
+  --card-header-bg: color-mix(in srgb, var(--material-oxblood) 46%, var(--color-surface-raised));
+  --color-text: color-mix(in srgb, var(--color-text) 87%, var(--material-oxblood) 13%);
+  --card-border-color: color-mix(in srgb, var(--material-oxblood) 50%, var(--color-border-strong));
+  --card-border-width: 3px;
+  --card-shadow-color: color-mix(in srgb, var(--material-oxblood) 55%, var(--color-shadow));
+  /* Pressed, stamped fabric/hide: a fine single-direction weave, distinct from
+     both leathers' own pebbled-dot grain — oxblood reads as a dyed, pressed
+     material (a stamp pad, a ribbon), not a tanned hide. */
+  --card-header-pattern: repeating-linear-gradient(
+    60deg,
+    color-mix(in srgb, var(--color-shadow) 26%, transparent) 0px,
+    color-mix(in srgb, var(--color-shadow) 26%, transparent) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+

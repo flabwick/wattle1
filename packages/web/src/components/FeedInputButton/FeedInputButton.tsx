@@ -197,12 +197,6 @@ export function FeedInputButton({
                 <span>{t("feedInput.open")}</span>
               </button>
             )}
-            {onCreateChildPage && (
-              <button type="button" className="card-type-picker-tile" onClick={handleCreateChildPage}>
-                <Icon name="pages" />
-                <span>{t("feedInput.newPage")}</span>
-              </button>
-            )}
             {typeOptions.map(({ typeId, onSelect }) => {
               const Tile = cardTypeUiRegistry.get(typeId).PickerTile;
               return <Tile key={typeId} onSelect={onSelect} />;
@@ -247,6 +241,17 @@ export function FeedInputButton({
           >
             <Icon name="plus" />
           </button>
+          {onCreateChildPage && (
+            <button
+              type="button"
+              className="feed-input__new-page"
+              onClick={handleCreateChildPage}
+              aria-label={t("feedInput.newPage")}
+              title={t("feedInput.newPage")}
+            >
+              <Icon name="pages" />
+            </button>
+          )}
           {showMoreOptions && (
             <button
               type="button"

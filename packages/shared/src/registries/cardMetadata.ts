@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CARD_MATERIAL_IDS } from "../materials.js";
 
 /**
  * A sparse, anchor-based overlay on a Card's content — never a rewrite of the content
@@ -95,6 +96,14 @@ export const cardMetadataV1Schema = z.object({
     .default([]),
   summary: z.string().optional(),
   color: z.string().optional(),
+  /** A named physical material the Card's own background is styled with (Card
+   *  Materials feature) — one of CARD_MATERIAL_IDS (materials.ts). Undefined (the
+   *  default for every existing Card) renders as the plain cardstock surface every
+   *  Card already has, same "absent means unset, not a real 'none' value"
+   *  convention `typeId`'s own doc comment already establishes for this file —
+   *  see CardInfoPanel.tsx for the picker that sets/clears this, and
+   *  CardShell.css's own `[data-material]` rules for how it renders. */
+  material: z.enum(CARD_MATERIAL_IDS).optional(),
   aiParams: z.record(z.unknown()).optional(),
   log: z.array(z.unknown()).default([]),
   /** Which CardTypeDefinition.id this Card is — see lib/getCardTypeId.ts. Omitted

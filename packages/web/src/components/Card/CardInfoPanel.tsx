@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Card, NearbyItem, PageCardWithCard } from "@wattle/shared";
+import type { Card, CardMaterialId, NearbyItem, PageCardWithCard } from "@wattle/shared";
 import { getDurableNearby } from "../../api/client.js";
 import { editCard, ensureCardLoaded, getCachedCard } from "../../lib/cardStore.js";
 import { Button, Icon, InputField } from "../primitives/index.js";
@@ -7,6 +7,7 @@ import { CardPropertyRow } from "./CardPropertyRow.js";
 import { ActionStepFields } from "./types/action/ActionStepFields.js";
 import { actionJobRegistry } from "../../lib/actionJobRegistry.js";
 import { runGenerateSteps } from "../../lib/actionScriptJob.js";
+import { CARD_MATERIALS } from "../../lib/cardMaterials.js";
 import { t } from "../../i18n/index.js";
 import "./CardInfoPanel.css";
 
@@ -88,6 +89,16 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
   function removeTag(tag: string) {
     if (isFrozen) return;
     editCard(card.id, { metadata: { ...card.metadata, tags: tags.filter((t2) => t2 !== tag) } });
+  }
+
+  /** Card Materials feature — same "write straight through, no draft" convention
+   *  as addTag/removeTag above. `next` undefined clears back to the plain default
+   *  (the "Plain" swatch in the picker below); toggling the already-active swatch
+   *  also clears it, so there's no separate "none" state a user could get stuck
+   *  unable to reach otherwise. */
+  function setMaterial(next: CardMaterialId | undefined) {
+    if (isFrozen) return;
+    editCard(card.id, { metadata: { ...card.metadata, material: next } });
   }
 
   function patchProperties(next: typeof properties) {
@@ -420,6 +431,43 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
             onBlur={addTag}
           />
         )}
+      </div>
+
+      {/* Card Materials feature — a swatch grid, one per CARD_MATERIALS entry plus
+          a leading "Plain" swatch that clears it. Each swatch is rendered in its
+          own actual material (CardShell.css's own [data-material] rules, reused
+          here at button scale) rather than a plain color dot, so picking one
+          previews the real texture/grain, not just a hue. */}
+      <div className="card-info__section">
+        <span className="card-info__label">{t("card.info.material")}</span>
+        <div className="card-info__materials">
+          <button
+            type="button"
+            className={`card-info__material-swatch${!card.metadata.material ? " card-info__material-swatch--active" : ""}`}
+            disabled={isFrozen}
+            aria-label={t("card.info.materialNone")}
+            title={t("card.info.materialNone")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMaterial(undefined);
+            }}
+          />
+          {CARD_MATERIALS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              data-material={id}
+              className={`card-info__material-swatch${card.metadata.material === id ? " card-info__material-swatch--active" : ""}`}
+              disabled={isFrozen}
+              aria-label={label}
+              title={label}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMaterial(card.metadata.material === id ? undefined : id);
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       <div className="card-info__section">

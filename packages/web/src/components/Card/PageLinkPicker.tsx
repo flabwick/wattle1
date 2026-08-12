@@ -14,6 +14,11 @@ interface PageLinkPickerProps {
    *  CardLinkPicker's identical prop. */
   style?: CSSProperties;
   excludeSelector?: string;
+  /** When given, a "Create Page '<title>'" selection nests the new Page under this
+   *  one instead of leaving it loose — "a new page within this one", matching the
+   *  Feed Input's own "New Page" tile. Omit to keep the old loose-Page behavior
+   *  (e.g. contexts with no single obvious parent). */
+  parentPageId?: string;
 }
 
 /**
@@ -23,7 +28,7 @@ interface PageLinkPickerProps {
  * match offers "Create Page '<title>'", which find-or-creates it server-side
  * (pageLinkService.resolveOrCreatePageByTitle) so the link never dangles.
  */
-export function PageLinkPicker({ onSelect, onClose, style, excludeSelector }: PageLinkPickerProps) {
+export function PageLinkPicker({ onSelect, onClose, style, excludeSelector, parentPageId }: PageLinkPickerProps) {
   const [query, setQuery] = useState("");
   const [pages, setPages] = useState<PageSummary[]>([]);
   const rootRef = useDismiss<HTMLDivElement>(onClose, { excludeSelector });
@@ -38,7 +43,7 @@ export function PageLinkPicker({ onSelect, onClose, style, excludeSelector }: Pa
   const exactMatch = pages.some((p) => (p.title ?? "").trim().toLowerCase() === query.trim().toLowerCase());
 
   async function handleCreate() {
-    const page = await resolvePageByTitle(query);
+    const page = await resolvePageByTitle(query, parentPageId);
     onSelect(page);
   }
 

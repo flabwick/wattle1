@@ -16,6 +16,7 @@
    full --touch-target-sm so these are comfortable to hit on mobile. */
 .feed-input__circle,
 .feed-input__add,
+.feed-input__new-page,
 .feed-input__ellipsis {
   flex-shrink: 0;
   display: inline-flex;
@@ -36,6 +37,7 @@
 
 .feed-input__circle:hover,
 .feed-input__add:hover,
+.feed-input__new-page:hover,
 .feed-input__ellipsis:hover {
   color: var(--color-text);
 }

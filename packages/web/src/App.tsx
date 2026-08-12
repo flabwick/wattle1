@@ -4,6 +4,7 @@ import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { Icon } from "./components/primitives/index.js";
 import type { DockPanel } from "./components/Dock/Dock.js";
+import { HomesPanel } from "./components/Dock/HomesPanel.js";
 import { PageStack } from "./components/PageStack/PageStack.js";
 import { PageStackEdges } from "./components/PageStack/PageStackEdges.js";
 import { SaveAsTemplateModal } from "./components/Templates/SaveAsTemplateModal.js";
@@ -65,6 +66,11 @@ export function App() {
    *  automatically below if the Card it points at stops being on the current Page
    *  (removed, or the Page itself changed out from under it). */
   const [focusedPageCardId, setFocusedPageCardId] = useState<string | null>(null);
+  /** The Homes view (Dock's own idle-row Home button) — every structural Home in
+   *  the system, pick one to jump to or make a new one. A full page in its own
+   *  right (not a quick drawer), so it mirrors focusedPageCardId's own fullscreen
+   *  overlay pattern below rather than the Dock's slide-up panel system. */
+  const [homesPageOpen, setHomesPageOpen] = useState(false);
   /** Every independently-selected embedded Card (CardRichText.tsx/CardEmbed.tsx's
    *  click-to-select), keyed by cardId — several can be selected at once now,
    *  alongside `selectedPageCardIds` and Quotes, all feeding the Dock's combined
@@ -1464,9 +1470,41 @@ export function App() {
     </div>
   );
 
+  // Same "takes over the same flex slot, Dock stays put underneath" treatment as
+  // focusedOverlay above — mutually exclusive with it in practice (opening Homes
+  // clears focusedPageCardId, see onOpenHomesPage below) rather than by construction,
+  // since they're independent bits of state.
+  const homesOverlay = homesPageOpen ? (
+    <div className="fullscreen-card">
+      <button
+        type="button"
+        className="fullscreen-card__back"
+        aria-label={t("dock.action.back")}
+        title={t("dock.action.back")}
+        onClick={() => setHomesPageOpen(false)}
+      >
+        <Icon name="back" />
+      </button>
+      <div className="fullscreen-card__body">
+        <HomesPanel
+          homes={vault.homes}
+          currentPageId={currentPageId}
+          onOpenPage={(id) => {
+            navigateToPage(id);
+            setHomesPageOpen(false);
+          }}
+          onCreateHome={() => {
+            handleCreateHome();
+            setHomesPageOpen(false);
+          }}
+        />
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="app">
-      {focusedOverlay ?? (
+      {focusedOverlay ?? homesOverlay ?? (
       <div className="page-viewport">
         <PageStackEdges above={pagesAboveCount} />
         <main className="app__main">
@@ -1643,6 +1681,10 @@ export function App() {
         onOpenPageFromSearch={(id) => navigateToPage(id)}
         vaultHomes={vault.homes}
         onCreateHome={handleCreateHome}
+        onOpenHomesPage={() => {
+          setFocusedPageCardId(null);
+          setHomesPageOpen(true);
+        }}
         onSaveAsTemplateFromPage={handleSaveAsTemplateFromPage}
         editingTemplateName={editingTemplateName}
         onStopEditingTemplate={handleStopEditingTemplate}

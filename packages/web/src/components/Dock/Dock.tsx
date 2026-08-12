@@ -185,6 +185,11 @@ interface DockProps {
    *  empty-state fallback. */
   vaultHomes: PageSummary[];
   onCreateHome: () => void;
+  /** Home button (idle row) — opens the full-page Homes view in App.tsx, mirroring
+   *  focusedPageCardId's own fullscreen-overlay pattern rather than this Dock's own
+   *  slide-up drawer system (a whole "browse every Home, or make a new one" view
+   *  reads as a destination in its own right, not a quick drawer over the page). */
+  onOpenHomesPage: () => void;
   vaultQuery: string;
   onVaultQueryChange: (q: string) => void;
   /** Create a new blank Card directly in the vault — IDE-"new file" style. Returns
@@ -428,6 +433,7 @@ export function Dock({
   onOpenPageFromSearch,
   vaultHomes,
   onCreateHome,
+  onOpenHomesPage,
   revealHidden,
   onToggleRevealHidden,
   onSaveAsTemplateFromPage,
@@ -1038,16 +1044,16 @@ export function Dock({
   };
 
   // The idle Dock row's fixed left-to-right set (feedback: "Redo... home, search,
-  // dock, undo/redo, vertical ellipses"). Home/Undo/Redo/More are placeholders on
-  // purpose — the request was explicit that they don't need to do anything yet;
-  // Search (vaultAction) and Dock (dockCardsAction) alongside them keep their real
-  // behavior unchanged.
+  // dock, undo/redo, vertical ellipses"). Undo/Redo/More stay placeholders — Home
+  // opens the full-page Homes view (App.tsx's own fullscreen-overlay pattern, not
+  // this Dock's slide-up drawer system): every structural Home in the system, pick
+  // one or make a new one.
   const homeAction: DockAction = {
     key: "home",
     operationId: null,
     icon: "home",
-    label: t("pages.home"),
-    onClick: () => {},
+    label: t("dock.homes.open"),
+    onClick: onOpenHomesPage,
   };
   const undoAction: DockAction = {
     key: "undo",
@@ -1815,9 +1821,9 @@ export function Dock({
     </div>
   );
 
-  // Pages/Vault are short-to-medium lists — cap them noticeably smaller than Dock
-  // Cards (which can hold a lot more), so they don't take up more space than they
-  // need. Vault joins them now that its own toolbar moved down into this row
+  // Pages/Vault are short-to-medium lists — cap them noticeably smaller than
+  // Dock Cards (which can hold a lot more), so they don't take up more space than
+  // they need. Vault joins them now that its own toolbar moved down into this row
   // (VaultView.tsx is just a search bar + flat rows these days) — a quieter,
   // quicker-glance drawer even though it can still hold as many Cards as before.
   const isCompactPanel = renderedPanel === "pages" || renderedPanel === "vault";
@@ -2377,6 +2383,7 @@ export function Dock({
             bottom: pageLinkPickerPos.bottom,
           }}
           excludeSelector=".dock__insert-wrap"
+          parentPageId={currentPage?.id}
           onSelect={(page) => {
             activeEditor
               ?.chain()

@@ -137,6 +137,88 @@
   font-size: var(--font-size-sm);
 }
 
+/* Card Materials feature — a grid of small swatch buttons, each rendered in its
+   own actual material (CardShell.css's own [data-material] rules, reused here at
+   button scale via the same attribute selector) rather than a flat color dot, so
+   the grain/texture is visible even at this size — "should feel like texture and
+   grain, physicality" (feedback). */
+.card-info__materials {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.card-info__material-swatch {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: var(--border-width-bold) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  /* The leading "Plain" swatch: no [data-material] attribute, so this is the only
+     background it ever shows — every other swatch's own [data-material="…"] rule
+     (below) overrides it, same as an actual Card. */
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.card-info__material-swatch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.card-info__material-swatch:not(:disabled):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--color-shadow);
+}
+
+.card-info__material-swatch--active {
+  border-color: var(--color-accent);
+  box-shadow: 2px 2px 0 var(--color-accent);
+}
+
+/* One rule per material — deliberately NOT `background: var(--card-bg)`: that
+   custom property is only ever set by an ancestor `.card-shell[data-material]`
+   (CardShell.css), and this swatch grid lives inside the *current* Card's own
+   info panel — inheriting `--card-bg` here would just show every swatch as
+   whatever material the Card itself already has, not each swatch's own option.
+   Same tokens.css materials CardShell.css's own rules use, just referenced
+   directly here instead of through that non-inherited-safe indirection. */
+.card-info__material-swatch[data-material="parchment"] {
+  background: var(--material-parchment);
+}
+.card-info__material-swatch[data-material="oak"] {
+  background: var(--material-oak);
+}
+.card-info__material-swatch[data-material="walnut"] {
+  background: var(--material-walnut);
+}
+.card-info__material-swatch[data-material="leather"] {
+  background: var(--material-leather);
+}
+.card-info__material-swatch[data-material="leatherDark"] {
+  background: var(--material-leather-dark);
+}
+.card-info__material-swatch[data-material="slate"] {
+  background: var(--material-slate);
+}
+.card-info__material-swatch[data-material="brass"] {
+  background: var(--material-brass);
+}
+.card-info__material-swatch[data-material="oxblood"] {
+  background: var(--material-oxblood);
+}
+
+.card-info__material-swatch[data-material]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--texture-grain);
+  opacity: calc(var(--texture-grain-opacity) * 2);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
 .card-info__title-input {
   width: 100%;
   font-weight: var(--font-weight-bold);

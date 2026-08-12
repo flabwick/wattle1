@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CardShell, Icon } from "../../../primitives/index.js";
 import type { CardTypeViewProps } from "../../../../registries/cardTypeUi.js";
 import { useCard } from "../../../../hooks/useCard.js";
+import { usePageTitle } from "../../../../hooks/usePageTitle.js";
 import { editCard } from "../../../../lib/cardStore.js";
 import { navigateToPageFromRichText } from "../../../../lib/pageNavRegistry.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
@@ -10,6 +11,29 @@ import { CardFlippableBody } from "../../CardFlippableBody.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
 import "./PageLinksCard.css";
+
+/** One target row — its own component (rather than inline in the `targets.map`
+ *  below) so usePageTitle's hook call stays at a stable position regardless of how
+ *  many targets there are. Same stale-snapshot-vs-live-title reasoning as
+ *  richtext/PageLinkNodeView.tsx: `target.title` is cached from whenever this link
+ *  was added, never updated if the target Page is renamed afterward. */
+function PageLinkTarget({ pageId, fallbackTitle }: { pageId: string; fallbackTitle: string }) {
+  const liveTitle = usePageTitle(pageId);
+  const title = liveTitle !== undefined ? liveTitle : fallbackTitle;
+  return (
+    <button
+      type="button"
+      className="pageLinksCard__target"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigateToPageFromRichText(pageId);
+      }}
+    >
+      <Icon name="pages" />
+      {title || t("common.untitled")}
+    </button>
+  );
+}
 
 /**
  * The "pageLinks" CardType's render — a title plus its list of Page navigation
@@ -57,17 +81,7 @@ export function PageLinksView({
             <ul className="pageLinksCard__list">
               {targets.map((target) => (
                 <li key={target.pageId}>
-                  <button
-                    type="button"
-                    className="pageLinksCard__target"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigateToPageFromRichText(target.pageId);
-                    }}
-                  >
-                    <Icon name="pages" />
-                    {target.title}
-                  </button>
+                  <PageLinkTarget pageId={target.pageId} fallbackTitle={target.title} />
                 </li>
               ))}
             </ul>

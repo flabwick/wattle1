@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageWithCards } from "@wattle/shared";
 import * as api from "../api/client.js";
 import { publishCard, subscribeToSaves } from "../lib/cardStore.js";
+import { publishPageTitle } from "../lib/pageTitleStore.js";
 
 /** Loads and refreshes the single Page currently in view — a Page is a destination in
  *  its own right now (Pages + Links + Search rebuild), not a slot inside a Tab's
@@ -32,6 +33,7 @@ export function usePage(pageId: string | null) {
       setPage(next);
       setError(null);
       if (next) {
+        publishPageTitle(next.id, next.title);
         for (const pageCard of next.pageCards) {
           publishCard(pageCard.card);
         }

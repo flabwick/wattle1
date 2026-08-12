@@ -138,13 +138,19 @@ export const listPageChildren = (id: string) => request<PageSummary[]>(`/pages/$
 /** Root-first parent chain, excluding `id` itself — the breadcrumb's own data. */
 export const listPageAncestors = (id: string) => request<PageSummary[]>(`/pages/${id}/ancestors`);
 /** "Create from a page" (Homes + Pages hierarchy, Phase 2) — a new child Page under
- *  `parentId`, with a link card attached to the parent so it can navigate back down. */
+ *  `parentId`, with a link card attached to the parent so it can navigate back down.
+ *  `linkPageCardId`/`linkCardId` identify that link-back Card, for callers (the
+ *  agent-facing createChildPage job) that need to report it as a StepOutput. */
 export const createChildPage = (parentId: string, title?: string) =>
-  request<Page>(`/pages/${parentId}/children`, { method: "POST", body: JSON.stringify(title ? { title } : {}) });
+  request<Page & { linkPageCardId: string; linkCardId: string }>(`/pages/${parentId}/children`, {
+    method: "POST",
+    body: JSON.stringify(title ? { title } : {}),
+  });
 /** Find-or-create a Page by title — the Page-link picker's "link to missing title →
- *  create empty Page, link to it". */
-export const resolvePageByTitle = (title: string) =>
-  request<Page>("/pages/resolve", { method: "POST", body: JSON.stringify({ title }) });
+ *  create empty Page, link to it". `parentPageId`, when given, nests a freshly
+ *  created Page under it instead of leaving it loose. */
+export const resolvePageByTitle = (title: string, parentPageId?: string) =>
+  request<Page>("/pages/resolve", { method: "POST", body: JSON.stringify({ title, parentPageId }) });
 export const getPage = (id: string) => request<PageWithCards>(`/pages/${id}`);
 export const listSiblingPages = (id: string) => request<PageSummary[]>(`/pages/${id}/siblings`);
 export const createPage = (title?: string) =>

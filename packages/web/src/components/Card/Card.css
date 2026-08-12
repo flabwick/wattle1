@@ -67,18 +67,35 @@
   min-height: 24px;
   margin: calc(var(--space-3) * -1) calc(var(--space-4) * -1) var(--space-2);
   padding: var(--space-1) var(--space-2);
-  border-bottom: var(--border-width-thin) solid var(--color-border-strong);
+  border-bottom: var(--border-width-thin) var(--card-header-border-bottom-style, solid) var(--color-border-strong);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background-color: var(--color-surface-raised);
+  /* Card Materials feature: every property below reads through a custom property
+     CardShell.css's own `[data-material]` rules set (each with a plain/no-op
+     default, so an unmaterialed Card renders exactly as before) — all landing on
+     THIS one rule, rather than a second rule elsewhere targeting `.card__header`
+     by compound selector, so there's only ever one place actually declaring
+     `.card__header`'s own background/border, no cross-file specificity or
+     cascade-order to get subtly wrong. `--card-header-bg`/`--card-header-pattern`
+     are the header's own material color + genuine texture — the header is a
+     small, non-reading strip (just a title), unlike the Card's own content below
+     it, which per feedback stays completely plain, so this is the one place a
+     material can be bold about it. `--card-header-border-bottom-style` (the two
+     leathers only) turns this rule's own separating line into a dashed stitch —
+     reusing an element that's already here rather than adding a new one.
+     --selected/--hidden below mix relative to `--card-header-bg` unchanged. */
+  background-color: var(--card-header-bg, var(--color-surface-raised));
+  background-image: var(--card-header-pattern, none);
+  background-size: var(--card-header-pattern-size, auto);
+  background-position: var(--card-header-pattern-position, 0 0);
   cursor: pointer;
 }
 
 .card-shell--selected .card__header {
-  background-color: color-mix(in srgb, var(--color-highlight) 20%, var(--color-surface-raised));
+  background-color: color-mix(in srgb, var(--color-highlight) 20%, var(--card-header-bg, var(--color-surface-raised)));
 }
 
 .card-shell--hidden .card__header {
-  background-color: color-mix(in srgb, var(--color-hidden-border) 18%, var(--color-surface-raised));
+  background-color: color-mix(in srgb, var(--color-hidden-border) 18%, var(--card-header-bg, var(--color-surface-raised)));
 }
 
 /* Collapsed (no `.card__flip` sibling — see CardShell.css's own matching

@@ -237,6 +237,7 @@ export function CardView({
     <CardShell
       selected={selected}
       className={isHidden ? "card-shell--hidden" : undefined}
+      data-material={canonicalCard.metadata.material}
       ref={cardRef}
       // Marks this Card as the Dock's formatting-toolbar target the moment either
       // the title input or the rich text gains focus — React's onFocus bubbles

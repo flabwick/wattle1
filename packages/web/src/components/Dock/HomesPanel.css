@@ -1,0 +1,80 @@
+.homes-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-1);
+}
+
+/* Same dashed/accent treatment as PagesPanel.css's own "Save as Template" row —
+   an action, not a destination, so it reads differently from the plain Home rows
+   below it. */
+.homes-panel__create {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-target-sm);
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-1);
+  text-align: left;
+  background: none;
+  border: var(--border-width-thin) dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.homes-panel__create:hover {
+  background: var(--color-surface-raised);
+}
+
+.homes-panel__create .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+.homes-panel__empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-2);
+  text-align: center;
+}
+
+/* Same compact-row shape as PagesPanel.css's own .pages-panel__item. */
+.homes-panel__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-target-sm);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  background: none;
+  border: var(--border-width-bold) solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.homes-panel__item:hover {
+  background: var(--color-surface-raised);
+}
+
+.homes-panel__item--current {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+}
+
+.homes-panel__item-icon {
+  flex-shrink: 0;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  color: var(--color-text-muted);
+}
+
+.homes-panel__preview {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}

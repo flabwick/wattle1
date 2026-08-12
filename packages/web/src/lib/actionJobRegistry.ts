@@ -509,6 +509,26 @@ actionJobRegistry.register({
 });
 
 actionJobRegistry.register({
+  id: "createChildPage",
+  label: () => t("actionCard.job.createChildPage"),
+  // Same "create from a page" shape as the Feed Input's own "New Page" tile
+  // (handleCreateChildPage in App.tsx) and the WYSIWYG page-link picker's own
+  // create-on-missing row: a new Page nested under `page` (defaulting to this
+  // step's own Page), with a link-back Card left on `page` so it stays reachable.
+  // Returns that link-back Card as this step's StepOutput, same as createStack.
+  fields: [
+    { kind: "text", key: "title", label: t("actionCard.field.title"), placeholder: t("card.titlePlaceholder") },
+    { kind: "pagePicker", key: "page", label: t("actionCard.field.page") },
+  ],
+  run: async (_ctx, pageCard, jobParams) => {
+    const parentId = str(jobParams, "page") || pageCard.pageId;
+    const child = await api.createChildPage(parentId, str(jobParams, "title") || undefined);
+    notifySaved(child.linkCardId);
+    return { cardId: child.linkCardId, pageCardId: child.linkPageCardId };
+  },
+});
+
+actionJobRegistry.register({
   id: "linkExistingCard",
   label: () => t("actionCard.job.linkExistingCard"),
   fields: [

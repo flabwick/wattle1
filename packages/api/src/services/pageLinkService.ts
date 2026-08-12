@@ -27,8 +27,9 @@ export function buildPageLinkHtml(pageId: string, title: string | null): string 
  *  reuses the existing Page; otherwise a brand-new, untitled-no-longer Page is
  *  created on the spot so the link never dangles. Whitespace-trimmed both for the
  *  lookup and the created title, so "Roadmap" and " Roadmap " resolve to the same
- *  Page. */
-export async function resolveOrCreatePageByTitle(rawTitle: string): Promise<Page> {
+ *  Page. `parentPageId`, when given, nests a freshly-created Page under it (ignored
+ *  when an existing Page is reused — its own place in the hierarchy stands). */
+export async function resolveOrCreatePageByTitle(rawTitle: string, parentPageId?: string): Promise<Page> {
   const title = rawTitle.trim();
   if (title === "") {
     throw new Error("A title is required to link to a Page");
@@ -41,7 +42,7 @@ export async function resolveOrCreatePageByTitle(rawTitle: string): Promise<Page
 
   const top = await prisma.page.aggregate({ _max: { order: true } });
   const created = await prisma.page.create({
-    data: { title, order: (top._max.order ?? -1) + 1 },
+    data: { title, order: (top._max.order ?? -1) + 1, parentPageId: parentPageId ?? null },
   });
   return serializePage(created);
 }

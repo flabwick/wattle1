@@ -62,6 +62,7 @@ export function PageLinksEditor({ pageCard }: CardTypeEditorProps) {
         </Button>
         {pickerOpen && (
           <PageLinkPicker
+            parentPageId={pageCard.pageId}
             onSelect={(page) => {
               if (!targets.some((t2) => t2.pageId === page.id)) {
                 setTargets([...targets, { pageId: page.id, title: page.title ?? "" }]);
