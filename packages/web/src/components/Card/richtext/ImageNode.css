@@ -1,0 +1,10 @@
+/* ImageNodeView.tsx's own wrapper — needed to host the corner ElementControls
+   delete button; the `img` itself keeps all its existing styling
+   (CardRichText.css's `.card-rich-text .ProseMirror img` rule still matches it as
+   a descendant). */
+.image-node {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}

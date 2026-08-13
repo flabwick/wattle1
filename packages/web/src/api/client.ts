@@ -7,7 +7,10 @@ import type {
   GeneratedCardPart,
   GenerateResponse,
   GenerateWithToolsResult,
+  HistoryEntry,
+  HistoryScope,
   NearbyItem,
+  PageCardSnapshot,
   OpenTemplateInput,
   OpenTemplateResult,
   Page,
@@ -55,6 +58,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(body.error ?? `Request failed: ${res.status}`);
   }
   if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+/** The shared shape behind every file-upload endpoint (Vault/Page/Dock file Cards,
+ *  the rich-text image insert) — bypasses `request()` so the browser sets its own
+ *  `Content-Type: multipart/form-data; boundary=...` instead of the JSON one
+ *  `request()` always adds; same error-unwrapping convention as `request()`
+ *  otherwise. Every call site here differs only in URL and response type. */
+async function uploadMultipart<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api${path}`, { method: "POST", body });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -107,17 +126,8 @@ export const deleteCard = (id: string) => request<void>(`/cards/${id}`, { method
  *  bytes — used as an <iframe>/<img> src or fetched as raw text, never as JSON. */
 export const getCardFileUrl = (id: string) => `/api/cards/${id}/file`;
 /** The Vault panel's own Upload action — a real, already-savedToVault "file"-typed
- *  Card. Same multipart/bypass-request() shape as uploadFileToPage. */
-export const uploadFileToVault = async (file: File): Promise<Card> => {
-  const body = new FormData();
-  body.append("file", file);
-  const res = await fetch(`/api/cards/files`, { method: "POST", body });
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<Card>;
-};
+ *  Card. */
+export const uploadFileToVault = (file: File) => uploadMultipart<Card>("/cards/files", file);
 
 // Settings — Home (Pages + Links + Search rebuild, Phase 4).
 export const getSettings = () => request<UserSettings>("/settings");
@@ -171,19 +181,8 @@ export const addNewCardToPage = (pageId: string, title: string, content: string,
     method: "POST",
     body: JSON.stringify(metadata !== undefined ? { title, content, metadata } : { title, content }),
   });
-/** Multipart, unlike every other call here — bypasses `request()` so the browser sets
- *  its own `Content-Type: multipart/form-data; boundary=...` instead of the JSON one
- *  `request()` always adds. */
-export const uploadFileToPage = async (pageId: string, file: File): Promise<PageCardWithCard> => {
-  const body = new FormData();
-  body.append("file", file);
-  const res = await fetch(`/api/pages/${pageId}/files`, { method: "POST", body });
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<PageCardWithCard>;
-};
+export const uploadFileToPage = (pageId: string, file: File) =>
+  uploadMultipart<PageCardWithCard>(`/pages/${pageId}/files`, file);
 export const reorderPageCards = (pageId: string, orderedIds: string[]) =>
   request<void>(`/pages/${pageId}/cards/reorder`, {
     method: "PUT",
@@ -193,18 +192,8 @@ export const reorderPageCards = (pageId: string, orderedIds: string[]) =>
 /** The rich-text editor's "insert image" toolbar action (Dock.tsx) — uploads bytes
  *  and gets back a plain URL, unlike uploadFileToPage above: no Card is created,
  *  this backs a TipTap `image` node embedded inline in whatever Card is being
- *  edited, not a new sibling Card. Same multipart/bypass-request() shape as
- *  uploadFileToPage. */
-export const uploadRichTextImage = async (file: File): Promise<{ url: string }> => {
-  const body = new FormData();
-  body.append("file", file);
-  const res = await fetch("/api/rich-text-images", { method: "POST", body });
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<{ url: string }>;
-};
+ *  edited, not a new sibling Card. */
+export const uploadRichTextImage = (file: File) => uploadMultipart<{ url: string }>("/rich-text-images", file);
 
 // Dock actions on a single PageCard
 export const updatePageCardDraft = (
@@ -228,6 +217,21 @@ export const movePageCardToDock = (pageCardId: string) =>
   request<DockCardWithCard>(`/page-cards/${pageCardId}/move-to-dock`, { method: "PUT" });
 /** Freezes a vault Card — read-only from here on (Open/Frozen). */
 export const freezeCard = (cardId: string) => request<Card>(`/cards/${cardId}/freeze`, { method: "POST" });
+/** Extracts (or OCRs) a "file" Card's text server-side and caches it on the Card's
+ *  own metadata.file.extraction — one blocking request, no polling; can take tens of
+ *  seconds for a multi-page OCR run (fileExtractionService.ts). Returns the updated
+ *  Card, which callers should publishCard() into the shared cardStore so every
+ *  mounted view (FileView.tsx, Dock.tsx's Convert flow) picks it up. */
+export const extractCardFileText = (
+  cardId: string,
+  body?: { method?: "auto" | "textLayer" | "ocr"; instructions?: string },
+) => request<Card>(`/cards/${cardId}/extract-text`, { method: "POST", body: JSON.stringify(body ?? {}) });
+/** The "division" Convert path (Dock.tsx's "Split into Cards") — an EPUB's own
+ *  chapters (spine order) or an HTML document's own top-level `<h1>` sections, each
+ *  with its own title and plain text. Stateless: nothing is persisted server-side,
+ *  the caller turns the response into N new Cards itself. */
+export const divideCardIntoSections = (cardId: string) =>
+  request<{ sections: { title: string; text: string }[] }>(`/cards/${cardId}/divide`, { method: "POST" });
 /** Forks the Frozen Card a PageCard/DockCard occurrence points at and repoints that
  *  one occurrence at the fork — App.tsx's activatePageCardEditor calls this before
  *  marking a Frozen Card as the Dock's formatting-toolbar target. */
@@ -290,16 +294,7 @@ export const createCardInDock = (title: string, content: string) =>
     method: "POST",
     body: JSON.stringify({ title, content }),
   });
-export const uploadFileToDock = async (file: File): Promise<DockCardWithCard> => {
-  const body = new FormData();
-  body.append("file", file);
-  const res = await fetch(`/api/dock-cards/files`, { method: "POST", body });
-  if (!res.ok) {
-    const errBody = await res.json().catch(() => ({}));
-    throw new Error(errBody.error ?? `Request failed: ${res.status}`);
-  }
-  return res.json() as Promise<DockCardWithCard>;
-};
+export const uploadFileToDock = (file: File) => uploadMultipart<DockCardWithCard>("/dock-cards/files", file);
 export const removeDockCard = (id: string) => request<void>(`/dock-cards/${id}`, { method: "DELETE" });
 export const moveDockCardToPage = (dockCardId: string, pageId: string, destIndex: number) =>
   request<PageCard>(`/dock-cards/${dockCardId}/move-to-page`, {
@@ -366,3 +361,28 @@ export const updateAnnotationText = (cardId: string, annotationId: string, text:
     method: "PATCH",
     body: JSON.stringify({ text }),
   });
+
+// History — the full state system's log (Undo/Redo + Back/Forward). See
+// historyStore.ts/useHistory.ts for how these are used; this client only ever sends
+// a `scope` of "page" or an explicit array of Card ids.
+export const getHistory = (pageId: string) => request<HistoryEntry[]>(`/history/${pageId}`);
+export const recordHistoryEntry = (
+  pageId: string,
+  kind: "edit" | "generation",
+  label: string,
+  cardIds: string[],
+  before: PageCardSnapshot[],
+  after: PageCardSnapshot[],
+) =>
+  request<HistoryEntry>(`/history/${pageId}/record`, {
+    method: "POST",
+    body: JSON.stringify({ kind, label, cardIds, before, after }),
+  });
+export const undoHistory = (pageId: string, scope: HistoryScope) =>
+  request<HistoryEntry | null>(`/history/${pageId}/undo`, { method: "POST", body: JSON.stringify({ scope }) });
+export const redoHistory = (pageId: string, scope: HistoryScope) =>
+  request<HistoryEntry | null>(`/history/${pageId}/redo`, { method: "POST", body: JSON.stringify({ scope }) });
+export const goBackHistory = (pageId: string, scope: HistoryScope) =>
+  request<HistoryEntry | null>(`/history/${pageId}/back`, { method: "POST", body: JSON.stringify({ scope }) });
+export const goForwardHistory = (pageId: string, scope: HistoryScope) =>
+  request<HistoryEntry | null>(`/history/${pageId}/forward`, { method: "POST", body: JSON.stringify({ scope }) });

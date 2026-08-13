@@ -20,16 +20,19 @@ export function usePage(pageId: string | null) {
   // after a newer request for the new one, must never win over a later result.
   const refreshSeq = useRef(0);
 
-  const refresh = useCallback(async () => {
+  // Returns the freshly-fetched Page (or null/undefined on a stale/no-op run) so
+  // history-recording callers (App.tsx's withHistory, useHistory.ts) can read the
+  // just-landed state directly rather than waiting a render for `page` to catch up.
+  const refresh = useCallback(async (): Promise<PageWithCards | null | undefined> => {
     const seq = ++refreshSeq.current;
     if (!pageId) {
       setPage(null);
       setLoading(false);
-      return;
+      return null;
     }
     try {
       const next = await api.getPage(pageId);
-      if (seq !== refreshSeq.current) return;
+      if (seq !== refreshSeq.current) return undefined;
       setPage(next);
       setError(null);
       if (next) {
@@ -38,9 +41,11 @@ export function usePage(pageId: string | null) {
           publishCard(pageCard.card);
         }
       }
+      return next;
     } catch (e) {
-      if (seq !== refreshSeq.current) return;
+      if (seq !== refreshSeq.current) return undefined;
       setError(e instanceof Error ? e.message : "Failed to load Page");
+      return undefined;
     } finally {
       if (seq === refreshSeq.current) setLoading(false);
     }

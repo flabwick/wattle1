@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@napi-rs/canvas": "^0.1.60",
     "@prisma/client": "^5.22.0",
     "@tavily/core": "^0.7.7",
     "@wattle/prompt-engine": "*",
@@ -26,8 +27,11 @@
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "express-async-errors": "^3.1.1",
+    "fast-xml-parser": "^4.5.0",
     "happy-dom": "^20.11.0",
+    "jszip": "^3.10.1",
     "multer": "^2.2.0",
+    "pdfjs-dist": "^4.10.38",
     "zod": "^3.23.8"
   },
   "devDependencies": {

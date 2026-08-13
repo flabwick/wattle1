@@ -9,6 +9,7 @@ import { templatesRouter } from "./routes/templates.js";
 import { cardsRouter } from "./routes/cards.js";
 import { dockCardsRouter } from "./routes/dockCards.js";
 import { generateRouter } from "./routes/generate.js";
+import { historyRouter } from "./routes/history.js";
 import { nearbyRouter } from "./routes/nearby.js";
 import { pageCardsRouter } from "./routes/pageCards.js";
 import { pagesRouter } from "./routes/pages.js";
@@ -38,6 +39,7 @@ export function createApp() {
   app.use("/api/stacks", stacksRouter);
   app.use("/api/dock-cards", dockCardsRouter);
   app.use("/api/generate", generateRouter);
+  app.use("/api/history", historyRouter);
   app.use("/api/agent", agentRouter);
   app.use("/api/nearby", nearbyRouter);
   app.use("/api/annotations", annotationsRouter);

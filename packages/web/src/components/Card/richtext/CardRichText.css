@@ -67,6 +67,14 @@
   text-decoration: underline;
 }
 
+/* The pageLink node's own wrapper (PageLinkNodeView.tsx) — inline-flex so its
+   optional ElementControls delete button (edit mode only) sits flush against the
+   chip instead of on its own line. */
+.page-link-node {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* A pageLink node's chip (PageLinkNodeView.tsx) — reads as a Page destination, not
    just styled text, so it's visually distinct from a plain hyperlink mark above. */
 .page-link-node__chip {
@@ -259,7 +267,11 @@
   border: var(--border-width-thin) solid var(--color-border);
 }
 
-.card-rich-text .ProseMirror img.ProseMirror-selectednode {
+/* The selection outline used to land on the `img` itself; ImageNodeView.tsx now
+   wraps it in `.image-node` (to host its own ElementControls delete button), and
+   ProseMirror marks that wrapper — its NodeView root — as the selected node
+   instead. */
+.card-rich-text .ProseMirror .image-node.ProseMirror-selectednode img {
   outline: var(--border-width-thin) solid var(--color-accent);
   outline-offset: 2px;
 }

@@ -14,7 +14,7 @@ particular describe the app's own content model (Cards, their formatting, what a
 model may reference) in plain English, and a structural change elsewhere in the
 codebase can silently make one of them wrong.
 
-This app has five small, independent prompt-compiling systems, each with its own
+This app has six small, independent prompt-compiling systems, each with its own
 subfolder(s) below and its own compiler in `../src/`. They don't share an output
 contract with each other — see each section's own description.
 
@@ -86,6 +86,19 @@ substring of the target content (dropped silently if the anchor doesn't match). 
 No mode/process argument — there's only ever one summary prompt, so
 `compileSummaryPrompt` takes no selector, just the Card's own plain-text content.
 
+## Extract (`src/extractionCompiler.ts`) — a separate, small system
+
+| File | Loaded by | Used for |
+| --- | --- | --- |
+| `extract/system.md` | `compileExtractionPrompt(instructions?)` | The "file" CardType's own text-extraction/OCR buttons (`FileView.tsx`, `packages/api/src/services/fileExtractionService.ts`) — transcribes one page image verbatim, nothing structured. |
+
+Also no mode/process argument, same shape as Summary above — the only variable input
+is an optional user-typed `instructions` string, spliced into the compiled user
+message rather than the system prompt itself (see `extractionCompiler.ts`). This is a
+one-shot vision call, not the tool-calling/agent-loop machinery below —
+`src/providers/openRouterVision.ts` sends it directly to OpenRouter rather than going
+through `ModelProvider`/`generateWithTools`.
+
 ## Action script (`src/actionScriptCompiler.ts`) — mostly-static, one dynamic section
 
 | File | Loaded by | Used for |
@@ -122,8 +135,8 @@ this compiler again — see `packages/api/src/services/agentService.ts`.
 
 ### Adding a new generation mode / process / system
 
-Same short version across all five systems above: add a new `<name>/system.md` file
+Same short version across all six systems above: add a new `<name>/system.md` file
 here, then add the corresponding entry to that system's own compiler in `../src/`
 (`PromptMode`/`SYSTEM_PROMPT_FILE`, `AnnotationProcess`/`SYSTEM_PROMPT_FILE`, or a new
-compiler module entirely for a structurally different system, as `agentCompiler.ts`
-was here). None of these five compilers know about each other.
+compiler module entirely for a structurally different system, as `agentCompiler.ts`/
+`extractionCompiler.ts` were here). None of these six compilers know about each other.

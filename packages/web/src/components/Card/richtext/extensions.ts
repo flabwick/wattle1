@@ -22,6 +22,7 @@ import { ActionFieldNodeView } from "./ActionFieldNodeView.js";
 import { CalloutNodeView } from "./CalloutNodeView.js";
 import { MathNodeView } from "./MathNodeView.js";
 import { CodeBlockNodeView } from "./CodeBlockNodeView.js";
+import { ImageNodeView } from "./ImageNodeView.js";
 import { AnnotationDecorations } from "./AnnotationDecorations.js";
 import { SelectionHighlightDecoration } from "./SelectionHighlightDecoration.js";
 
@@ -88,13 +89,21 @@ const codeBlockExtensionWithNodeView = codeBlockExtension.extend({
   },
 });
 
+/** Adds the same delete affordance every other node here has (ElementControls) on
+ *  top of the base Image node — same "NodeView is client-only" split. */
+const imageExtensionWithNodeView = imageExtension.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageNodeView);
+  },
+});
+
 export const richTextExtensions: Extensions = [
   richTextStarterKit,
   codeBlockExtensionWithNodeView,
   taskListExtension,
   taskItemExtension,
   tableExtension,
-  imageExtension,
+  imageExtensionWithNodeView,
   CalloutNodeExtension,
   MathInlineNodeExtension,
   MathBlockNodeExtension,

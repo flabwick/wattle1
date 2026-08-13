@@ -4,6 +4,8 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/core";
 import katex from "katex";
 import { InputField } from "../../primitives/index.js";
+import { useCardEditingContext } from "./CardEditingContext.js";
+import { ElementControls } from "./ElementControls.js";
 import { t } from "../../../i18n/index.js";
 import "katex/dist/katex.min.css";
 import "./MathNode.css";
@@ -14,7 +16,8 @@ import "./MathNode.css";
  *  clicking away commits it, Escape discards the edit. A freshly-inserted node
  *  (empty latex) starts straight in editing mode instead of rendering an empty
  *  KaTeX box first. */
-export function MathNodeView({ node, updateAttributes, selected }: NodeViewProps) {
+export function MathNodeView({ node, updateAttributes, deleteNode, selected }: NodeViewProps) {
+  const ctx = useCardEditingContext();
   const isBlock = node.type.name === "mathBlock";
   const latex = (node.attrs.latex as string) ?? "";
   const [editing, setEditing] = useState(latex.trim() === "");
@@ -57,16 +60,21 @@ export function MathNodeView({ node, updateAttributes, selected }: NodeViewProps
   return (
     <NodeViewWrapper
       as={isBlock ? "div" : "span"}
-      className={`math-node${isBlock ? " math-node--block" : ""}${selected ? " math-node--selected" : ""}`}
-      // A top-level Card's content area now bubbles a plain click up to select the
-      // Card (CardRichText.tsx) — clicking into this node's own LaTeX editing
-      // shouldn't also toggle that.
-      onClick={(e: MouseEvent) => {
-        e.stopPropagation();
-        setDraft(latex);
-        setEditing(true);
-      }}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+      className={`math-node-wrap${isBlock ? " math-node-wrap--block" : ""}`}
+    >
+      <span
+        className={`math-node${isBlock ? " math-node--block" : ""}${selected ? " math-node--selected" : ""}`}
+        // A top-level Card's content area now bubbles a plain click up to select the
+        // Card (CardRichText.tsx) — clicking into this node's own LaTeX editing
+        // shouldn't also toggle that.
+        onClick={(e: MouseEvent) => {
+          e.stopPropagation();
+          setDraft(latex);
+          setEditing(true);
+        }}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {ctx.editable && <ElementControls variant="inline" label={t("card.deleteMath")} onDelete={() => deleteNode()} />}
+    </NodeViewWrapper>
   );
 }

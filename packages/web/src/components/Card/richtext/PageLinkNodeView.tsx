@@ -2,6 +2,8 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/core";
 import { navigateToPageFromRichText } from "../../../lib/pageNavRegistry.js";
 import { usePageTitle } from "../../../hooks/usePageTitle.js";
+import { useCardEditingContext } from "./CardEditingContext.js";
+import { ElementControls } from "./ElementControls.js";
 import { t } from "../../../i18n/index.js";
 
 /** The React NodeView for the `pageLink` node (richText/pageLinkNode.ts) — renders as
@@ -13,7 +15,8 @@ import { t } from "../../../i18n/index.js";
  *  inside, and useCardSelectGesture's own INTERACTIVE_SELECTOR already excludes
  *  `button` from the Card's own tap-to-select gesture, so this can't be confused
  *  with either. */
-export function PageLinkNodeView({ node }: NodeViewProps) {
+export function PageLinkNodeView({ node, deleteNode }: NodeViewProps) {
+  const ctx = useCardEditingContext();
   const pageId = node.attrs.pageId as string;
   // The stored `data-title` attr is a snapshot from whenever this link was last
   // inserted/resolved — never updated if the target Page is renamed afterward.
@@ -40,6 +43,9 @@ export function PageLinkNodeView({ node }: NodeViewProps) {
             never a blank, unlabeled button (see App.tsx's blank-card report). */}
         {title || t("common.untitled")}
       </button>
+      {ctx.editable && (
+        <ElementControls variant="inline" label={t("card.deletePageLink")} onDelete={() => deleteNode()} />
+      )}
     </NodeViewWrapper>
   );
 }

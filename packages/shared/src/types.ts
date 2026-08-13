@@ -138,6 +138,46 @@ export interface PageWithCards extends Page {
   pageCards: PageCardWithCard[];
 }
 
+/** One PageCard's full recoverable state at a point in time — the unit the full
+ *  state system (history/undo/redo/versions) snapshots before/after a change. See
+ *  HistoryEntry below: a "structural" entry (add/remove/move/reorder) snapshots
+ *  every PageCard on the Page, since reordering/removal shifts siblings' `order`
+ *  too; a "content" entry (a text/metadata edit, or a generation) snapshots only
+ *  the touched card(s). Restoring an entry upserts every PageCardSnapshot present
+ *  in the target array and deletes any PageCard id present in the entry's other
+ *  array but absent from the target one — see the API's historyService.ts. */
+export interface PageCardSnapshot {
+  pageCardId: string;
+  order: number;
+  cardId: string;
+  title: string;
+  content: string;
+  metadata: unknown;
+}
+
+/** The full state system's history log entry — see PageCardSnapshot above and
+ *  historyService.ts. `kind: "edit"` entries back the Dock's Undo/Redo; `kind:
+ *  "generation"` entries back its Back/Forward (before/after an AI generation).
+ *  `cardIds` is the operation's own target/selection (not every card touched by a
+ *  structural snapshot) — a card-scoped Undo/Redo/Back/Forward only ever considers
+ *  entries whose cardIds is a subset of the current selection. */
+export interface HistoryEntry {
+  id: string;
+  pageId: string;
+  kind: "edit" | "generation";
+  label: string;
+  cardIds: string[];
+  before: PageCardSnapshot[];
+  after: PageCardSnapshot[];
+  undoneAt: string | null;
+  createdAt: string;
+}
+
+/** "page" for the page-wide history views, or an explicit set of Card ids for a
+ *  selection-scoped view (the Dock auto-scopes its Undo/Redo/Back/Forward to the
+ *  current card selection — see useHistory.ts). */
+export type HistoryScope = "page" | string[];
+
 /**
  * A Card living outside any Page/Tab — the persistent Dock scratchpad layer (Step 6
  * spec §1.2). Never part of generation context. `order` positions it in the Dock's

@@ -1,5 +1,6 @@
 {
   "activeProvider": "openrouter",
+  "visionModel": "gemini-flash",
   "providers": {
     "stub": {
       "model": "stub",

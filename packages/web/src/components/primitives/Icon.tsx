@@ -56,6 +56,8 @@ export type IconName =
   | "externalLink"
   | "taskList"
   | "table"
+  | "tableInsertRow"
+  | "tableInsertColumn"
   | "image"
   | "callout"
   | "math"
@@ -67,7 +69,9 @@ export type IconName =
   | "info"
   | "undo"
   | "redo"
-  | "moreVertical";
+  | "moreVertical"
+  | "versionBack"
+  | "versionForward";
 
 interface IconProps {
   name: IconName;
@@ -459,6 +463,26 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M11 4v16" />
     </>
   ),
+  // Two rows plus a "+" beneath — the table toolbar's own "add row" action, shown
+  // only while the cursor sits inside a table (Dock.tsx's formatToolActions).
+  tableInsertRow: (
+    <>
+      <path d="M4 8h16" />
+      <path d="M4 14h16" />
+      <path d="M12 18v4" />
+      <path d="M10 20h4" />
+    </>
+  ),
+  // Two columns plus a "+" beside — the table toolbar's own "add column" action,
+  // same gating as tableInsertRow above.
+  tableInsertColumn: (
+    <>
+      <path d="M8 4v16" />
+      <path d="M14 4v16" />
+      <path d="M18 12h4" />
+      <path d="M20 10v4" />
+    </>
+  ),
   // A framed landscape glyph (mountain + sun) — the Dock formatting toolbar's
   // "insert image" action, standard image-placeholder iconography.
   image: (
@@ -548,6 +572,23 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <path d="M15 14l5-5-5-5" />
       <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+    </>
+  ),
+  // A double chevron, pointing left — the full state system's generation-version
+  // Back, deliberately distinct from the single-chevron "back"/"chevronRight" pair
+  // above (the Dock's *Page*-navigation back/forward) so the two don't read as the
+  // same control over two different things.
+  versionBack: (
+    <>
+      <path d="M18 5l-7 7 7 7" />
+      <path d="M11 5l-7 7 7 7" />
+    </>
+  ),
+  // Version Forward, the mirror of "versionBack" above.
+  versionForward: (
+    <>
+      <path d="M6 5l7 7-7 7" />
+      <path d="M13 5l7 7-7 7" />
     </>
   ),
   // Three vertically-stacked dots — distinct from "more" (horizontal, the Feed Input

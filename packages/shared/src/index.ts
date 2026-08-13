@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./materials.js";
+export * from "./files/fileKinds.js";
 export * from "./registries/cardType.js";
 export * from "./registries/operation.js";
 export * from "./registries/modelProvider.js";

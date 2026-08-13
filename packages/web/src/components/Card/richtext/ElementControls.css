@@ -1,0 +1,45 @@
+/* ElementControls.tsx — shared by every inline element's own delete button. Small
+   physical-button treatment, same tactile language as Card.css's own header-actions
+   buttons, just scaled further down to suit sitting inside a node instead of a
+   Card's header. */
+.element-controls.button {
+  flex-shrink: 0;
+  min-height: 20px;
+  min-width: 20px;
+  padding: 2px;
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: 1px 1px 0 var(--color-shadow);
+  color: var(--color-text-muted);
+}
+
+.element-controls.button:hover:not(:disabled) {
+  color: var(--color-danger);
+}
+
+.element-controls.button:active:not(:disabled) {
+  box-shadow: 0 0 0 var(--color-shadow);
+  transform: translate(1px, 1px);
+}
+
+.element-controls .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+}
+
+/* Floats slightly outside the element's own top-right corner rather than
+   overlapping its content — the element's own wrapper must be `position: relative`. */
+.element-controls--corner {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  right: calc(-1 * var(--space-2));
+  z-index: 1;
+}
+
+/* A plain flex sibling for elements that sit inline in running text (math, Page
+   link chip) instead of owning a box of their own — see each NodeView's own
+   wrapper for the `display: inline-flex` that lays it out next to the element. */
+.element-controls--inline {
+  margin-left: var(--space-1);
+}

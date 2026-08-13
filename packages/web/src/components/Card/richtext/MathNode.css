@@ -1,3 +1,16 @@
+/* Wraps the rendered KaTeX output plus its own ElementControls delete button —
+   needed since the math span itself is filled via dangerouslySetInnerHTML and so
+   can't also hold a React sibling (MathNodeView.tsx). */
+.math-node-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.math-node-wrap--block {
+  display: flex;
+  justify-content: center;
+}
+
 .math-node {
   cursor: text;
   border-radius: var(--radius-sm);
@@ -7,7 +20,6 @@
   display: block;
   margin: 0 0 var(--space-2);
   padding: var(--space-2);
-  text-align: center;
   overflow-x: auto;
 }
 

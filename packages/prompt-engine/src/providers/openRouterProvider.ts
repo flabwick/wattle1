@@ -97,12 +97,18 @@ function toOpenAIMessages(messages: AgentMessage[]): OpenAIChatMessage[] {
  * used verbatim as an OpenRouter model slug (e.g. "deepseek/deepseek-chat") — the
  * config file is meant to be editable to any OpenRouter-supported model without also
  * requiring a matching models/definitions/*.ts entry.
+ *
+ * Exported (as resolveOpenRouterModel) so providers/openRouterVision.ts's one-shot
+ * vision call reuses this same lookup instead of duplicating it — that module has its
+ * own default (a vision-capable model) rather than DEFAULT_MODEL_ID above, which is
+ * why it's still a parameter here rather than baked in.
  */
-function resolveModel(overrideId?: string): string {
+export function resolveOpenRouterModel(overrideId?: string): string {
   initModels();
   const id = overrideId ?? process.env.MODEL_ID ?? DEFAULT_MODEL_ID;
   return modelRegistry.list().find((m) => m.id === id)?.openRouterModel ?? id;
 }
+const resolveModel = resolveOpenRouterModel;
 
 export const openRouterProvider: ModelProvider = {
   id: "openrouter",

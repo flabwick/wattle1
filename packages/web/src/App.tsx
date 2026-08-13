@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { Template, Card, GenerateResponse, PageCardWithCard, PageSummary } from "@wattle/shared";
+import type {
+  Template,
+  Card,
+  GenerateResponse,
+  PageCardSnapshot,
+  PageCardWithCard,
+  PageSummary,
+  PageWithCards,
+} from "@wattle/shared";
 import type { AnnotationProcess } from "./api/client.js";
 import { Dock } from "./components/Dock/Dock.js";
 import { Icon } from "./components/primitives/index.js";
@@ -19,6 +27,7 @@ import { useDockCards } from "./hooks/useDockCards.js";
 import { useGeneration } from "./hooks/useGeneration.js";
 import { useAgentLoop } from "./hooks/useAgentLoop.js";
 import { useAnnotations } from "./hooks/useAnnotations.js";
+import { snapshotForCards, snapshotWholePage, useHistory } from "./hooks/useHistory.js";
 import { editCard, getCachedCard, notifySaved, subscribeToCard } from "./lib/cardStore.js";
 import { registerQuickAddHandlers } from "./lib/quickAddRegistry.js";
 import { registerPageNavHandler } from "./lib/pageNavRegistry.js";
@@ -182,13 +191,55 @@ export function App() {
     createCardInPage,
     openCardIntoPage,
     refresh,
-    uploadFileToPage,
     updateDraftLocally,
   } = usePage(currentPageId);
   const siblings = useSiblingPages(currentPageId);
   const { ancestors } = usePageAncestors(currentPageId);
   const vault = useVault();
   const dockCards = useDockCards();
+
+  /** The Card ids (not PageCard ids — HistoryEntry.cardIds' own convention) behind
+   *  the current rail selection — the full state system's Undo/Redo/Back/Forward
+   *  auto-scope to this (empty = page-wide) whenever it's read; see useHistory.ts. */
+  const selectedCardIds = useMemo(
+    () =>
+      currentPage ? currentPage.pageCards.filter((pc) => selectedPageCardIds.has(pc.id)).map((pc) => pc.card.id) : [],
+    [currentPage, selectedPageCardIds],
+  );
+  const history = useHistory(currentPageId, selectedCardIds, refresh);
+
+  /** Wraps a structural Page mutation (add/remove/move/freeze/convert a Card, ...)
+   *  with a history entry: snapshots `cardIds` from `currentPage` before `mutate`
+   *  runs (accurate for a discrete one-shot action like these — unlike the
+   *  keystroke-rate text-edit path, see useEditHistoryRecorder.ts), then again from
+   *  whatever fresh Page `mutate` itself returns — always its own `refresh()`'s
+   *  return value (never the stale `currentPage` closure, which React only updates
+   *  on the *next* render, well after this async function has already moved on).
+   *  `wholePage` snapshots every PageCard instead of just `cardIds` (add/remove/move
+   *  entries need every sibling's order to be able to restore it — see
+   *  PageCardSnapshot's doc comment); a plain metadata/type change (freeze,
+   *  convert-to-stack) only needs `cardIds`' own slice. */
+  async function withHistory(
+    kind: "edit" | "generation",
+    label: string,
+    cardIds: string[],
+    mutate: () => Promise<PageWithCards | null | undefined>,
+    wholePage = false,
+  ) {
+    const snap = (p: PageWithCards | null | undefined) =>
+      wholePage ? snapshotWholePage(p) : snapshotForCards(p, cardIds);
+    const before = snap(currentPage);
+    const after = snap(await mutate());
+    await history.record(kind, label, cardIds, before, after);
+  }
+
+  /** Same shape as withHistory above, for the "create a Card, whose id is only
+   *  known once the creating call returns" handlers (createCardInPage/createStack/
+   *  uploadFileToPage all return the new PageCardWithCard) — always a whole-page
+   *  snapshot, since adding a Card is structural. */
+  async function recordCardAdded(before: ReturnType<typeof snapshotWholePage>, label: string, pc: PageCardWithCard) {
+    await history.record("edit", label, [pc.card.id], before, snapshotWholePage(await refresh()));
+  }
 
   // First-run / Home bootstrap (Pages + Links + Search rebuild, Phase 4): once
   // settings have loaded, land on Home if one's set; otherwise (a brand-new install)
@@ -233,9 +284,23 @@ export function App() {
   const agentAbortControllerRef = useRef<AbortController | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentNotice, setAgentNotice] = useState<string | null>(null);
+  /** Captured right before a generation start/startAndWait call fires (the actual
+   *  call sites are below — handleGeneratePage and the "promptCard" action job) so
+   *  onGenerationAccepted, once the stream lands, has something to diff against for
+   *  the Back/Forward version entry. `cardIds` is the selection/target the
+   *  generation was invoked against — empty for "nothing selected" (the Circle's
+   *  page-bottom append), in which case onGenerationAccepted falls back to tagging
+   *  the newly-landed Card's own id instead. */
+  const pendingGenerationRef = useRef<{ cardIds: string[]; before: PageCardSnapshot[] } | null>(null);
 
   async function onGenerationAccepted(result?: GenerateResponse) {
-    await refresh();
+    const pending = pendingGenerationRef.current;
+    pendingGenerationRef.current = null;
+    const freshPage = await refresh();
+    if (pending && result) {
+      const cardIds = pending.cardIds.length > 0 ? pending.cardIds : [result.card.id];
+      await history.record("generation", "Generated card", cardIds, pending.before, snapshotWholePage(freshPage));
+    }
     if (!result) return;
 
     // "input" Cards are answered by a human, not run — this just materializes the
@@ -266,6 +331,12 @@ export function App() {
     const controller = new AbortController();
     agentAbortControllerRef.current = controller;
     setAgentRunning(true);
+    // Whole-page snapshot: a tool-calling run can touch arbitrary Cards, not just
+    // one — see the Back/Forward entry recorded below. `cardIds` tags whatever was
+    // selected when the run was invoked (empty when nothing was, same "page-only"
+    // fallback matchesScope gives an empty tag).
+    const before = snapshotWholePage(currentPage);
+    const cardIds = selectedCardIds;
     try {
       const outcome = await agentLoop.runAgent({
         scope: "page",
@@ -281,7 +352,8 @@ export function App() {
         },
         signal: controller.signal,
       });
-      await refresh();
+      const freshPage = await refresh();
+      await history.record("generation", "Agent run", cardIds, before, snapshotWholePage(freshPage));
       if (outcome.status === "max_rounds") setAgentNotice(t("generate.autoRunChainCapped"));
       else if (outcome.status === "paused_for_input") setAgentNotice(t("generate.agentPausedForInput"));
       else setAgentNotice(null);
@@ -703,10 +775,20 @@ export function App() {
    *  turns it into a Stack and immediately adds a second (blank) alternate, in one
    *  step. A Stack Card's own "+" doesn't call this at all — StackBody.tsx adds an
    *  alternate directly via its own useCardStack instance. */
+  /** Card.tsx's useEditHistoryRecorder fires this once a title/content edit burst
+   *  settles (via PageStack's onRecordEditHistory prop) — one Undo/Redo entry per
+   *  pause/edit-session, the confirmed coarse-grained decision. */
+  function handleRecordEditHistory(before: PageCardSnapshot, after: PageCardSnapshot) {
+    void history.record("edit", "Edited card", [before.cardId], [before], [after]);
+  }
+
   async function handleTurnIntoStackWithNewCard(pageCardId: string) {
-    const converted = await api.convertCardToStack(pageCardId);
-    await api.addStackMember(converted.card.id);
-    await refresh();
+    const cardId = currentPage?.pageCards.find((pc) => pc.id === pageCardId)?.card.id;
+    await withHistory("edit", "Turned into Stack", cardId ? [cardId] : [], async () => {
+      const converted = await api.convertCardToStack(pageCardId);
+      await api.addStackMember(converted.card.id);
+      return refresh();
+    });
   }
 
   /** PageStack's own title header (Pages + Links + Search rebuild, Phase 1's "Show
@@ -938,7 +1020,11 @@ export function App() {
     if (!currentPage) return;
     if (!instruction || !instruction.trim()) {
       // Empty Circle — unchanged, today's cheap single-card stream (no agent, no
-      // instruction/actionsDoc vocabulary).
+      // instruction/actionsDoc vocabulary). No specific source Card (nothing's
+      // selected here by definition), so onGenerationAccepted tags the entry with
+      // the newly-landed Card's own id instead — see pendingGenerationRef's doc
+      // comment.
+      pendingGenerationRef.current = { cardIds: [], before: snapshotWholePage(currentPage) };
       generation.startForPage(currentPage.id);
       return;
     }
@@ -1009,6 +1095,16 @@ export function App() {
     setDockCardToOpen(dockCard.id);
   }
 
+  /** The idle Dock row's own direct "Upload file" action (Dock.tsx's
+   *  uploadDockFileAction) — same land-on-the-new-Card behavior as
+   *  handleAddVaultCardToDock above, so uploading doesn't require first opening the
+   *  Dock Cards panel and finding its own buried creation flow. */
+  async function handleUploadFileToDock(file: File) {
+    const dockCard = await dockCards.uploadFile(file);
+    setOpenPanel("dockCards");
+    setDockCardToOpen(dockCard.id);
+  }
+
   function handleEnterMoveMode() {
     if (selectedPageCardIds.size === 0 || !currentPage) return;
     setMovingPageCardIds(new Set(selectedPageCardIds));
@@ -1045,13 +1141,27 @@ export function App() {
   async function handleDropAt(destPageId: string, destIndex: number) {
     if (movingPageCardIds.size === 0) return;
     const ordered = movingPageCardOrder;
+    const sameCurrentPage = destPageId === currentPage?.id;
+    const movedCardIds = currentPage
+      ? currentPage.pageCards.filter((pc) => movingPageCardIds.has(pc.id)).map((pc) => pc.card.id)
+      : [];
     setMovingPageCardIds(new Set());
     setMovingPageCardOrder([]);
     deselectAll();
-    for (let i = 0; i < ordered.length; i++) {
-      await api.movePageCard(ordered[i], destPageId, destIndex + i);
+    const move = async () => {
+      for (let i = 0; i < ordered.length; i++) {
+        await api.movePageCard(ordered[i], destPageId, destIndex + i);
+      }
+      return refresh();
+    };
+    // A cross-Page move touches two Pages' own history logs (each HistoryEntry is
+    // scoped to one pageId) — out of scope for this pass, so it just isn't recorded;
+    // an in-Page reorder (the common case) records normally.
+    if (sameCurrentPage) {
+      await withHistory("edit", "Moved card", movedCardIds, move, true);
+    } else {
+      await move();
     }
-    await refresh();
   }
 
   // Draft edits fire on every keystroke (Card.tsx/richtext/CardRichText.tsx's
@@ -1116,8 +1226,10 @@ export function App() {
    *  entry instead of leaving it clickable (and failing the same way) indefinitely. */
   async function handleAddVaultCardToPage(cardId: string) {
     if (!currentPage) return;
+    const before = snapshotWholePage(currentPage);
     try {
       await openCardIntoPage(currentPage.id, cardId);
+      await history.record("edit", "Added card", [cardId], before, snapshotWholePage(await refresh()));
     } catch {
       await vault.refresh(vault.query || undefined);
     }
@@ -1125,10 +1237,15 @@ export function App() {
 
   /** The Feed Input Button's Add action (Step 6 spec §2.2) — creates a Card straight
    *  from whatever's typed into the expanded text field, bypassing AI entirely; blank
-   *  if the field was empty. */
+   *  if the field was empty. `createCardInPage`'s own return (the new PageCard) is
+   *  what identity-tags the recorded entry — see `withHistory`'s own doc comment for
+   *  why this handler builds the entry directly instead: the new Card's id isn't
+   *  known until *after* the mutation, unlike remove/move/turnIntoStack. */
   async function handleAddCardToCurrentPage(content: string) {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", content);
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", content);
+    await recordCardAdded(before, "Added card", pc);
   }
 
   // Lets the Dock's text-selection quick-lookup row (Dock.tsx's showLookupRow) add
@@ -1138,18 +1255,20 @@ export function App() {
   // observes reactively.
   useEffect(() => {
     registerQuickAddHandlers({
-      addToPage: (html, title) => {
-        if (currentPage) void createCardInPage(currentPage.id, title ?? "", html);
+      addToPage: async (html, title) => {
+        if (currentPage) await createCardInPage(currentPage.id, title ?? "", html);
       },
-      addToDock: (html) => {
-        void dockCards.createCard("", html);
+      addToDock: async (html) => {
+        await dockCards.createCard("", html);
       },
     });
   }, [currentPage, createCardInPage, dockCards.createCard]);
 
   async function handleUploadFileToCurrentPage(file: File) {
     if (!currentPage) return;
-    await uploadFileToPage(currentPage.id, file);
+    const before = snapshotWholePage(currentPage);
+    const pc = await api.uploadFileToPage(currentPage.id, file);
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Stack" option (Step "Stacks" spec) —
@@ -1160,8 +1279,9 @@ export function App() {
    *  also has to seed a first StackMember. */
   async function handleAddStackToCurrentPage() {
     if (!currentPage) return;
-    await api.createStack(currentPage.id);
-    await refresh();
+    const before = snapshotWholePage(currentPage);
+    const pc = await api.createStack(currentPage.id);
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Action" option — same "select this type
@@ -1171,55 +1291,65 @@ export function App() {
    *  Stack's first StackMember) to seed. */
   async function handleAddActionToCurrentPage() {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", "", {
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "action",
       action: { label: "", steps: [] },
     });
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Prompt" option — see
    *  handleAddActionToCurrentPage above for the same reasoning. */
   async function handleAddPromptToCurrentPage() {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", "", {
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "prompt",
       prompt: { input: "", iterations: [], activeIndex: 0, context: { mode: "none", cardIds: [] } },
     });
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Page Links" option — see
    *  handleAddActionToCurrentPage above for the same reasoning. */
   async function handleAddPageLinksToCurrentPage() {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", "", {
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "pageLinks",
       pageLinks: { targets: [] },
     });
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Search" option — see
    *  handleAddActionToCurrentPage above for the same reasoning. */
   async function handleAddSearchToCurrentPage() {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", "", {
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "search",
       search: { mode: "vault", query: "" },
     });
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's type-picker "Input" option — see
    *  handleAddActionToCurrentPage above for the same reasoning. */
   async function handleAddInputToCurrentPage() {
     if (!currentPage) return;
-    await createCardInPage(currentPage.id, "", "", {
+    const before = snapshotWholePage(currentPage);
+    const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
       typeId: "input",
       input: { kind: "text", options: [], value: [] },
     });
+    await recordCardAdded(before, "Added card", pc);
   }
 
   /** The Feed Input Button's "New Page" tile (Homes + Pages hierarchy, Phase 2) —
@@ -1287,6 +1417,7 @@ export function App() {
       // teaches a self-running action-card vocabulary (see interactive/system.md);
       // real mutation goes through the agent (handleRunAgentForPage) instead.
       onPromptCard: async (pc, instructions, contextMode) => {
+        pendingGenerationRef.current = { cardIds: [pc.card.id], before: snapshotWholePage(currentPage) };
         return await generation.startAndWait(pc.id, instructions, contextMode === "own");
       },
       onNewBlankPage: async () => {
@@ -1373,12 +1504,20 @@ export function App() {
     const pageCard = currentPage?.pageCards.find((pc) => pc.id === pageCardId);
     if (!pageCard) return;
     if (focusedPageCardId === pageCardId) setFocusedPageCardId(null);
-    if (getCardTypeId(pageCard.card) === "stack") {
-      await api.closeStack(pageCard.card.id);
-    } else {
-      await api.removePageCardFromPage(pageCardId);
-    }
-    await refresh();
+    await withHistory(
+      "edit",
+      "Removed card",
+      [pageCard.card.id],
+      async () => {
+        if (getCardTypeId(pageCard.card) === "stack") {
+          await api.closeStack(pageCard.card.id);
+        } else {
+          await api.removePageCardFromPage(pageCardId);
+        }
+        return refresh();
+      },
+      true,
+    );
   }
 
   /** The Dock's merged page-nav "+" control, repurposed while moving (see the
@@ -1457,6 +1596,7 @@ export function App() {
             generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
           }
           onTurnIntoStack={handleTurnIntoStackWithNewCard}
+          onRecordEditHistory={handleRecordEditHistory}
           movingPageCardIds={EMPTY_ID_SET}
           onDropAt={NOOP_INDEX}
           dockCardMoving={false}
@@ -1538,6 +1678,7 @@ export function App() {
               generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
             }
             onTurnIntoStack={handleTurnIntoStackWithNewCard}
+            onRecordEditHistory={handleRecordEditHistory}
             movingPageCardIds={movingPageCardIds}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
             dockCardMoving={movingDockCardIds.size > 0}
@@ -1639,6 +1780,7 @@ export function App() {
         onDeleteVaultCard={vault.deleteCard}
         onAddVaultCardToPage={currentPage ? handleAddVaultCardToPage : null}
         onAddVaultCardToDock={handleAddVaultCardToDock}
+        onUploadFileToDock={handleUploadFileToDock}
         dockCards={dockCards.dockCards}
         editingDockCardIds={editingEmbedIds}
         onToggleDockCardEdit={toggleEditEmbed}
@@ -1688,6 +1830,14 @@ export function App() {
         onSaveAsTemplateFromPage={handleSaveAsTemplateFromPage}
         editingTemplateName={editingTemplateName}
         onStopEditingTemplate={handleStopEditingTemplate}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
+        onUndo={history.undo}
+        onRedo={history.redo}
+        canVersionBack={history.canGoBack}
+        canVersionForward={history.canGoForward}
+        onVersionBack={history.goBack}
+        onVersionForward={history.goForward}
       />
       {saveAsTemplateRequest && (
         <SaveAsTemplateModal onSubmit={handleSubmitSaveAsTemplate} onClose={() => setSaveAsTemplateRequest(null)} />

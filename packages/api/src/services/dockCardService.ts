@@ -1,9 +1,9 @@
 import type { DockCard, DockCardWithCard, PageCard } from "@wattle/shared";
 import { defaultMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
-import { forkCard, serializeCard } from "./cardService.js";
+import type { UploadedFile } from "../uploads.js";
+import { buildFileCardCreateData, forkCard, serializeCard } from "./cardService.js";
 import * as proximityService from "./proximityService.js";
-import type { UploadedFile } from "./pageCardService.js";
 
 function serialize(dc: {
   id: string;
@@ -73,21 +73,7 @@ export async function addFileCardToDock(file: UploadedFile): Promise<DockCardWit
     data: {
       order: (bottom._max.order ?? -1) + 1,
       card: {
-        create: {
-          title: file.originalName,
-          content: "",
-          metadata: JSON.stringify({
-            ...defaultMetadata(),
-            typeId: "file",
-            file: {
-              storedName: file.storedName,
-              originalName: file.originalName,
-              mimeType: file.mimeType,
-              size: file.size,
-            },
-          }),
-          savedToVault: false,
-        },
+        create: buildFileCardCreateData(file, { savedToVault: false }),
       },
     },
     include: { card: true },

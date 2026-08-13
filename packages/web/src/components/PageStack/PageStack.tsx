@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PageCardWithCard, PageSummary, PageWithCards } from "@wattle/shared";
+import type { PageCardSnapshot, PageCardWithCard, PageSummary, PageWithCards } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
 import { GhostCard } from "../Card/GhostCard.js";
@@ -77,6 +77,10 @@ interface PageCardSlotProps {
    *  Stack Card's own "+" (StackBody.tsx) just adds another alternate directly,
    *  no App.tsx round trip needed. */
   onTurnIntoStack: (pageCardId: string) => void;
+  /** The full state system's Undo/Redo — see Card.tsx's own onRecordEditHistory doc
+   *  comment. Only consumed by the "note" branch below (CardView), same as
+   *  onRunProcess/onActivateEditor above. */
+  onRecordEditHistory: (before: PageCardSnapshot, after: PageCardSnapshot) => void;
 }
 
 /**
@@ -112,6 +116,7 @@ function PageCardSlot({
   generatingPageCardId,
   pageSiblings,
   onTurnIntoStack,
+  onRecordEditHistory,
 }: PageCardSlotProps) {
   // Excluded from normal Page rendering (Apps feature spec §2) — everything else
   // about this slot (Move Mode's drop zones, index math) stays exactly as if this
@@ -150,6 +155,7 @@ function PageCardSlot({
         generatingPageCardId={generatingPageCardId}
         pageSiblings={pageSiblings}
         onTurnIntoStack={() => onTurnIntoStack(pageCard.id)}
+        onRecordEditHistory={onRecordEditHistory}
       />
     );
   }
@@ -335,6 +341,8 @@ interface PageStackProps {
   generatingPageCardId: string | null;
   /** See PageCardSlotProps.onTurnIntoStack above. */
   onTurnIntoStack: (pageCardId: string) => void;
+  /** See PageCardSlotProps.onRecordEditHistory above. */
+  onRecordEditHistory: (before: PageCardSnapshot, after: PageCardSnapshot) => void;
   /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
    *  transit as one batch (Step 6 spec §4.2's "Move" on a multi-selection), or empty
    *  when not moving. */
@@ -447,6 +455,7 @@ export function PageStack({
   onRunActionJob,
   generatingPageCardId,
   onTurnIntoStack,
+  onRecordEditHistory,
   movingPageCardIds,
   onDropAt,
   dockCardMoving,
@@ -523,6 +532,7 @@ export function PageStack({
                   generatingPageCardId={generatingPageCardId}
                   pageSiblings={currentPage.pageCards}
                   onTurnIntoStack={onTurnIntoStack}
+                  onRecordEditHistory={onRecordEditHistory}
                 />
                 {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}
               </div>

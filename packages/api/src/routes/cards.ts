@@ -1,9 +1,11 @@
 import path from "node:path";
 import { Router } from "express";
 import type { Card } from "@wattle/shared";
+import { isEpubFile, isHtmlFile } from "@wattle/shared";
 import * as cardService from "../services/cardService.js";
 import { runOperation } from "../operations/run.js";
-import { fileUpload, uploadsDir } from "../uploads.js";
+import { fileUpload, requireUploadedFile, uploadsDir } from "../uploads.js";
+import { divideEpubIntoSections, divideHtmlIntoSections } from "../services/htmlEpubService.js";
 
 export const cardsRouter = Router();
 
@@ -47,16 +49,9 @@ cardsRouter.post("/", async (req, res) => {
 // POST /api/pages/:pageId/files (page-local) or POST /api/dock-cards/files
 // (Dock-local).
 cardsRouter.post("/files", fileUpload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "file is required" });
-  }
-  const card = await cardService.createFileCard({
-    storedName: req.file.filename,
-    originalName: req.file.originalname,
-    mimeType: req.file.mimetype,
-    size: req.file.size,
-  });
-  res.status(201).json(card);
+  const file = requireUploadedFile(req, res);
+  if (!file) return;
+  res.status(201).json(await cardService.createFileCard(file));
 });
 
 // Direct vault edit — wraps the "card.rename" Operation. Distinct from the "card.edit"
@@ -75,4 +70,35 @@ cardsRouter.delete("/:id", async (req, res) => {
 // Open/Frozen). Wraps the "card.freeze" Operation.
 cardsRouter.post("/:id/freeze", async (req, res) => {
   res.json(await runOperation<Card>("card.freeze", { cardId: req.params.id }));
+});
+
+// POST /api/cards/:id/extract-text  { method?, instructions? } — wraps the
+// "file.extractText" Operation. Synchronous and potentially slow (a vision-model
+// round trip per page, see fileExtractionService.ts); FileView.tsx shows a loading
+// state for the duration.
+cardsRouter.post("/:id/extract-text", async (req, res) => {
+  res.json(await runOperation<Card>("file.extractText", { ...(req.body ?? {}), cardId: req.params.id }));
+});
+
+// POST /api/cards/:id/divide — the "division" Convert path (Dock.tsx's "Split into
+// Cards"): EPUB -> one section per spine chapter, HTML -> one section per <h1>. A
+// plain route+service, not an Operation — this never mutates the Card itself (see
+// registries/README.md's "not every mutation needs to be an Operation"), it's a
+// stateless read: the client turns the response into N new Cards on its own via
+// the ordinary addNewCardToPage/createCardInDock calls, same as any other
+// multi-Card creation.
+cardsRouter.post("/:id/divide", async (req, res) => {
+  const card = await cardService.getCard(req.params.id);
+  if (!card) return res.status(404).json({ error: "Card not found" });
+  const file = card.metadata.file;
+  if (!file) return res.status(400).json({ error: "Card has no uploaded file" });
+
+  const filePath = path.join(uploadsDir, file.storedName);
+  if (isEpubFile(file.originalName, file.mimeType)) {
+    return res.json({ sections: await divideEpubIntoSections(filePath) });
+  }
+  if (isHtmlFile(file.originalName, file.mimeType)) {
+    return res.json({ sections: await divideHtmlIntoSections(filePath, card.title || file.originalName) });
+  }
+  res.status(400).json({ error: "Division only supports EPUB and HTML files." });
 });

@@ -5,6 +5,7 @@ import type { ActionFieldKind } from "@wattle/shared";
 import { Icon, InputField } from "../../primitives/index.js";
 import { useCardEditingContext } from "./CardEditingContext.js";
 import { ActionFieldConfigPopover } from "./ActionFieldConfigPopover.js";
+import { ElementControls } from "./ElementControls.js";
 import { t } from "../../../i18n/index.js";
 import "./ActionNodes.css";
 
@@ -29,7 +30,7 @@ function parseOptions(raw: unknown): string[] {
  * interactive regardless of whether the surrounding card is in edit or view mode —
  * that's the whole point of a "fill me in" field.
  */
-export function ActionFieldNodeView({ node, getPos, updateAttributes }: NodeViewProps) {
+export function ActionFieldNodeView({ node, getPos, updateAttributes, deleteNode }: NodeViewProps) {
   const ctx = useCardEditingContext();
   const [configOpen, setConfigOpen] = useState(false);
   const kind = (node.attrs.kind as ActionFieldKind) || "text";
@@ -155,6 +156,9 @@ export function ActionFieldNodeView({ node, getPos, updateAttributes }: NodeView
             </option>
           ))}
         </select>
+      )}
+      {ctx.editable && (
+        <ElementControls variant="corner" label={t("card.deleteActionField")} onDelete={() => deleteNode()} />
       )}
     </NodeViewWrapper>
   );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FocusEvent } from "react";
-import type { PageCardWithCard } from "@wattle/shared";
+import type { PageCardSnapshot, PageCardWithCard } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardShell, Icon } from "../primitives/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
@@ -9,6 +9,7 @@ import { CardHeaderActions } from "./CardHeaderActions.js";
 import { CardInfoPanel } from "./CardInfoPanel.js";
 import { useCard } from "../../hooks/useCard.js";
 import { useDismiss } from "../../hooks/useDismiss.js";
+import { useEditHistoryRecorder } from "../../hooks/useEditHistoryRecorder.js";
 import { editCard } from "../../lib/cardStore.js";
 import { t } from "../../i18n/index.js";
 import "./Card.css";
@@ -89,6 +90,12 @@ interface CardProps {
    *  adds a second (blank) alternate to it, in one step (App.tsx's
    *  handleTurnIntoStackWithNewCard). */
   onTurnIntoStack?: () => void;
+  /** The full state system's Undo/Redo — fires once a title/content edit burst
+   *  settles (see useEditHistoryRecorder.ts), wired to App.tsx's
+   *  `history.record("edit", ...)`. Omitted for a nested embed's own CardView (only
+   *  ever rendered at depth 0 — see onRunActionJob's doc comment above), same as
+   *  the top-level-only action job wiring. */
+  onRecordEditHistory?: (before: PageCardSnapshot, after: PageCardSnapshot) => void;
 }
 
 /**
@@ -143,6 +150,7 @@ export function CardView({
   generatingPageCardId,
   pageSiblings,
   onTurnIntoStack,
+  onRecordEditHistory,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
   // this component (unlike selection/editing, nothing else needs to react to it).
@@ -170,6 +178,22 @@ export function CardView({
   // CardRichText stays non-editable below), same as everywhere else Frozen already
   // means "not directly editable" (embeds, Dock Cards).
   const isFrozen = Boolean(canonicalCard.frozenAt);
+
+  // The full state system's Undo/Redo: coalesces this Card's own title/content
+  // changes into one history entry per pause/edit-session, independent of the
+  // live-save calls (editCard/onChangeDraft) above — see useEditHistoryRecorder.ts.
+  // Only active while `editing` (the Dock's formatting-toolbar target) and never
+  // for a Frozen Card, which isn't directly editable to begin with.
+  useEditHistoryRecorder({
+    enabled: editing && !isFrozen,
+    pageCardId: pageCard.id,
+    cardId: pageCard.card.id,
+    order: pageCard.order,
+    title,
+    content,
+    metadata: canonicalCard.metadata,
+    onCommit: (before, after) => onRecordEditHistory?.(before, after),
+  });
 
   function handleTitleChange(value: string) {
     if (isFrozen) return;

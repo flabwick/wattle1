@@ -4,6 +4,7 @@ import type { NodeViewProps } from "@tiptap/core";
 import { Button } from "../../primitives/index.js";
 import { useCardEditingContext } from "./CardEditingContext.js";
 import { ActionButtonConfigPopover } from "./ActionButtonConfigPopover.js";
+import { ElementControls } from "./ElementControls.js";
 import { isKnownActionJob } from "../../../lib/actionJobs.js";
 import { t } from "../../../i18n/index.js";
 import "./ActionNodes.css";
@@ -27,7 +28,7 @@ function parseJobParams(raw: unknown): Record<string, unknown> {
  * button mid-edit would do); while viewing, a click collects every actionField
  * node's current value in this same Card (in document order) and dispatches.
  */
-export function ActionButtonNodeView({ node, updateAttributes }: NodeViewProps) {
+export function ActionButtonNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
   const ctx = useCardEditingContext();
   const [popoverOpen, setPopoverOpen] = useState(false);
   const label = (node.attrs.label as string) || t("actionCard.defaultLabel");
@@ -77,6 +78,9 @@ export function ActionButtonNodeView({ node, updateAttributes }: NodeViewProps) 
           }
           onClose={() => setPopoverOpen(false)}
         />
+      )}
+      {ctx.editable && (
+        <ElementControls variant="corner" label={t("card.deleteActionButton")} onDelete={() => deleteNode()} />
       )}
     </NodeViewWrapper>
   );

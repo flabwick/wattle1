@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { DockCardWithCard } from "@wattle/shared";
 import * as dockCardService from "../services/dockCardService.js";
 import { runOperation } from "../operations/run.js";
-import { fileUpload } from "../uploads.js";
+import { fileUpload, requireUploadedFile } from "../uploads.js";
 
 // Mounted at /api/dock-cards — the persistent Dock scratchpad layer (Step 6 spec
 // §1.2), outside any Page/Tab.
@@ -29,16 +29,9 @@ dockCardsRouter.post("/", async (req, res) => {
 
 // POST /api/dock-cards/files  multipart/form-data, field "file".
 dockCardsRouter.post("/files", fileUpload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "file is required" });
-  }
-  const dockCard = await dockCardService.addFileCardToDock({
-    storedName: req.file.filename,
-    originalName: req.file.originalname,
-    mimeType: req.file.mimetype,
-    size: req.file.size,
-  });
-  res.status(201).json(dockCard);
+  const file = requireUploadedFile(req, res);
+  if (!file) return;
+  res.status(201).json(await dockCardService.addFileCardToDock(file));
 });
 
 // DELETE /api/dock-cards/:id — "Close": unpins from the Dock if the Card is saved to

@@ -139,10 +139,11 @@ model Page {
   parent       Page?   @relation("PageParent", fields: [parentPageId], references: [id], onDelete: SetNull)
   children     Page[]  @relation("PageParent")
 
-  pageCards    PageCard[]
-  homeSettings UserSettings[]  @relation("HomePage")
-  linksOut     PageLink[]      @relation("LinkSource")
-  linksIn      PageLink[]      @relation("LinkTarget")
+  pageCards      PageCard[]
+  homeSettings   UserSettings[]  @relation("HomePage")
+  linksOut       PageLink[]      @relation("LinkSource")
+  linksIn        PageLink[]      @relation("LinkTarget")
+  historyEntries HistoryEntry[]
 
   @@index([tabId])
   @@index([siblingGroupId])
@@ -270,4 +271,42 @@ model PageCard {
 
   @@index([pageId])
   @@index([cardId])
+}
+
+/// One recorded state transition on a Page — the backing log for both Undo/Redo
+/// (kind "edit") and Back/Forward (kind "generation"), see docs on the full state
+/// system plan. A flat, chronological, per-page log rather than separate stacks per
+/// scope: a page-wide view reads every entry; a card-scoped view (the current
+/// selection) reads only entries whose cardIds is a subset of that selection — see
+/// historyService.ts for the scope-filtering and restore logic.
+model HistoryEntry {
+  id     String @id @default(cuid())
+  pageId String
+  page   Page   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  /// "edit" (manual edit — Undo/Redo) or "generation" (AI-produced change —
+  /// Back/Forward). Not a Prisma enum: kept a plain string for the same reason
+  /// Template.scope is (schema evolves without a migration for new kinds).
+  kind   String
+  /// Short human label ("Edited card", "Generated card", "Removed card", ...).
+  label  String
+  /// JSON string array of Card ids this entry's operation targeted — the operation's
+  /// own target/selection, not incidental siblings dragged along by a structural
+  /// snapshot. A selection-scoped undo/redo only ever sees entries whose cardIds is a
+  /// subset of the current selection.
+  cardIds String
+  /// JSON PageCardSnapshot[] (see @wattle/shared) — state immediately before/after
+  /// this entry. Stored as JSON strings for the same sqlite-connector reason as
+  /// Card.metadata/Template.snapshot.
+  before String
+  after  String
+  /// Null = active. Set to the undo time once undone — redo re-applies `after` and
+  /// clears this. Nothing is ever deleted on a new recorded entry: redo eligibility
+  /// is a pure query (historyService.ts's redo/undo) — an undone entry only redoes
+  /// while no *later* non-undone entry exists ahead of it within the same filtered
+  /// (scope-matching) view, so a fresh edit elsewhere on the Page doesn't spuriously
+  /// invalidate a different card's own independent redo.
+  undoneAt  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([pageId, kind, createdAt])
 }

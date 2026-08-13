@@ -3,11 +3,50 @@
    inventing a new palette (styling.md §2's "one dominant accent, others reserved
    for secondary/tertiary emphasis" — here each kind IS its own emphasis role). */
 .callout {
+  position: relative;
   margin: 0 0 var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-left: var(--border-width-bold) solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
+}
+
+/* Row holding the fold toggle and the "change kind" trigger side by side — split
+   out from .callout__toggle itself (Card design pass) since the latter is a plain
+   <button> and can't nest another interactive element inside it. */
+.callout__header {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+/* The "change kind" trigger (CalloutNodeView.tsx) — sits inline after the fold
+   toggle rather than in the corner, which ElementControls' own delete button
+   already claims. */
+.callout__kind-wrap {
+  display: inline-block;
+  margin-left: var(--space-1);
+}
+
+.callout__kind-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--touch-target-sm);
+  min-height: var(--touch-target-sm);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.callout__kind-btn:hover {
+  color: var(--color-text);
+}
+
+.callout__kind-btn .icon {
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
 }
 
 .callout--note {
@@ -35,7 +74,6 @@
   align-items: center;
   gap: var(--space-1);
   padding: 0;
-  margin-bottom: var(--space-1);
   background: none;
   border: none;
   color: var(--color-text);

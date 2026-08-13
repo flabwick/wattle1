@@ -8,7 +8,16 @@ import type {
   PageSummary,
   PageWithCards,
 } from "@wattle/shared";
-import { cardTypeRegistry, flattenToPlainText, htmlToDoc, operationRegistry } from "@wattle/shared";
+import {
+  cardTypeRegistry,
+  flattenToPlainText,
+  htmlToDoc,
+  isEpubFile,
+  isHtmlFile,
+  isImageFile,
+  isPdfFile,
+  operationRegistry,
+} from "@wattle/shared";
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { Button, Icon, InputField } from "../primitives/index.js";
@@ -23,11 +32,12 @@ import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js
 import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
 import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
 import { CardRichText } from "../Card/richtext/CardRichText.js";
-import { getCardFileUrl, uploadRichTextImage } from "../../api/client.js";
+import { divideCardIntoSections, extractCardFileText, getCardFileUrl, uploadRichTextImage } from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { isMarkdownFile } from "../../lib/isMarkdownFile.js";
 import { convertMarkdownToWattleHtml } from "../../lib/markdownToWattleHtml.js";
-import { getCachedCard } from "../../lib/cardStore.js";
+import { plainTextToWattleHtml } from "../../lib/plainTextToWattleHtml.js";
+import { getCachedCard, publishCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { clearQuotes, useQuotes } from "../../lib/quotesRegistry.js";
 import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
@@ -206,6 +216,12 @@ interface DockProps {
    *  (dockCardsAction below) — adds it to the Dock, then opens the Dock Cards panel
    *  straight onto it, instead of the toggle's normal open/close behavior. */
   onAddVaultCardToDock: (cardId: string) => void;
+  /** The idle row's own direct "Upload file" action (next to Vault/Dock Cards) —
+   *  uploads straight into the Dock as a new Dock Card and opens the Dock Cards
+   *  panel onto it in one tap, same land-on-the-new-Card behavior as
+   *  onAddVaultCardToDock above, instead of going through the Dock Cards panel's
+   *  own buried creation flow (open panel -> "+" -> ellipsis -> File tile). */
+  onUploadFileToDock: (file: File) => void;
   /** The Dock's persistent scratchpad layer (Step 6 spec §1.2/§3.3) — always shown as
    *  a horizontal scroll row in the base bar, regardless of selection/navigation
    *  state, alongside its own extended panel. */
@@ -284,6 +300,18 @@ interface DockProps {
    *  small badge while set; tapping it clears back to null. */
   editingTemplateName: string | null;
   onStopEditingTemplate: () => void;
+  /** The full state system's Undo/Redo (manual edits) and version Back/Forward
+   *  (generation before/after) — App.tsx's useHistory, auto-scoped to the current
+   *  card selection. Named distinctly from canGoBack/canGoForward/onGoBack/
+   *  onGoForward above, which are the unrelated *Page*-navigation history. */
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  canVersionBack: boolean;
+  canVersionForward: boolean;
+  onVersionBack: () => void;
+  onVersionForward: () => void;
 }
 
 interface DockAction {
@@ -399,6 +427,7 @@ export function Dock({
   onDeleteVaultCard,
   onAddVaultCardToPage,
   onAddVaultCardToDock,
+  onUploadFileToDock,
   dockCards,
   editingDockCardIds,
   onToggleDockCardEdit,
@@ -439,6 +468,14 @@ export function Dock({
   onSaveAsTemplateFromPage,
   editingTemplateName,
   onStopEditingTemplate,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  canVersionBack,
+  canVersionForward,
+  onVersionBack,
+  onVersionForward,
 }: DockProps) {
   const vaultOpen = openPanel === "vault";
   const dockCardsOpen = openPanel === "dockCards";
@@ -593,10 +630,12 @@ export function Dock({
     // invalidates any markdown fetch/parse still in flight (convertRequestIdRef) so
     // it can't land a result for a selection that's no longer current.
     convertRequestIdRef.current++;
-    if (convertOutput !== null || convertError !== null || convertLoading) {
+    if (convertOutput !== null || convertSections !== null || convertError !== null || convertLoading) {
       setConvertOutput(null);
+      setConvertSections(null);
       setConvertError(null);
       setConvertLoading(false);
+      setConvertMode(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionSignature]);
@@ -613,8 +652,24 @@ export function Dock({
   const [convertPickerPos, setConvertPickerPos] = useState<{ left: number; bottom: number } | null>(null);
   const convertButtonRef = useRef<HTMLDivElement>(null);
   const [convertOutput, setConvertOutput] = useState<string | null>(null);
+  /** "Split into Cards" (ConvertPicker's onPickDivide) own result — an EPUB's
+   *  chapters or an HTML document's top-level heading sections, each already
+   *  converted to Wattle HTML (plainTextToWattleHtml.ts). Mutually exclusive with
+   *  convertOutput: only one of the two Convert flows is ever in flight/shown at
+   *  once, distinguished by convertMode below. */
+  const [convertSections, setConvertSections] = useState<{ title: string; html: string }[] | null>(null);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [convertLoading, setConvertLoading] = useState(false);
+  /** Which Convert flow convertLoading/convertError currently belong to — needed
+   *  since both handleConvertToStandardCard and handleConvertToDividedCards share
+   *  the same loading/error state but want different loading copy. */
+  const [convertMode, setConvertMode] = useState<"standard" | "divide" | null>(null);
+  /** True only while sequentially awaiting quickAddToPage/quickAddToDock across
+   *  every divided section (handleAddDividedSectionsToPage/ToDock below) — guards
+   *  against a second click mid-sequence firing a duplicate batch of N Cards, a
+   *  much costlier accidental double-click than the single-card convert's own
+   *  unguarded Add buttons risk. */
+  const [bulkAdding, setBulkAdding] = useState(false);
   /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
    *  every rich-text insert action lives here now, not a Card's own header (see
    *  Card.tsx/CardRichText.tsx). Same anchored-popover convention as
@@ -646,6 +701,10 @@ export function Dock({
    *  "nothing selected" branch below), same trigger-a-hidden-input pattern as
    *  imageFileInputRef above. */
   const vaultFileInputRef = useRef<HTMLInputElement>(null);
+  /** The idle row's own "Upload file" action (uploadDockFileAction below) — same
+   *  trigger-a-hidden-input pattern as vaultFileInputRef above, uploads straight
+   *  into the Dock instead of the Vault. */
+  const uploadDockFileInputRef = useRef<HTMLInputElement>(null);
 
   // The formatting toolbar's target — whichever CardRichText instance was most
   // recently focused (activeEditorRegistry.ts), reactively re-read here since Dock is
@@ -697,7 +756,7 @@ export function Dock({
    *  still-visible ask box, which read as "compiling multiple Cards is broken"
    *  even though the compiled content itself was always complete. */
   const showConvertPanel =
-    (convertOutput !== null || convertError !== null || convertLoading) &&
+    (convertOutput !== null || convertSections !== null || convertError !== null || convertLoading) &&
     !moving &&
     !dockCardMoving &&
     !embedMoving;
@@ -776,21 +835,38 @@ export function Dock({
     return file;
   }
 
+  /** A file Card's already-cached extraction text, if any (metadata.file.extraction —
+   *  written by the "file.extractText" Operation, see FileView.tsx's own extract/OCR
+   *  buttons), or null if it's never been extracted (or isn't a file Card at all). */
+  function cachedExtractedText(card: Card): string | null {
+    return card.metadata.file?.extraction?.text ?? null;
+  }
+
+  /** A file Card Convert can extract from on demand if it isn't already cached — a
+   *  PDF or an image (fileExtractionService.ts's own supported kinds). */
+  function isExtractableFileCard(card: Card): boolean {
+    const file = card.metadata.file;
+    return !!file && (isPdfFile(file.originalName, file.mimeType) || isImageFile(file.originalName, file.mimeType));
+  }
+
   /** True if any Card feeding the Convert action — a selected Page Card or a
-   *  selected embed — is a File Card that ISN'T markdown. A markdown File Card is
-   *  handled by buildConvertHtml below instead (fetched and parsed via
-   *  markdownToWattleHtml.ts); every other File Card (a PDF, an image, ...) has no
-   *  HTML-shaped content to compile at all — genuinely complicated (the C0 doc's
-   *  uploaded-bytes-on-disk model doesn't map onto a plain HTML `content` string the
-   *  way every other CardType does) and left for a later stage, so
-   *  handleConvertToStandardCard below shows convertError instead for those. */
-  function hasSelectedNonMarkdownFileCard(): boolean {
-    const isNonMarkdownFile = (card: Card) => getCardTypeId(card) === "file" && !markdownFileMeta(card);
-    if (selectedCards.some((pc) => isNonMarkdownFile(resolveCanonicalCard(pc)))) return true;
+   *  selected embed — is a File Card that Convert genuinely can't handle: not
+   *  markdown (fetched/parsed via markdownToWattleHtml.ts), not a PDF/image (which
+   *  resolveConvertSourceHtml below can extract text from on demand), and not
+   *  already holding cached extraction text from a prior FileView.tsx extract/OCR
+   *  run. A .zip, a .docx, etc. still have no HTML-shaped content to compile at all,
+   *  so handleConvertToStandardCard below shows convertError for those. */
+  function hasSelectedUnconvertibleFileCard(): boolean {
+    const isUnconvertibleFile = (card: Card) =>
+      getCardTypeId(card) === "file" &&
+      !markdownFileMeta(card) &&
+      !cachedExtractedText(card) &&
+      !isExtractableFileCard(card);
+    if (selectedCards.some((pc) => isUnconvertibleFile(resolveCanonicalCard(pc)))) return true;
     return [...selectedEmbedIds]
       .map((cardId) => getCachedCard(cardId))
       .filter((card): card is Card => !!card)
-      .some(isNonMarkdownFile);
+      .some(isUnconvertibleFile);
   }
 
   /** Fetches a markdown File Card's raw text (same call FileView.tsx's own
@@ -806,29 +882,45 @@ export function Dock({
     return convertMarkdownToWattleHtml(text).html;
   }
 
+  /** One selected source's HTML for buildConvertHtml below. Markdown File Card ->
+   *  fetch + convert (unchanged, fetchAndConvertMarkdownCard). PDF/image File Card
+   *  with cached extraction (FileView.tsx's own extract/OCR buttons) ->
+   *  plainTextToWattleHtml on that cached text, no network call. PDF/image File
+   *  Card with no cached extraction yet -> extract it now (one blocking call — the
+   *  same "auto" method FileView.tsx's own default button uses), publish the
+   *  result so FileView shows the same cached text afterward too, then convert.
+   *  Anything else -> `fallbackContent` (today's behavior, unchanged). */
+  async function resolveConvertSourceHtml(card: Card, fallbackContent: string): Promise<string> {
+    const markdown = markdownFileMeta(card);
+    if (markdown) return fetchAndConvertMarkdownCard(card.id);
+    const cached = cachedExtractedText(card);
+    if (cached) return plainTextToWattleHtml(cached);
+    if (isExtractableFileCard(card)) {
+      const updated = await extractCardFileText(card.id, { method: "auto" });
+      publishCard(updated);
+      return plainTextToWattleHtml(updated.metadata.file?.extraction?.text ?? "");
+    }
+    return fallbackContent;
+  }
+
   /** Compiles every selected Card's/embed's own HTML content plus every confirmed
    *  Quote (wrapped as its own blockquote) into one combined HTML blob — the new
-   *  Standard Wattle Card's content when converting a multi-selection. A markdown
-   *  File Card's content is fetched and converted (fetchAndConvertMarkdownCard); any
-   *  other Card reads through the existing draft-aware/cache-fresh
-   *  resolveCardContent. Keeps the real HTML rather than flattening to plain text
-   *  (unlike useAgentLoop.ts's own context builder) — the whole point of "convert" is a
-   *  real, editable Card at the end, not a text summary for a model prompt. Async
-   *  only because of that markdown fetch — every other source resolves
-   *  synchronously, but Promise.all doesn't care either way. */
+   *  Standard Wattle Card's content when converting a multi-selection. Each source's
+   *  own HTML comes from resolveConvertSourceHtml above; every other Card reads
+   *  through the existing draft-aware/cache-fresh resolveCardContent. Keeps the real
+   *  HTML rather than flattening to plain text (unlike useAgentLoop.ts's own context
+   *  builder) — the whole point of "convert" is a real, editable Card at the end,
+   *  not a text summary for a model prompt. Async because of the markdown
+   *  fetch/on-demand extraction — every other source resolves synchronously, but
+   *  Promise.all doesn't care either way. */
   async function buildConvertHtml(): Promise<string> {
-    const cardHtmlPromises = selectedCards.map((pc) => {
-      const canonical = resolveCanonicalCard(pc);
-      const markdown = markdownFileMeta(canonical);
-      return markdown ? fetchAndConvertMarkdownCard(canonical.id) : Promise.resolve(resolveCardContent(pc));
-    });
+    const cardHtmlPromises = selectedCards.map((pc) =>
+      resolveConvertSourceHtml(resolveCanonicalCard(pc), resolveCardContent(pc)),
+    );
     const embedHtmlPromises = [...selectedEmbedIds]
       .map((cardId) => getCachedCard(cardId))
       .filter((card): card is Card => !!card)
-      .map((card) => {
-        const markdown = markdownFileMeta(card);
-        return markdown ? fetchAndConvertMarkdownCard(card.id) : Promise.resolve(card.content);
-      });
+      .map((card) => resolveConvertSourceHtml(card, card.content));
     const quoteBlocks = quotes.map(
       (q) => `<blockquote><p>${escapeHtml(q.text).replace(/\n/g, "<br>")}</p></blockquote>`,
     );
@@ -851,24 +943,116 @@ export function Dock({
    *  Convert firing) before it resolves. */
   async function handleConvertToStandardCard() {
     setConvertPickerPos(null);
-    if (hasSelectedNonMarkdownFileCard()) {
+    if (hasSelectedUnconvertibleFileCard()) {
       setConvertOutput(null);
       setConvertError(t("dock.convert.fileError"));
       return;
     }
+    setConvertMode("standard");
     setConvertError(null);
     setConvertOutput(null);
+    setConvertSections(null);
     const requestId = ++convertRequestIdRef.current;
     setConvertLoading(true);
     try {
       const html = await buildConvertHtml();
       if (convertRequestIdRef.current !== requestId) return;
       setConvertOutput(html);
-    } catch {
+    } catch (err) {
       if (convertRequestIdRef.current !== requestId) return;
-      setConvertError(t("dock.convert.markdownError"));
+      // Now that a File Card can trigger an on-demand extraction mid-convert
+      // (resolveConvertSourceHtml), a failure here can be a page-limit/missing-
+      // credential/model error, not just "couldn't read this markdown file" — show
+      // whichever message is actually available.
+      setConvertError(err instanceof Error ? err.message : t("dock.convert.markdownError"));
     } finally {
       if (convertRequestIdRef.current === requestId) setConvertLoading(false);
+    }
+  }
+
+  /** The single selected/embedded EPUB or HTML file Card "Split into Cards"
+   *  (ConvertPicker's onPickDivide) would act on, or null when the current
+   *  selection isn't exactly that — dividing only has a sensible meaning for one
+   *  document's own internal chapter/heading structure, not a combined
+   *  multi-selection the way the standard-card convert does. Also null while any
+   *  Quote is confirmed, same single-source reasoning. */
+  function divideTarget(): Card | null {
+    if (quotes.length > 0) return null;
+    if (selectedCards.length + selectedEmbedIds.size !== 1) return null;
+    const card =
+      selectedCards.length === 1 ? resolveCanonicalCard(selectedCards[0]) : getCachedCard([...selectedEmbedIds][0]);
+    if (!card) return null;
+    const file = card.metadata.file;
+    if (!file) return null;
+    return isEpubFile(file.originalName, file.mimeType) || isHtmlFile(file.originalName, file.mimeType)
+      ? card
+      : null;
+  }
+
+  /** "Split into Cards" (ConvertPicker's onPickDivide) — divideTarget's own chapters
+   *  (EPUB) or top-level heading sections (HTML), each turned into its own Wattle
+   *  HTML blob (plainTextToWattleHtml.ts) and shown as a plain title list rather
+   *  than a full rendered preview per section (htmlEpubService.ts can return dozens
+   *  of chapters for a whole book — rendering that many CardRichText instances at
+   *  once isn't worth it just to preview something the next step immediately turns
+   *  into real Cards anyway). Same convertLoading/convertRequestIdRef shape as
+   *  handleConvertToStandardCard, distinguished by convertMode. */
+  async function handleConvertToDividedCards() {
+    setConvertPickerPos(null);
+    const target = divideTarget();
+    if (!target) {
+      setConvertOutput(null);
+      setConvertSections(null);
+      setConvertError(t("dock.convert.fileError"));
+      return;
+    }
+    setConvertMode("divide");
+    setConvertError(null);
+    setConvertOutput(null);
+    setConvertSections(null);
+    const requestId = ++convertRequestIdRef.current;
+    setConvertLoading(true);
+    try {
+      const { sections } = await divideCardIntoSections(target.id);
+      if (convertRequestIdRef.current !== requestId) return;
+      if (sections.length === 0) {
+        setConvertError(t("dock.convert.divideEmpty"));
+      } else {
+        setConvertSections(sections.map((s) => ({ title: s.title, html: plainTextToWattleHtml(s.text) })));
+      }
+    } catch (err) {
+      if (convertRequestIdRef.current !== requestId) return;
+      setConvertError(err instanceof Error ? err.message : t("dock.convert.markdownError"));
+    } finally {
+      if (convertRequestIdRef.current === requestId) setConvertLoading(false);
+    }
+  }
+
+  /** Adds every divided section as its own Card, awaited in sequence (not fired all
+   *  at once) so they land on the Page/Dock in the same order they appear in the
+   *  book/document — then dismisses the panel, unlike the single-card convert's own
+   *  Add buttons (which leave the panel open): a stray second click here would
+   *  create a whole duplicate batch of N Cards, not just one, so removing the
+   *  now-already-added sections from view is worth the small behavioral asymmetry. */
+  async function handleAddDividedSectionsToPage() {
+    if (!convertSections || bulkAdding) return;
+    setBulkAdding(true);
+    try {
+      for (const section of convertSections) await quickAddToPage(section.html, section.title);
+      dismissConvertOutput();
+    } finally {
+      setBulkAdding(false);
+    }
+  }
+
+  async function handleAddDividedSectionsToDock() {
+    if (!convertSections || bulkAdding) return;
+    setBulkAdding(true);
+    try {
+      for (const section of convertSections) await quickAddToDock(section.html);
+      dismissConvertOutput();
+    } finally {
+      setBulkAdding(false);
     }
   }
 
@@ -886,8 +1070,10 @@ export function Dock({
     // was explicitly dismissed mid-load.
     convertRequestIdRef.current++;
     setConvertOutput(null);
+    setConvertSections(null);
     setConvertError(null);
     setConvertLoading(false);
+    setConvertMode(null);
   }
 
   /** "12 words, 2 cards, 1 quote" — a plain word count across every selected Card's/
@@ -1043,11 +1229,25 @@ export function Dock({
     },
   };
 
+  // One tap straight into the Dock as a new Dock Card — shortcuts the Dock Cards
+  // panel's own creation flow (open panel -> "+" -> ellipsis -> File tile), same
+  // reasoning the Vault row's own Upload action already gets its own button rather
+  // than being buried in a menu.
+  const uploadDockFileAction: DockAction = {
+    key: "uploadDockFile",
+    operationId: null,
+    icon: "upload",
+    label: t("dock.action.uploadFile"),
+    onClick: () => uploadDockFileInputRef.current?.click(),
+  };
+
   // The idle Dock row's fixed left-to-right set (feedback: "Redo... home, search,
-  // dock, undo/redo, vertical ellipses"). Undo/Redo/More stay placeholders — Home
-  // opens the full-page Homes view (App.tsx's own fullscreen-overlay pattern, not
-  // this Dock's slide-up drawer system): every structural Home in the system, pick
-  // one or make a new one.
+  // dock, undo/redo, vertical ellipses"). More stays a placeholder — Home opens the
+  // full-page Homes view (App.tsx's own fullscreen-overlay pattern, not this Dock's
+  // slide-up drawer system): every structural Home in the system, pick one or make
+  // a new one. Undo/Redo (and versionBack/versionForward, added alongside them) are
+  // the full state system — App.tsx's useHistory, auto-scoped to whatever's
+  // currently selected (empty selection = the whole Page).
   const homeAction: DockAction = {
     key: "home",
     operationId: null,
@@ -1060,14 +1260,32 @@ export function Dock({
     operationId: null,
     icon: "undo",
     label: t("dock.action.undo"),
-    onClick: () => {},
+    onClick: onUndo,
+    disabled: !canUndo,
   };
   const redoAction: DockAction = {
     key: "redo",
     operationId: null,
     icon: "redo",
     label: t("dock.action.redo"),
-    onClick: () => {},
+    onClick: onRedo,
+    disabled: !canRedo,
+  };
+  const versionBackAction: DockAction = {
+    key: "versionBack",
+    operationId: null,
+    icon: "versionBack",
+    label: t("dock.action.versionBack"),
+    onClick: onVersionBack,
+    disabled: !canVersionBack,
+  };
+  const versionForwardAction: DockAction = {
+    key: "versionForward",
+    operationId: null,
+    icon: "versionForward",
+    label: t("dock.action.versionForward"),
+    onClick: onVersionForward,
+    disabled: !canVersionForward,
   };
   const moreAction: DockAction = {
     key: "more",
@@ -1597,6 +1815,57 @@ export function Dock({
       active: formattingState?.insideTable ?? false,
       disabled: !activeEditor,
     },
+    // Row/column/table editing — only reachable while the cursor already sits
+    // inside a table, rather than five more permanently-shown buttons: a fixed 3x3
+    // insert has no other way to grow, shrink, or remove itself afterward
+    // otherwise (base @tiptap/extension-table ships no grip/menu UI of its own).
+    ...(formattingState?.insideTable
+      ? [
+          {
+            key: "tableInsertRow",
+            operationId: null,
+            icon: "tableInsertRow" as const,
+            label: t("card.insertRowAfter"),
+            onClick: () => activeEditor?.chain().focus().addRowAfter().run(),
+            disabled: !activeEditor,
+          },
+          {
+            key: "tableInsertColumn",
+            operationId: null,
+            icon: "tableInsertColumn" as const,
+            label: t("card.insertColumnAfter"),
+            onClick: () => activeEditor?.chain().focus().addColumnAfter().run(),
+            disabled: !activeEditor,
+          },
+          {
+            key: "tableDeleteRow",
+            operationId: null,
+            icon: "delete" as const,
+            label: t("card.deleteRow"),
+            onClick: () => activeEditor?.chain().focus().deleteRow().run(),
+            disabled: !activeEditor,
+            danger: true,
+          },
+          {
+            key: "tableDeleteColumn",
+            operationId: null,
+            icon: "delete" as const,
+            label: t("card.deleteColumn"),
+            onClick: () => activeEditor?.chain().focus().deleteColumn().run(),
+            disabled: !activeEditor,
+            danger: true,
+          },
+          {
+            key: "tableDelete",
+            operationId: null,
+            icon: "delete" as const,
+            label: t("card.deleteTable"),
+            onClick: () => activeEditor?.chain().focus().deleteTable().run(),
+            disabled: !activeEditor,
+            danger: true,
+          },
+        ]
+      : []),
     // No popover — clicks straight through to the hidden file input below (same
     // trigger-a-hidden-input shape FeedInputButton.tsx's own upload action uses),
     // uploads, then inserts the resulting URL as an `<img>` node at the cursor.
@@ -1770,8 +2039,11 @@ export function Dock({
                 homeAction,
                 vaultAction,
                 dockCardsAction,
+                uploadDockFileAction,
                 undoAction,
                 redoAction,
+                versionBackAction,
+                versionForwardAction,
                 moreAction,
                 ...(vaultModeActions ?? modeActions),
                 // Tucked in last, not pinned first — a real, working toggle, but low
@@ -2055,10 +2327,25 @@ export function Dock({
             {convertLoading ? (
               <div className="dock__lookup-generating">
                 <Icon name="generate" spin />
-                <span>{t("dock.convert.converting")}</span>
+                <span>{convertMode === "divide" ? t("dock.convert.dividing") : t("dock.convert.converting")}</span>
               </div>
             ) : convertError ? (
               <p className="dock__lookup-error">{convertError}</p>
+            ) : convertSections ? (
+              // A plain title list, not a full rendered preview per section — see
+              // handleConvertToDividedCards' own doc comment on why (a whole book's
+              // worth of CardRichText instances isn't worth mounting just to preview
+              // something the next click immediately turns into real Cards anyway).
+              <div className="dock__lookup-result-card dock__convert-sections">
+                <p className="dock__convert-sections-summary">
+                  {convertSections.length} {t("dock.convert.divideSummaryPrefix")}
+                </p>
+                <ol className="dock__convert-sections-list">
+                  {convertSections.map((section, i) => (
+                    <li key={i}>{section.title}</li>
+                  ))}
+                </ol>
+              </div>
             ) : (
               <div className="dock__lookup-result-card">
                 <CardRichText
@@ -2072,7 +2359,19 @@ export function Dock({
               </div>
             )}
             <div className="dock__lookup-actions">
-              {!convertLoading && !convertError && (
+              {!convertLoading && !convertError && convertSections && (
+                <>
+                  <Button disabled={bulkAdding} onClick={handleAddDividedSectionsToPage}>
+                    <Icon name="plus" />
+                    {bulkAdding ? t("dock.convert.addingSections") : t("quickLookup.addToPage")}
+                  </Button>
+                  <Button disabled={bulkAdding} onClick={handleAddDividedSectionsToDock}>
+                    <Icon name="tray" />
+                    {bulkAdding ? t("dock.convert.addingSections") : t("quickLookup.addToDock")}
+                  </Button>
+                </>
+              )}
+              {!convertLoading && !convertError && !convertSections && (
                 <>
                   <Button onClick={() => quickAddToPage(convertOutput ?? "")}>
                     <Icon name="plus" />
@@ -2353,6 +2652,7 @@ export function Dock({
         <ConvertPicker
           style={{ left: convertPickerPos.left, bottom: convertPickerPos.bottom }}
           onPickStandardCard={handleConvertToStandardCard}
+          onPickDivide={divideTarget() ? handleConvertToDividedCards : null}
           onClose={() => setConvertPickerPos(null)}
         />
       )}
@@ -2470,6 +2770,18 @@ export function Dock({
           const file = e.target.files?.[0];
           e.target.value = "";
           if (file) onUploadVaultFile?.(file);
+        }}
+      />
+      {/* Hidden native file input backing the idle row's "Upload file" action — see
+          uploadDockFileInputRef above. */}
+      <input
+        ref={uploadDockFileInputRef}
+        type="file"
+        className="dock__hidden-file-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onUploadFileToDock(file);
         }}
       />
     </footer>

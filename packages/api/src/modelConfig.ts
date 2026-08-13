@@ -14,6 +14,12 @@ export interface ProviderSettings {
 
 interface ModelConfigFile {
   activeProvider?: string;
+  /** Which model the vision/OCR path uses (fileExtractionService.ts) — a
+   *  ModelRegistry id or a raw OpenRouter slug, resolved the same way
+   *  openRouterProvider.ts's own model config is. Separate from `providers` above
+   *  because OCR always wants a cheap vision-capable model regardless of which
+   *  provider/model ordinary generation is configured to use. */
+  visionModel?: string;
   providers: Record<string, ProviderSettings>;
 }
 
@@ -35,4 +41,10 @@ export function configuredProviderId(): string | undefined {
  *  provider has no entry in the config file. */
 export function configuredProviderSettings(providerId: string): ProviderSettings | undefined {
   return readConfig().providers[providerId];
+}
+
+/** The vision/OCR model named by the config file, if any — see fileExtractionService.ts's
+ *  own fallback chain (this, then VISION_MODEL_ID, then a hardcoded default). */
+export function configuredVisionModel(): string | undefined {
+  return readConfig().visionModel || undefined;
 }

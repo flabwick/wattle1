@@ -1,6 +1,7 @@
 import type { Card, CreateCardInput, UpdateCardInput } from "@wattle/shared";
 import { cardMetadataV1Schema, defaultMetadata, migrateMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
+import type { UploadedFile } from "../uploads.js";
 import * as proximityService from "./proximityService.js";
 import * as summaryService from "./summaryService.js";
 import { syncPageLinksForPage } from "./pageLinkService.js";
@@ -100,11 +101,27 @@ export async function createCard(input: CreateCardInput): Promise<Card> {
   return serializeCard(card);
 }
 
-export interface UploadedFile {
-  storedName: string;
-  originalName: string;
-  mimeType: string;
-  size: number;
+/** The Prisma `card.create` data every "file"-typed Card creation path builds —
+ *  createFileCard below, plus pageCardService.addFileCardToPage/
+ *  dockCardService.addFileCardToDock, which nest this same shape inside their own
+ *  `PageCard`/`DockCard` create — identical apart from `savedToVault`, so the
+ *  metadata shape only needs to change in one place. */
+export function buildFileCardCreateData(file: UploadedFile, opts: { savedToVault: boolean }) {
+  return {
+    title: file.originalName,
+    content: "",
+    metadata: JSON.stringify({
+      ...defaultMetadata(),
+      typeId: "file" as const,
+      file: {
+        storedName: file.storedName,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        size: file.size,
+      },
+    }),
+    savedToVault: opts.savedToVault,
+  };
 }
 
 /** Uploads a file straight into the vault (the Vault panel's own Upload action) — a
@@ -114,20 +131,7 @@ export interface UploadedFile {
  *  scratch content *of*: the vault is where it's being added directly. */
 export async function createFileCard(file: UploadedFile): Promise<Card> {
   const card = await prisma.card.create({
-    data: {
-      title: file.originalName,
-      content: "",
-      metadata: JSON.stringify({
-        ...defaultMetadata(),
-        typeId: "file",
-        file: {
-          storedName: file.storedName,
-          originalName: file.originalName,
-          mimeType: file.mimeType,
-          size: file.size,
-        },
-      }),
-    },
+    data: buildFileCardCreateData(file, { savedToVault: true }),
   });
   return serializeCard(card);
 }

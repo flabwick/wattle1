@@ -344,6 +344,25 @@
   font-size: var(--font-size-sm);
 }
 
+/* "Split into Cards" own result (Dock.tsx's convertSections) — reuses
+   .dock__lookup-result-card's own bordered-card box, just a plain title list
+   instead of a rendered CardRichText preview. */
+.dock__convert-sections-summary {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.dock__convert-sections-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.dock__convert-sections-list li {
+  padding: var(--space-1) 0;
+}
+
 .dock__lookup-actions {
   display: flex;
   align-items: center;
