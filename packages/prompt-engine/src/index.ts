@@ -4,6 +4,7 @@ export * from "./promptCompiler.js";
 export * from "./annotationCompiler.js";
 export * from "./summaryCompiler.js";
 export * from "./extractionCompiler.js";
+export * from "./cleanupCompiler.js";
 export * from "./actionScriptCompiler.js";
 export * from "./agentCompiler.js";
 export * from "./annotationParser.js";

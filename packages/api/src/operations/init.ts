@@ -7,7 +7,6 @@ import { cardGenerateAcceptOperation } from "./cardGenerateAccept.js";
 import { cardRenameOperation } from "./cardRename.js";
 import { cardReorderOperation } from "./cardReorder.js";
 import { cardSaveOperation } from "./cardSave.js";
-import { fileExtractTextOperation } from "./fileExtractText.js";
 
 let initialized = false;
 
@@ -25,6 +24,5 @@ export function initOperations(): void {
   operationRegistry.register(cardFreezeOperation);
   operationRegistry.register(cardForkOccurrenceOperation);
   operationRegistry.register(cardGenerateAcceptOperation);
-  operationRegistry.register(fileExtractTextOperation);
   initialized = true;
 }

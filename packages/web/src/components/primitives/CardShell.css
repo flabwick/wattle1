@@ -34,15 +34,24 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
-  transition: transform var(--duration-lift) var(--ease-settle), box-shadow var(--duration-lift) var(--ease-settle);
+  transition: top var(--duration-lift) var(--ease-settle), left var(--duration-lift) var(--ease-settle), box-shadow var(--duration-lift) var(--ease-settle);
 }
 
 /* LIFT: a card rises off the stack when you reach for it, then settles back —
    not a generic hover highlight. Skipped for --editing (not a tap target, cursor
    is already `default`) and --ghost (a transient in-progress generation, not
-   something you'd "pick up"). */
+   something you'd "pick up"). Offset via top/left, not `transform` — `.card-shell`
+   is `position: relative` already, so top/left give the exact same visual shift,
+   but *only* `transform` (along with `translate`/`scale`/`rotate`/`filter`/
+   `perspective`/`will-change: transform`) makes an element a new containing block
+   for its own descendants' `position: sticky` — and `.card__header` (Card.css) is
+   one of those descendants. With `transform` here, hovering a Card (which stays
+   true for the whole scroll if the pointer just happens to rest over it — an
+   ordinary way to wheel/trackpad-scroll) silently broke that Card's own sticky
+   header for as long as the hover lasted. top/left cause no such thing. */
 .card-shell:not(.card-shell--editing, .card-shell--ghost):hover {
-  transform: translate(-1px, -3px);
+  top: -3px;
+  left: -1px;
   box-shadow: 5px 6px 0 var(--card-shadow-color);
 }
 

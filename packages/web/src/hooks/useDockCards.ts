@@ -42,8 +42,9 @@ export function useDockCards() {
 
   const createCard = useCallback(
     async (title: string, content: string) => {
-      await api.createCardInDock(title, content);
+      const dockCard = await api.createCardInDock(title, content);
       await refresh();
+      return dockCard;
     },
     [refresh],
   );
@@ -73,6 +74,15 @@ export function useDockCards() {
     [refresh],
   );
 
+  const convertToStack = useCallback(
+    async (dockCardId: string) => {
+      const result = await api.convertDockCardToStack(dockCardId);
+      await refresh();
+      return result;
+    },
+    [refresh],
+  );
+
   return {
     dockCards,
     loading,
@@ -82,5 +92,6 @@ export function useDockCards() {
     uploadFile,
     removeDockCard,
     moveToPage,
+    convertToStack,
   };
 }

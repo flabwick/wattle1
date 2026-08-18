@@ -217,15 +217,20 @@ export const movePageCardToDock = (pageCardId: string) =>
   request<DockCardWithCard>(`/page-cards/${pageCardId}/move-to-dock`, { method: "PUT" });
 /** Freezes a vault Card — read-only from here on (Open/Frozen). */
 export const freezeCard = (cardId: string) => request<Card>(`/cards/${cardId}/freeze`, { method: "POST" });
-/** Extracts (or OCRs) a "file" Card's text server-side and caches it on the Card's
- *  own metadata.file.extraction — one blocking request, no polling; can take tens of
- *  seconds for a multi-page OCR run (fileExtractionService.ts). Returns the updated
- *  Card, which callers should publishCard() into the shared cardStore so every
- *  mounted view (FileView.tsx, Dock.tsx's Convert flow) picks it up. */
+/** Extracts (OCRs, or AI-cleans-up) a "file" Card's text server-side — the Dock's
+ *  Convert menu for a PDF/image/HTML/EPUB File Card (Dock.tsx's
+ *  handleConvertFileCard). Stateless: nothing is written back onto the source
+ *  Card, this just hands back the text for building a *new* one. One blocking
+ *  request, no polling; can take tens of seconds for a multi-page OCR run, plus a
+ *  further model call for "aiCleanup" (fileExtractionService.ts). */
 export const extractCardFileText = (
   cardId: string,
-  body?: { method?: "auto" | "textLayer" | "ocr"; instructions?: string },
-) => request<Card>(`/cards/${cardId}/extract-text`, { method: "POST", body: JSON.stringify(body ?? {}) });
+  body?: { method?: "auto" | "textLayer" | "ocr" | "aiCleanup"; instructions?: string },
+) =>
+  request<{ text: string; method: "textLayer" | "ocr" | "aiCleanup"; pageCount?: number; truncated: boolean }>(
+    `/cards/${cardId}/extract-text`,
+    { method: "POST", body: JSON.stringify(body ?? {}) },
+  );
 /** The "division" Convert path (Dock.tsx's "Split into Cards") — an EPUB's own
  *  chapters (spine order) or an HTML document's own top-level `<h1>` sections, each
  *  with its own title and plain text. Stateless: nothing is persisted server-side,
@@ -301,17 +306,20 @@ export const moveDockCardToPage = (dockCardId: string, pageId: string, destIndex
     method: "PUT",
     body: JSON.stringify({ pageId, destIndex }),
   });
+export const convertDockCardToStack = (dockCardId: string) =>
+  request<DockCardWithCard>(`/dock-cards/${dockCardId}/convert-to-stack`, { method: "POST" });
 
 // Generation Rule — the streaming calls themselves (GET /generate/stream/:pageCardId,
-// /stream/page/:pageId for the "nothing selected" case, or /stream/stack-member/:memberId
-// for a blank Stack alternate) go through useGeneration.ts's EventSource, not this REST
-// client. This is only the accept step: persisting a ghost card the user reviewed after
-// that stream finished. No model call happens here.
+// /stream/page/:pageId for the "nothing selected" case, /stream/stack-member/:memberId
+// for a blank Stack alternate, or /stream/dock-card/:dockCardId for a blank Dock Card)
+// go through useGeneration.ts's EventSource, not this REST client. This is only the
+// accept step: persisting a ghost card the user reviewed after that stream finished.
+// No model call happens here.
 export const acceptGeneration = (
-  target: { pageCardId: string } | { pageId: string } | { memberId: string },
+  target: { pageCardId: string } | { pageId: string } | { memberId: string } | { dockCardId: string },
   generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
 ) =>
-  request<GenerateResponse | StackMember>("/generate/accept", {
+  request<GenerateResponse | StackMember | DockCardWithCard>("/generate/accept", {
     method: "POST",
     body: JSON.stringify({ ...target, ...generated }),
   });

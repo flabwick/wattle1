@@ -21,6 +21,10 @@ Identical to the main generation prompt: your entire response is exactly one roo
 nested `<card>...</card>` blocks at any depth for sub-points (rarely needed given how
 short this response should be). No text outside the root card. Every opened `<card>`
 must be closed before the response ends. Do not wrap it in a markdown code fence. A
-card's own content may only use `<p>`, `<strong>`, `<em>`, `<h1>`-`<h3>`, `<ul>`, `<ol>`,
-and `<li>` as formatting tags (no attributes, no other tags) — no markdown syntax as an
-alternative to them; see the main generation prompt's rule 6 for why.
+card's own content uses the same full HTML formatting tag set as the main generation
+prompt's rule 6 (headings, bold/italic/strikethrough/underline, links, lists, task
+lists, blockquotes, code blocks, tables, `<hr>`) — no markdown syntax as an alternative
+to them; see that rule for the exact tag shapes and why. Given how short this response
+should be, you'll rarely reach for more than `<p>`/`<strong>`/`<em>`, but use a table,
+code block, or list if the selected text or instruction is genuinely tabular, code, or
+enumerable.

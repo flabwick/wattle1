@@ -12,9 +12,10 @@ export interface QuickAddHandlers {
    *  Convert flow's own "Split into Cards" (Dock.tsx) awaits a sequence of these to
    *  land N Cards in the right order rather than firing them all at once. */
   addToPage: (html: string, title?: string) => Promise<void>;
-  /** Creates a new blank-title note Card with this HTML content directly in the
-   *  Dock's persistent scratchpad. Same await-for-ordering reasoning as addToPage. */
-  addToDock: (html: string) => Promise<void>;
+  /** Creates a new note Card with this HTML content directly in the Dock's
+   *  persistent scratchpad — blank-title unless `title` is given, same convention
+   *  as addToPage above. Same await-for-ordering reasoning as addToPage. */
+  addToDock: (html: string, title?: string) => Promise<void>;
 }
 
 let handlers: QuickAddHandlers | null = null;
@@ -27,6 +28,6 @@ export function quickAddToPage(html: string, title?: string): Promise<void> {
   return handlers?.addToPage(html, title) ?? Promise.resolve();
 }
 
-export function quickAddToDock(html: string): Promise<void> {
-  return handlers?.addToDock(html) ?? Promise.resolve();
+export function quickAddToDock(html: string, title?: string): Promise<void> {
+  return handlers?.addToDock(html, title) ?? Promise.resolve();
 }

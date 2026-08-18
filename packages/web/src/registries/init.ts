@@ -30,7 +30,6 @@ const OPERATION_IDS = [
   "card.edit",
   "card.save",
   "card.generateAccept",
-  "file.extractText",
 ] as const;
 
 function notImplementedOnClient(id: string): Operation["execute"] {

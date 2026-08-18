@@ -9,7 +9,7 @@ import { StackBody } from "./StackBody.js";
  *  inside (StackBody) is independently, always-editable. `selected` also gates
  *  whether StackBody publishes its active alternate's Save into the Dock
  *  (activeStackRegistry.ts) — only the Stack actually in view there. */
-export function StackView({ pageCard, selected, onSelect, onRemove }: CardTypeViewProps) {
+export function StackView({ pageCard, selected, onSelect, onRemove, onSendToDock }: CardTypeViewProps) {
   // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
   // only while PageStack.tsx's revealHidden is on (see PageCardSlot), so this class
   // is always the "still hidden" indicator, never a false positive.
@@ -21,6 +21,7 @@ export function StackView({ pageCard, selected, onSelect, onRemove }: CardTypeVi
         selected={selected}
         onSelect={onSelect}
         onRemove={onRemove && (() => onRemove(pageCard.id))}
+        onSendToDock={onSendToDock && (() => onSendToDock(pageCard.id))}
       />
     </CardShell>
   );

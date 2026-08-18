@@ -55,9 +55,16 @@ interface CardEmbedProps {
    *  wired in from above). */
   onRemoveSelf?: () => void;
   /** Hides the header's collapse/expand caret entirely and always renders content in
-   *  full — used by DockCardsPanel's single-card view, which is the only thing on
-   *  screen there and has no need for a local collapse toggle. */
+   *  full. */
   hideFoldButton?: boolean;
+  /** Suppresses this embed's own header (fold caret + title) entirely and always
+   *  renders content in full — used by Dock.tsx's own inline single-card renderer
+   *  (DockCardView.tsx), which supplies its own header instead (CardHeaderStart +
+   *  CardHeaderActions, for real parity with a top-level Card's own header:
+   *  title-only-when-folded, a real info flip, etc. — none of which this
+   *  component's own bespoke header has, since a plain nested embed elsewhere in
+   *  rich text doesn't need them). */
+  hideHeader?: boolean;
 }
 
 /**
@@ -90,6 +97,7 @@ export function CardEmbed({
   onUpdateAnnotationText,
   onRemoveSelf,
   hideFoldButton,
+  hideHeader,
 }: CardEmbedProps) {
   const circular = ancestorIds.has(cardId);
   const tooDeep = depth > MAX_EMBED_DEPTH;
@@ -206,42 +214,44 @@ export function CardEmbed({
       onTouchMove={handleTouchMove}
       onTouchCancel={handleTouchCancel}
     >
-      <div className="card__header">
-        <div className="card__header-start">
-          {!hideFoldButton && (
-            <button
-              type="button"
-              className="card__caret-btn"
-              aria-label={folded ? t("card.expand") : t("card.collapse")}
-              title={folded ? t("card.expand") : t("card.collapse")}
-              onClick={(e) => {
-                e.stopPropagation();
-                setFolded((f) => !f);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-            >
-              <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
-            </button>
-          )}
-          {editing ? (
-            <InputField
-              className="card__title-input"
-              value={card.title}
-              placeholder={t("card.titlePlaceholder")}
-              onChange={(e) => editCard(cardId, { title: e.target.value })}
-              // Clicking into the title to place the cursor shouldn't also toggle
-              // this embed's Dock selection on/off via the container's own onClick —
-              // "click" is a separate native event from "mousedown"/"pointerdown", so
-              // this needs its own stopPropagation independent of the container's.
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            card.title && <span className="card__title">{card.title}</span>
-          )}
+      {!hideHeader && (
+        <div className="card__header">
+          <div className="card__header-start">
+            {!hideFoldButton && (
+              <button
+                type="button"
+                className="card__caret-btn"
+                aria-label={folded ? t("card.expand") : t("card.collapse")}
+                title={folded ? t("card.expand") : t("card.collapse")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFolded((f) => !f);
+                }}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
+              </button>
+            )}
+            {editing ? (
+              <InputField
+                className="card__title-input"
+                value={card.title}
+                placeholder={t("card.titlePlaceholder")}
+                onChange={(e) => editCard(cardId, { title: e.target.value })}
+                // Clicking into the title to place the cursor shouldn't also toggle
+                // this embed's Dock selection on/off via the container's own onClick —
+                // "click" is a separate native event from "mousedown"/"pointerdown", so
+                // this needs its own stopPropagation independent of the container's.
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              card.title && <span className="card__title">{card.title}</span>
+            )}
+          </div>
         </div>
-      </div>
-      {(hideFoldButton || !folded) && (
+      )}
+      {(hideFoldButton || hideHeader || !folded) && (
         <CardRichText
           key={cardId}
           content={card.content}

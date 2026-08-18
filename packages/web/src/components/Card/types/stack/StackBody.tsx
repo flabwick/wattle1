@@ -38,7 +38,9 @@ import "../../Card.css";
  * follows) — renaming happens on the Info face instead (CardInfoPanel's own
  * onChangeTitle, wired here to `stack.updateActiveDraft`). "Turn into stack" is the
  * one CardHeaderActions action deliberately left out: a Stack already has its own
- * way to add an alternate (CardStackRail's own "+"). The header bar itself
+ * way to add an alternate (CardStackRail's own "+"). Send to Dock is included like
+ * every other CardType, though — a Stack Card is still a perfectly good thing to
+ * park in the Dock as a whole. The header bar itself
  * (`.card__header`, click anywhere) toggles the container's own selection in/out —
  * same skinny-header-is-the-hit-target convention every other CardType's header
  * uses now, no checkbox. `onRemove` closes the whole Stack (App.tsx's
@@ -64,6 +66,7 @@ export function StackBody({
   selected,
   onSelect,
   onRemove,
+  onSendToDock,
 }: {
   stackCardId: string;
   selected: boolean;
@@ -79,6 +82,9 @@ export function StackBody({
    *  (registries/cardTypeUi.ts). Optional/omitted by StackEditor, same reasoning
    *  as onSelect above. */
   onRemove?: () => void;
+  /** The header's down-arrow — see Card.tsx's own onSendToDock prop of the same
+   *  name. Optional/omitted by StackEditor, same reasoning as onSelect above. */
+  onSendToDock?: () => void;
 }) {
   const stack = useCardStack(stackCardId);
   const data = stack.data;
@@ -152,6 +158,7 @@ export function StackBody({
         <CardHeaderActions
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
+          onSendToDock={onSendToDock}
           onRemove={() => onRemove?.()}
         />
       </div>

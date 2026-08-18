@@ -1,5 +1,13 @@
 .page-stack {
   padding: var(--space-4);
+  /* Fallback only — PageStack.tsx measures .page-stack__header's real rendered
+     height (ResizeObserver, its own pageHeaderRef) and overwrites this via
+     inline style the moment it mounts, since the CSS-only guess drifts from the
+     title's actual font metrics (line-height alone already exceeds this value).
+     This constant only matters for the one frame before that JS runs. Card.css's
+     .card__header reads this same variable for its own sticky `top`, so a stuck
+     Card header clamps just below the Page's rather than underneath it. */
+  --page-header-height: 40px;
 }
 
 /* Desktop's narrow reading column (see global.css's own doc comment on this same
@@ -25,10 +33,11 @@
    header, see .page-stack__title). Sticks to the top of .app__main's own scrollport
    (global.css) the same way a Card's own .card__header does (Card.css), on both
    desktop and mobile — no vendor prefix needed, same as that rule. A z-index above
-   .card__header's (--z-raised) so it stays on top once a Card's own sticky header
-   reaches top:0 and would otherwise paint over it (same DOM-order stacking concern,
-   just going the other way — this sits earlier in the document, so without a higher
-   z-index a later, equally-stuck Card header would win).
+   .card__header's (--z-raised) so it stays on top of a Card's own sticky header once
+   both are stuck at once — .card__header's own `top` is offset by this element's
+   height (--page-header-height above) precisely so the two sit stacked rather than
+   overlapping; the z-index above is just insurance against sub-pixel rounding at that
+   boundary, not the thing doing the actual separating.
    Deliberately NOT breaking out of .page-stack's own padding (an earlier version
    pulled it out to the full-bleed edge via negative margins) — the Cards below
    (CardShell.css's .card-shell) are width: 100% *within* that padding, so a
@@ -45,7 +54,7 @@
      title's own height: 100% needs this to resolve, so the click-to-edit target is
      the header's full height, not just an empty title's own near-zero content
      height. */
-  min-height: 32px;
+  min-height: var(--page-header-height);
   margin-bottom: var(--space-2);
   padding: var(--space-1) var(--space-3);
   border: var(--border-width-bold) solid var(--color-border-strong);

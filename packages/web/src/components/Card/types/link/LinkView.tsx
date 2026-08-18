@@ -23,6 +23,7 @@ export function LinkView({
   onRequestEdit,
   onRemove,
   onTurnIntoStack,
+  onSendToDock,
 }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
@@ -36,6 +37,7 @@ export function LinkView({
         <CardHeaderStart title={canonicalCard.title} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
         <CardHeaderActions
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
+          onSendToDock={onSendToDock && (() => onSendToDock(pageCard.id))}
           onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}

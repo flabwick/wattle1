@@ -111,35 +111,16 @@ export const cardMetadataV1Schema = z.object({
    *  that decides what an absent typeId means. */
   typeId: z.string().optional(),
   /** Set only on typeId "file" Cards — where the uploaded file's bytes live on disk
-   *  (relative to the API's uploads dir) and its original name/type/size. */
+   *  (relative to the API's uploads dir) and its original name/type/size. Text
+   *  extraction (fileExtractionService.ts) is never cached here — it's reached
+   *  through the Dock's Convert action, which builds a *new* Card from the
+   *  extracted text rather than writing anything back onto this one. */
   file: z
     .object({
       storedName: z.string(),
       originalName: z.string(),
       mimeType: z.string(),
       size: z.number(),
-      /** Cached result of the last successful "file.extractText" Operation run
-       *  (packages/api/src/services/fileExtractionService.ts) — absent until the
-       *  user runs extraction at least once; re-running overwrites it wholesale.
-       *  Never written on failure: the Operation is synchronous, so a failed run is
-       *  just a failed HTTP call the UI reports, not persisted state. `text` is
-       *  capped at 100,000 chars (`truncated: true` beyond that) so one huge PDF
-       *  doesn't bloat every page-load payload this Card's metadata rides along in. */
-      extraction: z
-        .object({
-          text: z.string(),
-          /** How the text was actually produced — "auto" (the request-time choice)
-           *  never appears here, only what it resolved to. */
-          method: z.enum(["textLayer", "ocr"]),
-          /** Raw OpenRouter model slug used — "ocr" only. */
-          model: z.string().optional(),
-          pageCount: z.number().int().optional(),
-          truncated: z.boolean().optional(),
-          /** The custom vision instructions the user supplied, if any. */
-          instructions: z.string().optional(),
-          extractedAt: z.string(),
-        })
-        .optional(),
     })
     .optional(),
   /** Set only on typeId "stack" Cards — which of its StackMembers (schema.prisma) is

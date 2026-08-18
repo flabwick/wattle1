@@ -14,7 +14,7 @@ particular describe the app's own content model (Cards, their formatting, what a
 model may reference) in plain English, and a structural change elsewhere in the
 codebase can silently make one of them wrong.
 
-This app has six small, independent prompt-compiling systems, each with its own
+This app has seven small, independent prompt-compiling systems, each with its own
 subfolder(s) below and its own compiler in `../src/`. They don't share an output
 contract with each other — see each section's own description.
 
@@ -34,12 +34,18 @@ All three share the same output contract: the response is exactly one root
 `src/parsers/cardBlockParser.ts` for the stream parser that consumes this format.
 
 **A card's own content** (root or nested) is plain text plus, at most, a fixed
-allowlist of HTML formatting tags — `<p>`, `<strong>`, `<em>`, `<h1>`–`<h3>`, `<ul>`,
-`<ol>`, `<li>` — no attributes, no other tags, and no markdown syntax as an
-alternative to them (see `generate/system.md`'s rule 6 for the full wording, and
-`packages/shared/src/richText/` for the TipTap schema this gets parsed through — a
-Card's stored `content` is HTML, not markdown; anything outside this allowlist is
-silently dropped, not rendered). A nested reference to an existing Card is
+allowlist of HTML formatting tags — `<p>`, `<h1>`–`<h6>`, `<strong>`, `<em>`, `<s>`,
+`<u>`, `<code>`, `<a href>`, `<ul>`/`<ol>`/`<li>`, a task-list `<ul data-type="taskList">`,
+`<blockquote>`, `<hr>`, a `<pre><code class="language-xxx">` code block, and
+`<table>/<thead>/<tbody>/<tr>/<th>/<td>` — no attributes beyond the ones just listed, and
+no markdown syntax as an alternative to them (see `generate/system.md`'s rule 6 for the
+full wording and exact tag shapes, and `packages/shared/src/richText/` for the TipTap
+schema this gets parsed through — a Card's stored `content` is HTML, not markdown;
+anything outside this allowlist is silently dropped, not rendered). This allowlist is
+deliberately narrower than the full TipTap schema in `richText/extensions.ts` — it skips
+node types with their own non-obvious tag/attribute contract that aren't safe for a model
+to freehand (`wattle-callout`, `wattle-math-inline`/`wattle-math-block`, images). A
+nested reference to an existing Card is
 `<wattle-embed data-card-id="...">` (spliced in server-side by
 `generationService.ts`'s `materializeParts`), never something the model emits itself
 — the old `[[cardId]]` bracket-token format is gone.
@@ -90,7 +96,7 @@ No mode/process argument — there's only ever one summary prompt, so
 
 | File | Loaded by | Used for |
 | --- | --- | --- |
-| `extract/system.md` | `compileExtractionPrompt(instructions?)` | The "file" CardType's own text-extraction/OCR buttons (`FileView.tsx`, `packages/api/src/services/fileExtractionService.ts`) — transcribes one page image verbatim, nothing structured. |
+| `extract/system.md` | `compileExtractionPrompt(instructions?)` | The Dock's Convert menu, OCR/AI Cleanup methods for a PDF/image File Card (`Dock.tsx`, `packages/api/src/services/fileExtractionService.ts`) — transcribes one page image verbatim, nothing structured. |
 
 Also no mode/process argument, same shape as Summary above — the only variable input
 is an optional user-typed `instructions` string, spliced into the compiled user
@@ -98,6 +104,18 @@ message rather than the system prompt itself (see `extractionCompiler.ts`). This
 one-shot vision call, not the tool-calling/agent-loop machinery below —
 `src/providers/openRouterVision.ts` sends it directly to OpenRouter rather than going
 through `ModelProvider`/`generateWithTools`.
+
+## Cleanup (`src/cleanupCompiler.ts`) — a separate, small system
+
+| File | Loaded by | Used for |
+| --- | --- | --- |
+| `cleanup/system.md` | `compileCleanupPrompt(rawText)` | The Dock's Convert menu, "AI Cleanup" method for a PDF/image/HTML/EPUB File Card (`fileExtractionService.ts`) — takes text a text-layer/OCR pass already produced and reformats it (fixes OCR artifacts, restores paragraph breaks) without summarizing. |
+
+No mode/process argument, same shape as Summary/Extract above. Unlike Extract, this
+is plain text-in/text-out through the *active* provider (`activeProviderId()`), not
+a vision call — `fileExtractionService.ts` accumulates `ModelProvider.generate()`'s
+streamed chunks into one string, same "compile, call, accumulate" shape
+`actionScriptService.ts`'s `generateActionScript` already uses.
 
 ## Action script (`src/actionScriptCompiler.ts`) — mostly-static, one dynamic section
 
@@ -135,8 +153,8 @@ this compiler again — see `packages/api/src/services/agentService.ts`.
 
 ### Adding a new generation mode / process / system
 
-Same short version across all six systems above: add a new `<name>/system.md` file
+Same short version across all seven systems above: add a new `<name>/system.md` file
 here, then add the corresponding entry to that system's own compiler in `../src/`
 (`PromptMode`/`SYSTEM_PROMPT_FILE`, `AnnotationProcess`/`SYSTEM_PROMPT_FILE`, or a new
 compiler module entirely for a structurally different system, as `agentCompiler.ts`/
-`extractionCompiler.ts` were here). None of these six compilers know about each other.
+`extractionCompiler.ts` were here). None of these seven compilers know about each other.

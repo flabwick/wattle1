@@ -96,6 +96,17 @@ generateRouter.get("/stream/stack-member/:memberId", async (req, res) => {
   );
 });
 
+// GET /api/generate/stream/dock-card/:dockCardId — a blank Dock Card's own Feed
+// Input Button (Dock.tsx); fills that Dock Card's content in place, same shape as
+// the stack-member route above. Always standalone (see generationService.ts's
+// GenerationTarget doc comment).
+generateRouter.get("/stream/dock-card/:dockCardId", async (req, res) => {
+  await pipeGenerationEvents(
+    res,
+    generationService.streamGenerationForDockCard(req.params.dockCardId, instructionParam(req)),
+  );
+});
+
 // GET /api/generate/stream/prompt-card/:pageCardId?input=&contextMode=&contextCardIds=
 // — the "prompt" CardType's own generation (PromptCardBody.tsx/usePromptGeneration.ts).
 // `input` (not `instruction` — always present, never an optional guide alongside other
@@ -116,18 +127,24 @@ generateRouter.get("/stream/prompt-card/:pageCardId", async (req, res) => {
   );
 });
 
-// POST /api/generate/accept  { pageCardId | pageId | memberId, title, content, cardType? }
+// POST /api/generate/accept  { pageCardId | pageId | memberId | dockCardId, title, content, cardType? }
 // — persists a ghost card the user reviewed and accepted after one of the streaming
 // routes above finished. Does not call the model again; the model was already invoked
-// once during streaming. The memberId branch is ad hoc (same reasoning as every other
-// Stack action — stackService.ts's routes doc comment), not run through the
-// Operation registry the pageCardId/pageId branches wrap ("card.generateAccept"),
-// since a StackMember isn't a Card whose type a CardTypeDefinition.supportsOperations
-// gate would even apply to.
+// once during streaming. The memberId/dockCardId branches are ad hoc (same reasoning
+// as every other Stack action — stackService.ts's routes doc comment), not run
+// through the Operation registry the pageCardId/pageId branches wrap
+// ("card.generateAccept"), since neither a StackMember nor a DockCard is a Card whose
+// type a CardTypeDefinition.supportsOperations gate would even apply to.
 generateRouter.post("/accept", async (req, res) => {
   if (req.body?.memberId) {
     const { memberId, title, cardType, parts } = req.body;
     const result = await generationService.persistGeneratedToStackMember(memberId, { title, cardType, parts });
+    res.status(201).json(result);
+    return;
+  }
+  if (req.body?.dockCardId) {
+    const { dockCardId, title, cardType, parts } = req.body;
+    const result = await generationService.persistGeneratedToDockCard(dockCardId, { title, cardType, parts });
     res.status(201).json(result);
     return;
   }

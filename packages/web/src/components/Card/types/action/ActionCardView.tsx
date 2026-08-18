@@ -32,6 +32,7 @@ export function ActionCardView({
   pageSiblings,
   onRemove,
   onTurnIntoStack,
+  onSendToDock,
 }: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
@@ -74,6 +75,7 @@ export function ActionCardView({
         </CardHeaderStart>
         <CardHeaderActions
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
+          onSendToDock={onSendToDock && (() => onSendToDock(pageCard.id))}
           onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}

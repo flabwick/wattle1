@@ -20,7 +20,8 @@ export const fileCardTypeDefinition: CardTypeDefinition<FileCardData> = {
   defaultData: () => ({ filename: "" }),
   // No "card.edit"/"card.generate" — a file Card's content isn't text to edit or
   // generate from. No "card.rename" either: renaming would desync from the actual
-  // uploaded filename shown in the Card. "file.extractText" is this type's own
-  // addition — see fileExtractionService.ts/FileView.tsx's own extract/OCR buttons.
-  supportsOperations: ["card.save", "card.delete", "file.extractText"],
+  // uploaded filename shown in the Card. Text extraction (fileExtractionService.ts)
+  // is reached through the Dock's Convert action, not an Operation on this Card
+  // itself — it never mutates the Card, it builds a new one.
+  supportsOperations: ["card.save", "card.delete"],
 };

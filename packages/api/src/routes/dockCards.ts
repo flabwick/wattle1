@@ -57,3 +57,10 @@ dockCardsRouter.put("/:id/move-to-page", async (req, res) => {
   }
   res.json(await dockCardService.moveDockCardToPage(req.params.id, pageId, destIndex));
 });
+
+// POST /api/dock-cards/:id/convert-to-stack — the Dock Card header's own "+"
+// (CardHeaderActions' onTurnIntoStack), the Dock's counterpart to POST
+// /api/stacks/convert for a Page Card.
+dockCardsRouter.post("/:id/convert-to-stack", async (req, res) => {
+  res.status(201).json(await dockCardService.convertDockCardToStack(req.params.id));
+});

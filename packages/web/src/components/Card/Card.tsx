@@ -90,6 +90,9 @@ interface CardProps {
    *  adds a second (blank) alternate to it, in one step (App.tsx's
    *  handleTurnIntoStackWithNewCard). */
   onTurnIntoStack?: () => void;
+  /** The header's down-arrow — sends this Card to the Dock (App.tsx's
+   *  handleSendPageCardToDock). */
+  onSendToDock?: () => void;
   /** The full state system's Undo/Redo — fires once a title/content edit burst
    *  settles (see useEditHistoryRecorder.ts), wired to App.tsx's
    *  `history.record("edit", ...)`. Omitted for a nested embed's own CardView (only
@@ -150,6 +153,7 @@ export function CardView({
   generatingPageCardId,
   pageSiblings,
   onTurnIntoStack,
+  onSendToDock,
   onRecordEditHistory,
 }: CardProps) {
   // Purely a display preference, not app state — doesn't need to be lifted above
@@ -282,6 +286,7 @@ export function CardView({
         </CardHeaderStart>
         <CardHeaderActions
           onTurnIntoStack={onTurnIntoStack}
+          onSendToDock={onSendToDock}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}
           onRemove={onRemove}

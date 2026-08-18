@@ -1,5 +1,6 @@
 import type {
   CardMetadataV1,
+  DockCardWithCard,
   GeneratedCardPart,
   GenerationContextEntry,
   GenerateResponse,
@@ -22,20 +23,26 @@ import { prisma } from "../db.js";
 import { activeProviderId } from "../providers/init.js";
 import { configuredProviderSettings } from "../modelConfig.js";
 import { serializeCard } from "./cardService.js";
+import { serializeDockCard } from "./dockCardService.js";
 import { getStackData, serializeMember } from "./stackService.js";
 import * as nearbyService from "./nearbyService.js";
 
 /** Where a generation is anchored: a specific triggering Card (insert directly below
  *  it, context is everything above it), a Page with nothing selected (append at the
  *  bottom of the Page, context is everything already on it — see App.tsx's "nothing
- *  selected" Dock action), or a blank Stack alternate (fills that alternate's own
+ *  selected" Dock action), a blank Stack alternate (fills that alternate's own
  *  content in place rather than inserting a new sibling PageCard — see
  *  persistGeneratedToStackMember below; context is the same "everything above the
- *  Stack's own position" a card-level target at the container's PageCard would see). */
+ *  Stack's own position" a card-level target at the container's PageCard would see),
+ *  or a blank Dock Card (fills that Dock Card's own content in place, same shape as
+ *  a Stack alternate — see persistGeneratedToDockCard below; always run standalone,
+ *  no Generation Rule context at all, since a Dock Card sits outside every Page/Tab
+ *  with no "position" for the Rule's "everything above it" to mean anything). */
 export type GenerationTarget =
   | { type: "card"; pageCardId: string }
   | { type: "page"; pageId: string }
-  | { type: "stackMember"; memberId: string };
+  | { type: "stackMember"; memberId: string }
+  | { type: "dockCard"; dockCardId: string };
 
 /**
  * The Generation Rule, redefined for the single-Page world (Pages + Links + Search
@@ -72,6 +79,11 @@ async function assembleContextForTarget(
     const containerPageCard = await prisma.pageCard.findFirstOrThrow({ where: { cardId: member.stackCardId } });
     pageId = containerPageCard.pageId;
     withinPageCutoff = containerPageCard.order;
+  } else if (target.type === "dockCard") {
+    // Never actually reached — streamGenerationForDockCard always passes
+    // standalone: true, which skips this function entirely (see streamForTarget).
+    // A Dock Card has no Page/position for "everything above it" to mean anything.
+    throw new Error("A Dock Card generation has no Page context to assemble — it must run standalone.");
   } else {
     pageId = target.pageId;
     withinPageCutoff = null;
@@ -166,6 +178,12 @@ async function resolveTargetPageContext(
     const member = await prisma.stackMember.findUniqueOrThrow({ where: { id: target.memberId } });
     const containerPageCard = await prisma.pageCard.findFirstOrThrow({ where: { cardId: member.stackCardId } });
     return { pageId: containerPageCard.pageId, focusedCardId: member.stackCardId };
+  }
+  if (target.type === "dockCard") {
+    // Never actually reached — buildNearbyAppendix is skipped in standalone mode,
+    // and a Dock Card generation is always standalone (see assembleContextForTarget's
+    // own dockCard branch above).
+    throw new Error("A Dock Card generation has no Page to resolve Nearby against.");
   }
   return { pageId: target.pageId };
 }
@@ -318,6 +336,15 @@ export function streamGenerationForPage(pageId: string, instruction?: string): A
  *  shown in place of the alternate's body while it's still blank). */
 export function streamGenerationForStackMember(memberId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
   return streamForTarget({ type: "stackMember", memberId }, instruction);
+}
+
+/** A blank Dock Card's own generation — GET /api/generate/stream/dock-card/:dockCardId
+ *  (Dock.tsx's Feed Input Button, shown in place of a freshly-created Dock Card's body
+ *  while it's still blank — same "+" then Circle-or-type flow a Stack's blank
+ *  alternate already has). Always standalone: true — see GenerationTarget's own doc
+ *  comment on why a Dock Card has no Generation Rule context to assemble. */
+export function streamGenerationForDockCard(dockCardId: string, instruction?: string): AsyncGenerator<CardBlockEvent> {
+  return streamForTarget({ type: "dockCard", dockCardId }, instruction, true);
 }
 
 /** The "prompt" CardType's own four context modes (cardMetadata.ts's
@@ -555,4 +582,29 @@ export async function persistGeneratedToStackMember(
     data: { draftTitle: null, draftContent: null },
   });
   return serializeMember(cleared);
+}
+
+/**
+ * Fills a blank Dock Card's own content in place — the Dock counterpart to
+ * persistGeneratedToStackMember above. Never creates a new DockCard: the row
+ * already exists (created blank via the Dock's own "+" — see Dock.tsx), so this
+ * just writes the generated title/content straight onto its own Card, same as a
+ * fresh Dock Card's initial content would be set by hand. No draft to clear — a
+ * Dock Card writes straight through, it has no draftTitle/draftContent of its own
+ * the way a StackMember does. Same "ignore generated.cardType for the Card itself"
+ * reasoning as persistGeneratedToStackMember: cardType only still applies to any
+ * nested `<card>` blocks materializeParts splices in as embeds.
+ */
+export async function persistGeneratedToDockCard(
+  dockCardId: string,
+  generated: { title: string; cardType?: string; parts: GeneratedCardPart[] },
+): Promise<DockCardWithCard> {
+  const dockCard = await prisma.dockCard.findUniqueOrThrow({ where: { id: dockCardId } });
+  const content = await materializeParts(generated.parts);
+
+  const updatedCard = await prisma.card.update({
+    where: { id: dockCard.cardId },
+    data: { title: generated.title, content },
+  });
+  return { ...serializeDockCard(dockCard), card: serializeCard(updatedCard) };
 }

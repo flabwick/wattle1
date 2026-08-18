@@ -1,0 +1,57 @@
+/* The Dock's own carousel — "‹ [current Card] ›", the arrows flanking the card on
+   its own left/right edges rather than tucked into its header (unlike
+   CardStackRail.css's own inline corner rail) — Dock.tsx's own single visible Card
+   slot browsed by scrolling *through* Cards, not down a list of them. */
+.dock__carousel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.dock__carousel-slot {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Deliberately quiet — a thin arrow, no border/shadow/background of its own, unlike
+   every other "thick stock" button in the Dock (Button.css's default) — this is a
+   navigation affordance sitting *beside* the Card, not one more action competing
+   with it for attention. */
+.dock__carousel-arrow {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target-sm);
+  height: var(--touch-target-sm);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.dock__carousel-arrow:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.dock__carousel-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.dock__carousel-arrow-icon--left {
+  transform: rotate(-90deg);
+}
+
+.dock__carousel-arrow-icon--right {
+  transform: rotate(90deg);
+}
+
+.dock__carousel-position {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

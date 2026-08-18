@@ -17,7 +17,14 @@ import "../../Card.css";
  *  is independently always-interactive regardless of selection — same "content
  *  isn't gated behind edit mode" precedent StackBody.tsx uses; folding it away is a
  *  separate, orthogonal control (the caret), not tied to selection either. */
-export function PromptCardView({ pageCard, selected, onSelect, onRemove, onTurnIntoStack }: CardTypeViewProps) {
+export function PromptCardView({
+  pageCard,
+  selected,
+  onSelect,
+  onRemove,
+  onTurnIntoStack,
+  onSendToDock,
+}: CardTypeViewProps) {
   const { card: liveCard } = useCard(pageCard.card.id);
   const canonicalCard = liveCard ?? pageCard.card;
   // Same "reveal hidden Cards" toggle Card.tsx's own "note" branch honors — shown
@@ -32,6 +39,7 @@ export function PromptCardView({ pageCard, selected, onSelect, onRemove, onTurnI
         <CardHeaderStart title={t("promptCard.title")} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
         <CardHeaderActions
           onTurnIntoStack={onTurnIntoStack && (() => onTurnIntoStack(pageCard.id))}
+          onSendToDock={onSendToDock && (() => onSendToDock(pageCard.id))}
           onRemove={() => onRemove?.(pageCard.id)}
           showingInfo={showingInfo}
           onToggleInfo={() => setShowingInfo((v) => !v)}

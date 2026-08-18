@@ -37,15 +37,44 @@ Rules:
 5. Do not wrap the `<card>` block in a markdown code fence, and do not use `<card>` for
    anything other than this block structure. Emit it as literal text.
 6. A card's own content is plain text, a fixed set of HTML formatting tags, and/or
-   nested `<card>` blocks — nothing else. The only tags you may use are `<p>`,
-   `<strong>`, `<em>`, `<h1>`, `<h2>`, `<h3>`, `<ul>`, `<ol>`, and `<li>` (plus `<card>`
-   itself, per rule 2). No other tag, and no attribute on any of these tags. Do not use
-   markdown as an alternative to these tags: no `**bold**`/`*italic*`, no `#` headings,
-   no `-`/`*`/`1.` list markers, no backtick code spans/fences, no `[link](url)`
-   syntax. The app renders this content through a rich-text editor that only
-   understands this exact tag set — anything else (an unlisted tag, an attribute,
-   markdown syntax) is silently dropped rather than rendered, so stick to the list
-   above for anything you want to actually show up formatted. Express structure you
-   can't reach with this tag set — a sub-point, a distinct topic — as a nested
-   `<card>` with its own `title`, not as an unsupported tag or markdown syntax inside
-   the text.
+   nested `<card>` blocks — nothing else. Never use markdown syntax as a substitute for
+   these tags: no `**bold**`/`*italic*`, no `#` headings, no `-`/`*`/`1.` list markers,
+   no backtick code spans/fences, no `[link](url)` syntax, no `| a | b |` table
+   pipes. The app renders this content through a rich-text editor with a real schema,
+   not a markdown parser — markdown characters typed as text show up as literal
+   asterisks/hashes/pipes, and any tag or attribute outside the list below is silently
+   dropped rather than rendered. Use real formatting whenever it would help the reader,
+   not just plain paragraphs: reach for a heading to break up sections, a table to
+   present rows of comparable data, a code block for actual code, a list for enumerable
+   items, and bold/italic for genuine emphasis — don't fake any of these with prose or
+   punctuation, and don't tag something as `<strong>`/a heading just to feel like
+   you've used the tools.
+
+   The full tag set, in the exact HTML shape the editor expects:
+   - Paragraph: `<p>...</p>`
+   - Headings: `<h1>`–`<h6>` (`<h1>` is a card-body-sized heading, not the card's own
+     `title` — use `<h2>`/`<h3>` for most in-card section breaks, reserving `<h1>` for
+     a rare, genuinely top-level break)
+   - Emphasis: `<strong>bold</strong>`, `<em>italic</em>`, `<s>strikethrough</s>`,
+     `<u>underline</u>`
+   - Inline code: `<code>identifier</code>`
+   - Link: `<a href="https://...">label</a>` (an absolute URL only — never link to a
+     Wattle card or page this way, that's what a nested `<card>` block is for)
+   - Lists: `<ul><li>...</li></ul>` (bulleted), `<ol><li>...</li></ol>` (numbered) —
+     `<li>` content can itself contain `<p>`, inline tags, or a nested `<ul>`/`<ol>`
+   - Task list: `<ul data-type="taskList"><li data-checked="false">...</li></ul>` —
+     each `<li>` needs `data-checked="true"` or `"false"`
+   - Blockquote: `<blockquote><p>...</p></blockquote>`
+   - Horizontal rule: `<hr>` (self-closing, no content) to separate distinct sections
+   - Code block: `<pre><code class="language-xxx">...</code></pre>` — the
+     `language-xxx` class is optional (omit it, or the whole `class` attribute, if the
+     language is unknown or the block isn't code)
+   - Table: `<table><thead><tr><th>Header</th>...</tr></thead><tbody><tr><td>Cell</td>
+     ...</tr></tbody></table>` — use this for any genuinely tabular/comparable data
+     instead of faking columns with spaces or a list
+
+   Attributes are only allowed where shown above (`href` on `<a>`, `class` on the code
+   block's `<code>`, `data-type`/`data-checked` on a task list) — no attribute on any
+   other tag. Express structure you can't reach with this tag set — a sub-point, a
+   distinct topic — as a nested `<card>` with its own `title`, not as an unsupported tag
+   or markdown syntax inside the text.

@@ -49,6 +49,10 @@ export interface CardTypeViewProps {
    *  same as Card.tsx's own onTurnIntoStack prop. Omitted by the "stack" CardType's
    *  own View, which already has its own way to add an alternate. */
   onTurnIntoStack?: (pageCardId: string) => void;
+  /** The header's down-arrow — sends this Card to the Dock (App.tsx's
+   *  handleSendPageCardToDock), same unbound "consumer binds it itself" convention
+   *  as onRemove/onTurnIntoStack above. */
+  onSendToDock?: (pageCardId: string) => void;
 }
 
 /** Props for a CardType's inline editor, swapped in for the View while editing. */

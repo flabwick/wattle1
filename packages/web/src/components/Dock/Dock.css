@@ -13,6 +13,19 @@
   justify-content: center;
 }
 
+/* Everything above .dock__bottom-row (extended Vault/Pages panel, the Dock's own
+   Card slot, notices/errors, quick-lookup/convert) — capped at half the viewport
+   combined, with its own internal scroll, so .dock__bottom-row's own buttons (the
+   only always-on-screen part of the Dock) can never be pushed out of view no
+   matter how much is open/expanded above them at once. */
+.dock__scroll-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
 /* The "insertImage" formatting action's hidden trigger — see FeedInputButton.css's
    identical .feed-input__file-input for the same pattern. */
 .dock__hidden-file-input {
@@ -157,6 +170,33 @@
   cursor: pointer;
   padding: 0;
   display: flex;
+}
+
+/* One row of the Dock's own Card list — as many of these as there are Dock Cards,
+   plus one more (the "add" tile) always last — stacked directly in the Dock's own
+   column, no separate panel/toggle. The "add" tile (FeedInputButton) gets a light
+   dashed boundary so it still reads as "a slot", not blank space; an occupied slot
+   (DockCardView) needs no border of its own — the Card's own card-shell chrome
+   already reads clearly against the Dock's background. */
+.dock__card-slot {
+  width: 100%;
+}
+
+.dock__card-slot--empty {
+  border: var(--border-width-thin) dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Caps an unfolded occupied Dock Card's own content (front content or the info
+   face) at half the viewport — a long PDF extraction/OCR result has no natural
+   length limit, and without this the Dock's own sticky-bottom footer could grow
+   to cover the whole screen. Scoped to just the face itself (DockCardView's own
+   CardFlippableBody), not DockCardView's outer card-shell/header, so the header —
+   with its own fold caret — always stays visible above the scrollable content
+   rather than being scrolled out of view along with it. */
+.dock__card-slot .card__face {
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 /* A generation that landed but wasn't a clean finish (cut off by the model's token

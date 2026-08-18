@@ -20,14 +20,16 @@ export interface GhostCardNode {
 }
 
 /** Where the in-flight generation is anchored — a specific Card (insert directly
- *  below it), a Page with nothing selected (append at the bottom), or a blank Stack
- *  alternate (fills its own content in place — see StackBody.tsx). Mirrors
- *  @wattle/api's GenerationTarget. Tracked here so finalizing knows which endpoint/
- *  payload shape to use without the caller having to remember and re-pass it. */
+ *  below it), a Page with nothing selected (append at the bottom), a blank Stack
+ *  alternate (fills its own content in place — see StackBody.tsx), or a blank Dock
+ *  Card (fills its own content in place — see Dock.tsx). Mirrors @wattle/api's
+ *  GenerationTarget. Tracked here so finalizing knows which endpoint/payload shape
+ *  to use without the caller having to remember and re-pass it. */
 export type GenerationTarget =
   | { type: "card"; pageCardId: string }
   | { type: "page"; pageId: string }
-  | { type: "stackMember"; memberId: string };
+  | { type: "stackMember"; memberId: string }
+  | { type: "dockCard"; dockCardId: string };
 
 /** What a stream ultimately produced, for `startAndWait`'s own Promise — `openStream`'s
  *  ordinary callers (`start`/`startForPage`/`startForStackMember`) don't pass this at
@@ -91,6 +93,9 @@ export interface UseGenerationResult {
   /** Same as `start`, but for a blank Stack alternate (StackBody.tsx) — fills that
    *  alternate's own content in place instead of inserting a sibling PageCard. */
   startForStackMember: (memberId: string, instruction?: string) => void;
+  /** Same as `start`, but for a freshly-created, still-blank Dock Card (Dock.tsx) —
+   *  fills that Dock Card's own content in place. */
+  startForDockCard: (dockCardId: string, instruction?: string) => void;
   /** Ends the stream early and immediately saves whatever's been generated so far as
    *  the real Card — the same save path a clean completion uses, just triggered by
    *  the user instead of the model finishing on its own. If nothing has streamed in
@@ -227,13 +232,19 @@ export function useGeneration(
               ? { pageCardId: streamTarget.pageCardId }
               : streamTarget.type === "stackMember"
                 ? { memberId: streamTarget.memberId }
-                : { pageId: streamTarget.pageId },
+                : streamTarget.type === "dockCard"
+                  ? { dockCardId: streamTarget.dockCardId }
+                  : { pageId: streamTarget.pageId },
             generated,
           );
           console.debug(`[gen] finalize(${reason}) saved successfully`);
           if (reason === "truncated") setNotice(t("generate.truncatedNotice"));
           else if (reason === "stopped") setNotice(t("generate.stoppedNotice"));
-          await onAccepted?.(streamTarget.type === "stackMember" ? undefined : (saved as GenerateResponse));
+          await onAccepted?.(
+            streamTarget.type === "stackMember" || streamTarget.type === "dockCard"
+              ? undefined
+              : (saved as GenerateResponse),
+          );
           onSettled?.(
             streamTarget.type === "card"
               ? { ok: true, cardId: (saved as GenerateResponse).card.id, pageCardId: (saved as GenerateResponse).pageCard.id }
@@ -405,6 +416,21 @@ export function useGeneration(
     [openStream],
   );
 
+  /** A freshly-created, still-blank Dock Card's own Feed Input Button (Dock.tsx) —
+   *  fills that Dock Card's content in place, same shape as startForStackMember. */
+  const startForDockCard = useCallback(
+    (dockCardId: string, instruction?: string) => {
+      const params = new URLSearchParams();
+      if (instruction) params.set("instruction", instruction);
+      const query = params.toString();
+      openStream(
+        { type: "dockCard", dockCardId },
+        `/api/generate/stream/dock-card/${dockCardId}${query ? `?${query}` : ""}`,
+      );
+    },
+    [openStream],
+  );
+
   const stop = useCallback(() => {
     stopRef.current?.();
   }, []);
@@ -422,6 +448,7 @@ export function useGeneration(
     startAndWait,
     startForPage,
     startForStackMember,
+    startForDockCard,
     stop,
   };
 }

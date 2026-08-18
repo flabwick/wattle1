@@ -6,6 +6,7 @@ import * as cardService from "../services/cardService.js";
 import { runOperation } from "../operations/run.js";
 import { fileUpload, requireUploadedFile, uploadsDir } from "../uploads.js";
 import { divideEpubIntoSections, divideHtmlIntoSections } from "../services/htmlEpubService.js";
+import { extractFileText, type ExtractionMethodRequest } from "../services/fileExtractionService.js";
 
 export const cardsRouter = Router();
 
@@ -72,12 +73,26 @@ cardsRouter.post("/:id/freeze", async (req, res) => {
   res.json(await runOperation<Card>("card.freeze", { cardId: req.params.id }));
 });
 
-// POST /api/cards/:id/extract-text  { method?, instructions? } — wraps the
-// "file.extractText" Operation. Synchronous and potentially slow (a vision-model
-// round trip per page, see fileExtractionService.ts); FileView.tsx shows a loading
-// state for the duration.
+// POST /api/cards/:id/extract-text  { method?, instructions? } — the Dock's Convert
+// menu for a PDF/image/HTML/EPUB File Card (Dock.tsx's handleConvertFileCard):
+// "Extract Text" (textLayer), "OCR" (ocr), or "AI Cleanup" (aiCleanup, a further
+// pass over the extracted text — see fileExtractionService.ts). A plain
+// route+service, not an Operation, same reasoning as /divide below: this never
+// mutates the source Card — it just computes text and hands it back for the caller
+// to build a *new* Card from. Synchronous and potentially slow (a vision-model
+// round trip per page for OCR, plus a further model call for AI Cleanup);
+// Dock.tsx's convertLoading covers the wait.
 cardsRouter.post("/:id/extract-text", async (req, res) => {
-  res.json(await runOperation<Card>("file.extractText", { ...(req.body ?? {}), cardId: req.params.id }));
+  const card = await cardService.getCard(req.params.id);
+  if (!card) return res.status(404).json({ error: "Card not found" });
+  const file = card.metadata.file;
+  if (!file) return res.status(400).json({ error: "Card has no uploaded file" });
+
+  const body = req.body ?? {};
+  const method: ExtractionMethodRequest =
+    body.method === "textLayer" || body.method === "ocr" || body.method === "aiCleanup" ? body.method : "auto";
+  const instructions = typeof body.instructions === "string" ? body.instructions : undefined;
+  res.json(await extractFileText(file, { method, instructions }));
 });
 
 // POST /api/cards/:id/divide — the "division" Convert path (Dock.tsx's "Split into

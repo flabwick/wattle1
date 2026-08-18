@@ -1,7 +1,9 @@
 import path from "node:path";
 import { isEpubFile, isHtmlFile, isImageFile, isPdfFile } from "@wattle/shared";
-import { compileExtractionPrompt, extractTextFromImage } from "@wattle/prompt-engine";
-import { configuredVisionModel } from "../modelConfig.js";
+import { modelProviderRegistry } from "@wattle/shared";
+import { compileCleanupPrompt, compileExtractionPrompt, extractTextFromImage } from "@wattle/prompt-engine";
+import { configuredProviderSettings, configuredVisionModel } from "../modelConfig.js";
+import { activeProviderId } from "../providers/init.js";
 import { uploadsDir } from "../uploads.js";
 import {
   MAX_PDF_PAGES_OCR,
@@ -13,8 +15,8 @@ import {
 } from "./pdfRenderService.js";
 import { extractEpubText, extractHtmlText } from "./htmlEpubService.js";
 
-export type ExtractionMethodRequest = "auto" | "textLayer" | "ocr";
-export type ExtractionMethodUsed = "textLayer" | "ocr";
+export type ExtractionMethodRequest = "auto" | "textLayer" | "ocr" | "aiCleanup";
+export type ExtractionMethodUsed = "textLayer" | "ocr" | "aiCleanup";
 
 export class ExtractionError extends Error {
   constructor(
@@ -131,6 +133,38 @@ async function ocrImage(filePath: string, instructions: string | undefined): Pro
   return { text, method: "ocr", model: result.model, truncated };
 }
 
+/** Runs the "AI Cleanup" Convert method's own model call — plain text-in/text-out
+ *  through whichever provider ordinary generation is currently configured to use
+ *  (activeProviderId()), not the vision-specific OpenRouter path OCR needs. Same
+ *  "compile a prompt, call the model, accumulate one full string" shape
+ *  actionScriptService.ts's generateActionScript already uses — short enough
+ *  output that there's no need for streaming machinery here either. */
+async function runCleanupPass(rawText: string): Promise<{ text: string; model: string }> {
+  const { systemPrompt, userMessage } = compileCleanupPrompt(rawText);
+  const providerId = activeProviderId();
+  const provider = modelProviderRegistry.get(providerId);
+  const settings = configuredProviderSettings(providerId);
+
+  let text = "";
+  try {
+    for await (const chunk of provider.generate(userMessage, {
+      systemPrompt,
+      model: settings?.model,
+      temperature: settings?.temperature,
+      maxTokens: settings?.maxTokens,
+    })) {
+      text += chunk.text;
+      if (chunk.done) break;
+    }
+  } catch (err) {
+    throw new ExtractionError(
+      `AI cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
+      "model_failed",
+    );
+  }
+  return { text, model: settings?.model ?? providerId };
+}
+
 /**
  * The single entry point: takes a file Card's own metadata.file record plus the
  * user's explicit method choice and returns extracted text. Fully synchronous from
@@ -138,14 +172,23 @@ async function ocrImage(filePath: string, instructions: string | undefined): Pro
  * the page/size/timeout limits above so it can never hang indefinitely behind an
  * HTTP request.
  *
- * Adding a further post-extraction step later (summarize, translate, …) means
- * adding another exported function here that takes an ExtractionOutcome — it does
- * NOT mean changing this one's shape.
+ * "aiCleanup" is layered on top rather than being its own dispatch branch below:
+ * it always starts from the same "auto" extraction every other method can reach
+ * (text layer where possible, OCR fallback for scans), then runs that raw text
+ * through runCleanupPass above — so PDF/image/HTML/EPUB all get the exact same
+ * cleanup behavior for free instead of it being reimplemented per file kind.
  */
 export async function extractFileText(
   file: { storedName: string; originalName: string; mimeType: string },
   opts: { method: ExtractionMethodRequest; instructions?: string },
 ): Promise<ExtractionOutcome> {
+  if (opts.method === "aiCleanup") {
+    const raw = await extractFileText(file, { method: "auto", instructions: opts.instructions });
+    const cleaned = await runCleanupPass(raw.text);
+    const { text, truncated } = truncate(cleaned.text);
+    return { ...raw, text, method: "aiCleanup", model: cleaned.model, truncated };
+  }
+
   const filePath = path.join(uploadsDir, file.storedName);
 
   if (isPdfFile(file.originalName, file.mimeType)) {

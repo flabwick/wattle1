@@ -158,12 +158,6 @@ export function App() {
    *  picker: any Page on any Tab is reachable by navigating there while this is
    *  non-empty (see Dock.tsx's page-nav visibility). */
   const [movingDockCardIds, setMovingDockCardIds] = useState<Set<string>>(new Set());
-  /** Set right after a Card lands in the Dock (moved from a Page, or added straight
-   *  from the Vault — see handleMoveToDock/handleAddVaultCardToDock) to the new
-   *  DockCard's own id — DockCardsPanel.tsx's openCardId prop picks this up and
-   *  jumps straight to it, clearing this back to null once it has (onOpenedDockCard
-   *  below), so it doesn't keep forcing that navigation on every later render. */
-  const [dockCardToOpen, setDockCardToOpen] = useState<string | null>(null);
   /** Which extended panel (Step 6 spec §3.2) is open — Vault, Dock Cards, Pages, or
    *  Tabs, never more than one at once. Lifted here so the Dock's own toggles and the
    *  Feed Input Button's "Open" action can all reach it. */
@@ -197,6 +191,17 @@ export function App() {
   const { ancestors } = usePageAncestors(currentPageId);
   const vault = useVault();
   const dockCards = useDockCards();
+  /** A blank Dock Card's own Generate (Dock.tsx's carousel, DockCardView's own
+   *  isBlank check) — a separate useGeneration instance from the Page-level
+   *  `generation` below, same reasoning StackBody.tsx's own per-Stack instance
+   *  has: this fills a Dock Card's own content in place, it doesn't touch the
+   *  current Page at all, so there's no reason for the two to share state (and a
+   *  Page-level generation and a Dock Card one could otherwise never run at the
+   *  same time). onAccepted is just dockCards.refresh — same shape
+   *  persistGeneratedToDockCard's own "no GenerateResponse, just refresh" result
+   *  gives every other dockCard-target caller (App.tsx's other Dock Card
+   *  mutations all already end the same way). */
+  const dockCardGeneration = useGeneration(dockCards.refresh);
 
   /** The Card ids (not PageCard ids — HistoryEntry.cardIds' own convention) behind
    *  the current rail selection — the full state system's Undo/Redo/Back/Forward
@@ -750,10 +755,8 @@ export function App() {
     if (!movingEmbedCard) return;
     const { cardId, onRemove } = movingEmbedCard;
     setMovingEmbedCard(null);
-    const dockCard = await dockCards.addExistingCard(cardId);
+    await dockCards.addExistingCard(cardId);
     onRemove();
-    setOpenPanel("dockCards");
-    setDockCardToOpen(dockCard.id);
   }
 
   // A focused Card only ever makes sense while it's still actually on the current
@@ -1070,39 +1073,81 @@ export function App() {
     const pageCardIds = selectedPageCards.map((pc) => pc.id);
     setMovingPageCardIds(new Set());
     deselectAll();
-    const results = await Promise.all(pageCardIds.map((id) => api.movePageCardToDock(id)));
+    // Sequential, not parallel — each call re-reads the Dock's own append order
+    // fresh, same reasoning as handleDropDockCardAt's own batch move.
+    for (const pageCardId of pageCardIds) {
+      await api.movePageCardToDock(pageCardId);
+    }
     await refresh();
     await dockCards.refresh();
     // Same reasoning as handleSaveSelected above — a plain REST call per Card.
     for (const cardId of cardIds) notifySaved(cardId);
-    // Land on whichever one moved last (Step 6 feedback: moving a Card to the Dock
-    // should open the Dock Cards panel straight onto it, not leave it to be found).
-    const lastDockCard = results[results.length - 1];
-    if (lastDockCard) {
-      setOpenPanel("dockCards");
-      setDockCardToOpen(lastDockCard.id);
-    }
   }
 
-  /** The Dock Cards toggle's own repurposed behavior while a vault Card is selected
-   *  (Dock.tsx's dockCardsAction) — adds it to the Dock's persistent scratchpad,
-   *  then opens the Dock Cards panel navigated straight to it, same
-   *  land-on-the-new-Card behavior as handleMoveToDock above, instead of the
-   *  toggle's normal open/close behavior. */
+  /** The header's down-arrow (CardHeaderActions' onSendToDock) — the direct,
+   *  one-Card replacement for Move Mode's own "drop onto Dock" (handleMoveToDock
+   *  above): no Move Mode detour, just send this one Card straight there. The Dock
+   *  holds as many Cards as added, so there's no occupied/disabled state to worry
+   *  about here any more. */
+  async function handleSendPageCardToDock(pageCardId: string) {
+    const cardId = currentPage?.pageCards.find((pc) => pc.id === pageCardId)?.card.id;
+    await api.movePageCardToDock(pageCardId);
+    await refresh();
+    await dockCards.refresh();
+    if (cardId) notifySaved(cardId);
+  }
+
+  /** Adds a vault Card straight to the Dock's own list (Dock.tsx's vault-selected
+   *  action) — the Card is simply rendered inline the moment it lands, no panel to
+   *  open or navigate to any more. */
   async function handleAddVaultCardToDock(cardId: string) {
-    const dockCard = await dockCards.addExistingCard(cardId);
-    setOpenPanel("dockCards");
-    setDockCardToOpen(dockCard.id);
+    await dockCards.addExistingCard(cardId);
   }
 
   /** The idle Dock row's own direct "Upload file" action (Dock.tsx's
-   *  uploadDockFileAction) — same land-on-the-new-Card behavior as
-   *  handleAddVaultCardToDock above, so uploading doesn't require first opening the
-   *  Dock Cards panel and finding its own buried creation flow. */
+   *  uploadDockFileAction) — same "just appears inline" behavior as
+   *  handleAddVaultCardToDock above. */
   async function handleUploadFileToDock(file: File) {
-    const dockCard = await dockCards.uploadFile(file);
-    setOpenPanel("dockCards");
-    setDockCardToOpen(dockCard.id);
+    await dockCards.uploadFile(file);
+  }
+
+  /** The Dock's Convert menu, for a PDF/image/HTML/EPUB File Card (Dock.tsx's
+   *  handleConvertFileCard) — extraction/OCR/AI-cleanup all land here once they
+   *  produce a result: creates the new Card straight in the Dock (no preview step,
+   *  per the "straight to the Dock" convert flow), which then just renders inline. */
+  async function handleConvertedCardToDock(title: string, html: string) {
+    await dockCards.createCard(title, html);
+  }
+
+  /** DockCardView's own header "X" (CardHeaderActions' onRemove, wired via
+   *  Dock.tsx's onCloseDockCard) — same removal semantics as
+   *  handleCloseSelectedDockCards above (deletes outright if never saved to the
+   *  vault, unpins otherwise), just acting on the one explicit id directly rather
+   *  than reading from selectedDockCardIds. */
+  async function handleCloseDockCard(id: string) {
+    await dockCards.removeDockCard(id);
+  }
+
+  /** DockCardView's own header up-arrow (CardHeaderActions' onSendToPage, wired via
+   *  Dock.tsx's onSendDockCardToPage) — unlike handleEnterDockCardMoveMode's own
+   *  "Move to Page" (still a deliberate Move Mode + drop-zone pick, for whoever
+   *  wants an exact spot), this one-tap shortcut just lands the Card at the bottom
+   *  of the current Page immediately — no destination to pick. */
+  async function handleSendDockCardToPage(id: string) {
+    if (!currentPage) return;
+    await dockCards.moveToPage(id, currentPage.id, currentPage.pageCards.length);
+    await refresh();
+  }
+
+  /** DockCardView's own header "+" (CardHeaderActions' onTurnIntoStack, wired via
+   *  Dock.tsx's onTurnDockCardIntoStack) — same two-step shape as
+   *  handleTurnIntoStackWithNewCard above (convert, then immediately add a second
+   *  blank alternate), just against the DockCard's own cardId rather than a
+   *  PageCard's. */
+  async function handleTurnDockCardIntoStack(dockCardId: string) {
+    const converted = await dockCards.convertToStack(dockCardId);
+    await api.addStackMember(converted.card.id);
+    await dockCards.refresh();
   }
 
   function handleEnterMoveMode() {
@@ -1258,8 +1303,8 @@ export function App() {
       addToPage: async (html, title) => {
         if (currentPage) await createCardInPage(currentPage.id, title ?? "", html);
       },
-      addToDock: async (html) => {
-        await dockCards.createCard("", html);
+      addToDock: async (html, title) => {
+        await dockCards.createCard(title ?? "", html);
       },
     });
   }, [currentPage, createCardInPage, dockCards.createCard]);
@@ -1596,6 +1641,7 @@ export function App() {
             generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
           }
           onTurnIntoStack={handleTurnIntoStackWithNewCard}
+          onSendToDock={handleSendPageCardToDock}
           onRecordEditHistory={handleRecordEditHistory}
           movingPageCardIds={EMPTY_ID_SET}
           onDropAt={NOOP_INDEX}
@@ -1678,6 +1724,7 @@ export function App() {
               generation.isStreaming && generation.target?.type === "card" ? generation.target.pageCardId : null
             }
             onTurnIntoStack={handleTurnIntoStackWithNewCard}
+            onSendToDock={handleSendPageCardToDock}
             onRecordEditHistory={handleRecordEditHistory}
             movingPageCardIds={movingPageCardIds}
             onDropAt={(index) => handleDropAt(currentPage!.id, index)}
@@ -1781,18 +1828,25 @@ export function App() {
         onAddVaultCardToPage={currentPage ? handleAddVaultCardToPage : null}
         onAddVaultCardToDock={handleAddVaultCardToDock}
         onUploadFileToDock={handleUploadFileToDock}
+        onConvertedCardToDock={handleConvertedCardToDock}
         dockCards={dockCards.dockCards}
         editingDockCardIds={editingEmbedIds}
         onToggleDockCardEdit={toggleEditEmbed}
         onCreateDockCard={dockCards.createCard}
         onUploadDockCardFile={dockCards.uploadFile}
-        dockCardToOpen={dockCardToOpen}
-        onOpenedDockCard={() => setDockCardToOpen(null)}
         selectedDockCardIds={selectedDockCardIds}
         onToggleSelectDockCard={toggleSelectDockCard}
         onDeselectDockCards={deselectDockCards}
         onCloseSelectedDockCards={handleCloseSelectedDockCards}
         onMoveSelectedDockCardsToPage={handleEnterDockCardMoveMode}
+        onSendDockCardToPage={handleSendDockCardToPage}
+        onCloseDockCard={handleCloseDockCard}
+        onTurnDockCardIntoStack={handleTurnDockCardIntoStack}
+        dockCardGenerating={dockCardGeneration.isStreaming}
+        dockCardGenerationNodes={dockCardGeneration.nodes}
+        dockCardGenerationRootId={dockCardGeneration.rootId}
+        onGenerateDockCard={dockCardGeneration.startForDockCard}
+        onStopDockCardGeneration={dockCardGeneration.stop}
         siblingIndex={siblings.index}
         siblingCount={siblings.siblings.length}
         canNavigateUp={canNavigateUp}

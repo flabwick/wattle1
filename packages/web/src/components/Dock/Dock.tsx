@@ -23,7 +23,8 @@ import { useEditorState } from "@tiptap/react";
 import { Button, Icon, InputField } from "../primitives/index.js";
 import type { IconName } from "../primitives/Icon.js";
 import { VaultView } from "../Vault/VaultView.js";
-import { DockCardsPanel } from "./DockCardsPanel.js";
+import { DockCardView } from "./DockCardView.js";
+import { DockCardRail } from "./DockCardRail.js";
 import { PagesPanel } from "./PagesPanel.js";
 import { ConvertPicker } from "./ConvertPicker.js";
 import { CardLinkPicker } from "../Card/CardLinkPicker.js";
@@ -37,11 +38,12 @@ import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { isMarkdownFile } from "../../lib/isMarkdownFile.js";
 import { convertMarkdownToWattleHtml } from "../../lib/markdownToWattleHtml.js";
 import { plainTextToWattleHtml } from "../../lib/plainTextToWattleHtml.js";
-import { getCachedCard, publishCard } from "../../lib/cardStore.js";
+import { getCachedCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { clearQuotes, useQuotes } from "../../lib/quotesRegistry.js";
 import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
 import { useAgentLoop } from "../../hooks/useAgentLoop.js";
+import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import type { StepOutput } from "../../lib/actionJobRegistry.js";
 import { quickAddToDock, quickAddToPage } from "../../lib/quickAddRegistry.js";
 import { t } from "../../i18n/index.js";
@@ -60,7 +62,7 @@ function escapeHtml(text: string): string {
 /** The three extended-panel views (Step 6 spec §3.2) — Tabs is a later step. Only one
  *  is ever open at once, lifted to App.tsx as a single `openPanel` value rather than
  *  independent booleans so that's structurally guaranteed, not just convention. */
-export type DockPanel = "vault" | "dockCards" | "pages";
+export type DockPanel = "vault" | "pages";
 
 interface DockProps {
   /** Every currently-selected Card — multiple Cards can be selected at once now
@@ -222,9 +224,15 @@ interface DockProps {
    *  onAddVaultCardToDock above, instead of going through the Dock Cards panel's
    *  own buried creation flow (open panel -> "+" -> ellipsis -> File tile). */
   onUploadFileToDock: (file: File) => void;
-  /** The Dock's persistent scratchpad layer (Step 6 spec §1.2/§3.3) — always shown as
-   *  a horizontal scroll row in the base bar, regardless of selection/navigation
-   *  state, alongside its own extended panel. */
+  /** The Convert menu's OCR/Extract Text/AI Cleanup methods for a PDF/image/HTML/
+   *  EPUB File Card (handleConvertFileCard below) — creates the resulting Card
+   *  straight in the Dock and opens onto it, same land-on-the-new-Card behavior as
+   *  onUploadFileToDock above, no preview step in between. */
+  onConvertedCardToDock: (title: string, html: string) => Promise<void>;
+  /** The Dock's persistent scratchpad layer (Step 6 spec §1.2/§3.3) — as many Cards
+   *  as have been added, though only one is ever shown at a time (Dock.tsx's own
+   *  carousel — DockCardRail's subtle side arrows browse between them, "+" once
+   *  you're at the end creates a new one). */
   dockCards: DockCardWithCard[];
   /** Reuses the same "editing embed ids" set as page-embedded Cards — edit state is a
    *  property of a Card's id, not of where it's currently displayed, and a Dock Card
@@ -233,17 +241,29 @@ interface DockProps {
    *  own Edit action once a Dock Card is selected (see selectedDockCardIds below). */
   editingDockCardIds: ReadonlySet<string>;
   onToggleDockCardEdit: (cardId: string) => void;
-  onCreateDockCard: (title: string, content: string) => void;
-  /** The Dock Card creation flow's own Upload option (DockCardsPanel.tsx's
-   *  FeedInputButton, showGenerate false) — mirrors a Page's Feed Input Button
-   *  Upload, but returns the created DockCard so that panel can jump straight to
-   *  it, same as onCreateDockCard's own landing behavior. */
+  /** DockCardRail's own "+" — creates a new, blank Dock Card (Dock.tsx's own
+   *  carousel lands on it immediately, same "the newest Card is always last, and
+   *  I'm already looking at *a* Card so land on the new one" auto-follow every
+   *  other creation path here already shares). Returns the created Card so the
+   *  blank-state Feed Input Button's own plain "Add" (typed text, bypassing AI)
+   *  can fill it via editCard instead — see DockCardView.tsx's own onAddCard. */
+  onCreateDockCard: (title: string, content: string) => Promise<DockCardWithCard>;
+  /** The idle row's own direct "Upload file" action (uploadDockFileAction) —
+   *  mirrors a Page's Feed Input Button Upload; same auto-follow-the-newest-Card
+   *  landing as onCreateDockCard above. */
   onUploadDockCardFile: (file: File) => Promise<DockCardWithCard>;
-  /** Non-null right after a Card lands in the Dock (moved from a Page, or added from
-   *  the Vault) — DockCardsPanel.tsx jumps straight to it once it's in `dockCards`,
-   *  then fires onOpenedDockCard to clear this back to null. */
-  dockCardToOpen: string | null;
-  onOpenedDockCard: () => void;
+  /** True while a generation is streaming into the Dock's own current (blank) Card
+   *  — App.tsx's own useGeneration instance, dedicated to the Dock (separate from
+   *  the Page-level one), mirroring StackBody.tsx's own per-Stack instance. Locks
+   *  DockCardRail's arrows for the duration, same reasoning as CardStackRail's own
+   *  `disabled` during a Stack alternate's generation. */
+  dockCardGenerating: boolean;
+  dockCardGenerationNodes: Record<number, GhostCardNode>;
+  dockCardGenerationRootId: number | null;
+  /** Starts a generation that fills the Dock's own current Card in place — only
+   *  ever called while that Card is blank (DockCardView's own isBlank check). */
+  onGenerateDockCard: (dockCardId: string, instruction?: string) => void;
+  onStopDockCardGeneration: () => void;
   /** Every currently-selected Dock Card (by its own id, not cardId) — the same
    *  select-then-act model as selectedCards, driving the Dock's own action row
    *  (back-caret/Move to Page/Close), matching what a selected Page Card gets.
@@ -261,6 +281,14 @@ interface DockProps {
    *  destination Page/Tab/position is picked afterward by navigating there and
    *  tapping a drop zone, not by this action itself. */
   onMoveSelectedDockCardsToPage: () => void;
+  /** DockCardView's own header shortcuts (App.tsx's handleSendDockCardToPage/
+   *  handleCloseDockCard) — the direct, one-click equivalents of
+   *  onMoveSelectedDockCardsToPage/onCloseSelectedDockCards above, reachable right
+   *  from that Dock Card's own header without needing to select it first. */
+  onSendDockCardToPage: (id: string) => void;
+  onCloseDockCard: (id: string) => void;
+  /** DockCardView's own header "+" — App.tsx's handleTurnDockCardIntoStack. */
+  onTurnDockCardIntoStack: (id: string) => void;
   /** The compact Page nav cluster (up/down/add + Home + pin + the Pages panel toggle,
    *  merged into one bottom-right control in the Dock's base bar — formerly the
    *  standalone PageNav component). Up/down now walk `siblingGroupId` (Phase 3's
@@ -428,18 +456,25 @@ export function Dock({
   onAddVaultCardToPage,
   onAddVaultCardToDock,
   onUploadFileToDock,
+  onConvertedCardToDock,
   dockCards,
   editingDockCardIds,
   onToggleDockCardEdit,
   onCreateDockCard,
   onUploadDockCardFile,
-  dockCardToOpen,
-  onOpenedDockCard,
+  dockCardGenerating,
+  dockCardGenerationNodes,
+  dockCardGenerationRootId,
+  onGenerateDockCard,
+  onStopDockCardGeneration,
   selectedDockCardIds,
   onToggleSelectDockCard,
   onDeselectDockCards,
   onCloseSelectedDockCards,
   onMoveSelectedDockCardsToPage,
+  onSendDockCardToPage,
+  onCloseDockCard,
+  onTurnDockCardIntoStack,
   siblingIndex,
   siblingCount,
   canNavigateUp,
@@ -478,7 +513,6 @@ export function Dock({
   onVersionForward,
 }: DockProps) {
   const vaultOpen = openPanel === "vault";
-  const dockCardsOpen = openPanel === "dockCards";
   const pagesOpen = openPanel === "pages";
 
   // Content stays mounted one tick behind `openPanel` going to null, so the slide-
@@ -502,6 +536,38 @@ export function Dock({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [openPanel, onClosePanel]);
+  /** Which one of `dockCards` the carousel is currently showing — only ever one at a
+   *  time (DockCardRail's subtle side arrows browse between them), null only while
+   *  the Dock holds no Cards at all. Not derived fresh from `dockCards` on every
+   *  render (e.g. "always index 0") because navigating has to *stick* across
+   *  re-renders caused by unrelated Dock Card edits elsewhere (useDockCards.ts's
+   *  own subscribeToSaves refresh) — this is deliberately its own piece of state,
+   *  reconciled against the current `dockCards` list by the effect right below
+   *  rather than computed inline. */
+  const [currentDockCardId, setCurrentDockCardId] = useState<string | null>(null);
+  const prevDockCardCountRef = useRef(dockCards.length);
+  useEffect(() => {
+    const grew = dockCards.length > prevDockCardCountRef.current;
+    prevDockCardCountRef.current = dockCards.length;
+    // A Card was added while one was already in view (any creation path — the
+    // rail's own "+", a generation landing, the idle row's Upload, or "Add to
+    // Dock" from the Vault) — land on it. Every creation path appends, so the
+    // newest one is always last.
+    if (grew && currentDockCardId !== null) {
+      setCurrentDockCardId(dockCards[dockCards.length - 1].id);
+      return;
+    }
+    // First load, or the Card previously in view is gone (closed/moved to a Page/
+    // no longer exists) — fall back to the first remaining Card, or nothing.
+    if (currentDockCardId === null || !dockCards.some((dc) => dc.id === currentDockCardId)) {
+      setCurrentDockCardId(dockCards.length > 0 ? dockCards[0].id : null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dockCards]);
+  const currentDockCardIndex = currentDockCardId ? dockCards.findIndex((dc) => dc.id === currentDockCardId) : -1;
+  const currentDockCard = currentDockCardIndex >= 0 ? dockCards[currentDockCardIndex] : null;
+  const dockCardAtEnd = dockCards.length === 0 || currentDockCardIndex === dockCards.length - 1;
+
   /** Which vault Card is selected — clicking one selects it instead of acting on it
    *  immediately, so the Dock can show what to do with it (see vaultModeActions
    *  below). The Vault is search-only now (Pages + Links + Search rebuild): no
@@ -661,9 +727,11 @@ export function Dock({
   const [convertError, setConvertError] = useState<string | null>(null);
   const [convertLoading, setConvertLoading] = useState(false);
   /** Which Convert flow convertLoading/convertError currently belong to — needed
-   *  since both handleConvertToStandardCard and handleConvertToDividedCards share
-   *  the same loading/error state but want different loading copy. */
-  const [convertMode, setConvertMode] = useState<"standard" | "divide" | null>(null);
+   *  since handleConvertToStandardCard/handleConvertToDividedCards/
+   *  handleConvertFileCard all share the same loading/error state but want
+   *  different loading copy ("extract" reuses the generic "Converting…" text, no
+   *  dedicated copy of its own — see the loading label's own ternary below). */
+  const [convertMode, setConvertMode] = useState<"standard" | "divide" | "extract" | null>(null);
   /** True only while sequentially awaiting quickAddToPage/quickAddToDock across
    *  every divided section (handleAddDividedSectionsToPage/ToDock below) — guards
    *  against a second click mid-sequence firing a duplicate batch of N Cards, a
@@ -835,33 +903,28 @@ export function Dock({
     return file;
   }
 
-  /** A file Card's already-cached extraction text, if any (metadata.file.extraction —
-   *  written by the "file.extractText" Operation, see FileView.tsx's own extract/OCR
-   *  buttons), or null if it's never been extracted (or isn't a file Card at all). */
-  function cachedExtractedText(card: Card): string | null {
-    return card.metadata.file?.extraction?.text ?? null;
-  }
-
-  /** A file Card Convert can extract from on demand if it isn't already cached — a
-   *  PDF or an image (fileExtractionService.ts's own supported kinds). */
+  /** A file Card Convert can extract text from — a PDF, image, HTML document, or
+   *  EPUB (fileExtractionService.ts's own supported kinds). */
   function isExtractableFileCard(card: Card): boolean {
     const file = card.metadata.file;
-    return !!file && (isPdfFile(file.originalName, file.mimeType) || isImageFile(file.originalName, file.mimeType));
+    if (!file) return false;
+    return (
+      isPdfFile(file.originalName, file.mimeType) ||
+      isImageFile(file.originalName, file.mimeType) ||
+      isHtmlFile(file.originalName, file.mimeType) ||
+      isEpubFile(file.originalName, file.mimeType)
+    );
   }
 
   /** True if any Card feeding the Convert action — a selected Page Card or a
    *  selected embed — is a File Card that Convert genuinely can't handle: not
-   *  markdown (fetched/parsed via markdownToWattleHtml.ts), not a PDF/image (which
-   *  resolveConvertSourceHtml below can extract text from on demand), and not
-   *  already holding cached extraction text from a prior FileView.tsx extract/OCR
-   *  run. A .zip, a .docx, etc. still have no HTML-shaped content to compile at all,
-   *  so handleConvertToStandardCard below shows convertError for those. */
+   *  markdown (fetched/parsed via markdownToWattleHtml.ts) and not
+   *  extractable (resolveConvertSourceHtml below extracts text from those on
+   *  demand). A .zip, a .docx, etc. still have no HTML-shaped content to compile at
+   *  all, so handleConvertToStandardCard below shows convertError for those. */
   function hasSelectedUnconvertibleFileCard(): boolean {
     const isUnconvertibleFile = (card: Card) =>
-      getCardTypeId(card) === "file" &&
-      !markdownFileMeta(card) &&
-      !cachedExtractedText(card) &&
-      !isExtractableFileCard(card);
+      getCardTypeId(card) === "file" && !markdownFileMeta(card) && !isExtractableFileCard(card);
     if (selectedCards.some((pc) => isUnconvertibleFile(resolveCanonicalCard(pc)))) return true;
     return [...selectedEmbedIds]
       .map((cardId) => getCachedCard(cardId))
@@ -883,22 +946,17 @@ export function Dock({
   }
 
   /** One selected source's HTML for buildConvertHtml below. Markdown File Card ->
-   *  fetch + convert (unchanged, fetchAndConvertMarkdownCard). PDF/image File Card
-   *  with cached extraction (FileView.tsx's own extract/OCR buttons) ->
-   *  plainTextToWattleHtml on that cached text, no network call. PDF/image File
-   *  Card with no cached extraction yet -> extract it now (one blocking call — the
-   *  same "auto" method FileView.tsx's own default button uses), publish the
-   *  result so FileView shows the same cached text afterward too, then convert.
-   *  Anything else -> `fallbackContent` (today's behavior, unchanged). */
+   *  fetch + convert (unchanged, fetchAndConvertMarkdownCard). A PDF/image/HTML/
+   *  EPUB File Card -> extracted fresh every time (extractCardFileText is
+   *  stateless — nothing is written back onto the source Card, see
+   *  fileExtractionService.ts), then plainTextToWattleHtml'd into this new Card's
+   *  content. Anything else -> `fallbackContent` (today's behavior, unchanged). */
   async function resolveConvertSourceHtml(card: Card, fallbackContent: string): Promise<string> {
     const markdown = markdownFileMeta(card);
     if (markdown) return fetchAndConvertMarkdownCard(card.id);
-    const cached = cachedExtractedText(card);
-    if (cached) return plainTextToWattleHtml(cached);
     if (isExtractableFileCard(card)) {
-      const updated = await extractCardFileText(card.id, { method: "auto" });
-      publishCard(updated);
-      return plainTextToWattleHtml(updated.metadata.file?.extraction?.text ?? "");
+      const { text } = await extractCardFileText(card.id, { method: "auto" });
+      return plainTextToWattleHtml(text);
     }
     return fallbackContent;
   }
@@ -970,21 +1028,69 @@ export function Dock({
     }
   }
 
-  /** The single selected/embedded EPUB or HTML file Card "Split into Cards"
-   *  (ConvertPicker's onPickDivide) would act on, or null when the current
-   *  selection isn't exactly that — dividing only has a sensible meaning for one
-   *  document's own internal chapter/heading structure, not a combined
-   *  multi-selection the way the standard-card convert does. Also null while any
-   *  Quote is confirmed, same single-source reasoning. */
-  function divideTarget(): Card | null {
+  /** The single selected/embedded Card driving any of the Convert menu's
+   *  single-source-only options (OCR/Extract Text/AI Cleanup/Split into Cards) —
+   *  null whenever the selection isn't exactly one Card (a multi-selection, an
+   *  empty one, or one with a confirmed Quote alongside it): each of those options
+   *  only has a sensible meaning for one document's own internal content, not a
+   *  combined multi-selection the way the standard-card convert does. */
+  function singleSelectedSourceCard(): Card | null {
     if (quotes.length > 0) return null;
+    // A selected Dock Card takes precedence — mutually exclusive with
+    // selectedCards/selectedEmbedIds by construction (App.tsx's toggleSelectDockCard
+    // clears both), so this only ever fires on its own. toggleSelectDockCard only
+    // ever selects one Dock Card at a time (replaces, not adds), so
+    // `selectedDockCardIds` can never hold more than one id, regardless of how many
+    // Cards the Dock itself holds.
+    if (selectedDockCardIds.size > 0) {
+      return dockCards.find((dc) => selectedDockCardIds.has(dc.id))?.card ?? null;
+    }
     if (selectedCards.length + selectedEmbedIds.size !== 1) return null;
-    const card =
-      selectedCards.length === 1 ? resolveCanonicalCard(selectedCards[0]) : getCachedCard([...selectedEmbedIds][0]);
-    if (!card) return null;
-    const file = card.metadata.file;
+    return selectedCards.length === 1
+      ? resolveCanonicalCard(selectedCards[0])
+      : (getCachedCard([...selectedEmbedIds][0]) ?? null);
+  }
+
+  /** The single selected/embedded EPUB or HTML file Card "Split into Cards"
+   *  (ConvertPicker's onPickDivide) would act on, or null otherwise. */
+  function divideTarget(): Card | null {
+    const card = singleSelectedSourceCard();
+    const file = card?.metadata.file;
     if (!file) return null;
     return isEpubFile(file.originalName, file.mimeType) || isHtmlFile(file.originalName, file.mimeType)
+      ? card
+      : null;
+  }
+
+  /** The single selected/embedded extractable file Card (PDF/image/HTML/EPUB) the
+   *  Convert menu's OCR/Extract Text/AI Cleanup options act on, or null otherwise —
+   *  also what replaces "Standard Wattle Card" in the menu when non-null (see
+   *  ConvertPicker's own onPickStandardCard doc comment). */
+  function extractionTarget(): Card | null {
+    const card = singleSelectedSourceCard();
+    return card && isExtractableFileCard(card) ? card : null;
+  }
+
+  /** Of extractionTarget's own file, whether OCR is meaningful — a PDF or image
+   *  only; an HTML/EPUB document has no image content to transcribe. */
+  function ocrTarget(): Card | null {
+    const card = extractionTarget();
+    const file = card?.metadata.file;
+    if (!file) return null;
+    return isPdfFile(file.originalName, file.mimeType) || isImageFile(file.originalName, file.mimeType)
+      ? card
+      : null;
+  }
+
+  /** Of extractionTarget's own file, whether a text-layer/markup parse is
+   *  meaningful — a PDF/HTML/EPUB only; a plain image has no text layer at all. */
+  function rawExtractTarget(): Card | null {
+    const card = extractionTarget();
+    const file = card?.metadata.file;
+    if (!file) return null;
+    return isPdfFile(file.originalName, file.mimeType) ||
+      isHtmlFile(file.originalName, file.mimeType) ||
+      isEpubFile(file.originalName, file.mimeType)
       ? card
       : null;
   }
@@ -1028,6 +1134,50 @@ export function Dock({
     }
   }
 
+  /** The Convert menu's OCR/Extract Text/AI Cleanup options (ConvertPicker's
+   *  onPickOcr/onPickExtractText/onPickAiCleanup) — unlike every other Convert
+   *  flow, this never shows a preview: it extracts, then immediately creates the
+   *  result straight in the Dock (onConvertedCardToDock, same land-on-the-new-Card
+   *  behavior App.tsx's handleUploadFileToDock already gives an uploaded file) and
+   *  dismisses, regardless of whether the source itself is a Page Card or a Dock
+   *  Card (singleSelectedSourceCard/extractionTarget resolve either the same way,
+   *  and the Dock holds as many Cards as added, so there's no "already occupied"
+   *  case to route around any more). convertLoading/convertError still cover the
+   *  wait/failure — a multi-page OCR or an AI Cleanup pass can take tens of
+   *  seconds — there's just no separate "here's your result, click Add" step in
+   *  between success and the Card actually landing. The new Card's title comes
+   *  from the source File Card's own title (falling back to its original
+   *  filename), not left blank. */
+  async function handleConvertFileCard(method: "ocr" | "textLayer" | "aiCleanup") {
+    setConvertPickerPos(null);
+    const target = extractionTarget();
+    if (!target) {
+      setConvertOutput(null);
+      setConvertSections(null);
+      setConvertError(t("dock.convert.fileError"));
+      return;
+    }
+    setConvertMode("extract");
+    setConvertError(null);
+    setConvertOutput(null);
+    setConvertSections(null);
+    const requestId = ++convertRequestIdRef.current;
+    setConvertLoading(true);
+    try {
+      const { text } = await extractCardFileText(target.id, { method });
+      if (convertRequestIdRef.current !== requestId) return;
+      const title = target.title || target.metadata.file?.originalName || "";
+      await onConvertedCardToDock(title, plainTextToWattleHtml(text));
+      if (convertRequestIdRef.current !== requestId) return;
+      dismissConvertOutput();
+    } catch (err) {
+      if (convertRequestIdRef.current !== requestId) return;
+      setConvertError(err instanceof Error ? err.message : t("dock.convert.markdownError"));
+    } finally {
+      if (convertRequestIdRef.current === requestId) setConvertLoading(false);
+    }
+  }
+
   /** Adds every divided section as its own Card, awaited in sequence (not fired all
    *  at once) so they land on the Page/Dock in the same order they appear in the
    *  book/document — then dismisses the panel, unlike the single-card convert's own
@@ -1049,7 +1199,7 @@ export function Dock({
     if (!convertSections || bulkAdding) return;
     setBulkAdding(true);
     try {
-      for (const section of convertSections) await quickAddToDock(section.html);
+      for (const section of convertSections) await quickAddToDock(section.html, section.title);
       dismissConvertOutput();
     } finally {
       setBulkAdding(false);
@@ -1190,43 +1340,26 @@ export function Dock({
     active: revealHidden,
   };
 
-  // Same convention as the Vault toggle: stays in the row and just changes what it
-  // shows/does, rather than disappearing or replacing the row's other buttons —
-  // a down-caret ("fold") once the panel's open, tray otherwise. While a Dock Card
-  // is also selected, tapping it folds the panel *and* deselects in one go, since
-  // there's no separate action-row real estate for a distinct Close there (see
-  // dockCardsAction's use in the selectedDockCardIds branch above). While a *vault*
-  // Card is selected instead, tapping it means "send this to the Dock" — same
-  // toggle, a third repurposed meaning, rather than a dedicated "Add to Dock" button
-  // alongside vaultModeActions' existing "Add to Page". While a Page Card or embed
-  // is mid-Move, tapping it is Move's own "drop onto the Dock" destination — a
-  // fourth repurposing, replacing what used to be a separate "Move to Dock" action
-  // in each of those rows (see the `actions` ternary below, which includes this
-  // button alongside Cancel only for those two move states — a Dock Card mid-Move
-  // has nowhere to "move to Dock" *from*, since it's already there).
-  const dockCardsLabel = moving || embedMoving ? t("dock.action.moveToDock") : dockCardsOpen ? t("dock.action.fold") : t("dockCards.open");
-  const dockCardsAction: DockAction = {
-    key: "dockCards",
+  // Move Mode's own "drop onto the Dock" destination for whatever's in transit —
+  // the Dock renders its own Card list inline now, no toggle/panel to open at all,
+  // so this used to be one of dockCardsAction's four repurposed meanings; that
+  // toggle is gone, these two stay as their own small, dedicated actions instead
+  // (see the `actions` ternary below, which includes the right one alongside
+  // Cancel only for the matching move state — a Dock Card mid-Move has nowhere to
+  // "move to Dock" *from*, since it's already there).
+  const moveToDockAction: DockAction = {
+    key: "moveToDock",
     operationId: null,
-    icon: dockCardsOpen ? "down" : "tray",
-    label: dockCardsLabel,
-    onClick: () => {
-      if (moving) {
-        onMoveToDock();
-      } else if (embedMoving) {
-        onMoveEmbedToDock();
-      } else if (vaultOpen && selectedVaultCardId) {
-        onAddVaultCardToDock(selectedVaultCardId);
-        closeVaultSelection();
-      } else if (selectedDockCardIds.size > 0) {
-        onClosePanel();
-        onDeselectDockCards();
-      } else if (dockCardsOpen) {
-        onClosePanel();
-      } else {
-        onOpenPanel("dockCards");
-      }
-    },
+    icon: "tray",
+    label: t("dock.action.moveToDock"),
+    onClick: onMoveToDock,
+  };
+  const moveEmbedToDockAction: DockAction = {
+    key: "moveEmbedToDock",
+    operationId: null,
+    icon: "tray",
+    label: t("dock.action.moveToDock"),
+    onClick: onMoveEmbedToDock,
   };
 
   // One tap straight into the Dock as a new Dock Card — shortcuts the Dock Cards
@@ -1616,6 +1749,20 @@ export function Dock({
         label: t("dockCards.moveToPage"),
         onClick: onMoveSelectedDockCardsToPage,
       },
+      // Same ConvertPicker as every other selection row's own Convert —
+      // singleSelectedSourceCard() above resolves straight to this selected Dock
+      // Card, so OCR/Extract Text/AI Cleanup/Split into Cards all work here too when
+      // it's an extractable file; "Standard Wattle Card" itself stays hidden for a
+      // Dock Card selection (see onPickStandardCard below) since compiling a single
+      // Card into "a new Standard Wattle Card" is meaningless outside a multi-source
+      // combine.
+      {
+        key: "convertDockCard",
+        operationId: null,
+        icon: "convert" as const,
+        label: t("dock.action.convert"),
+        onClick: toggleConvertPicker,
+      },
       {
         key: "closeDockCards",
         operationId: null,
@@ -1995,10 +2142,10 @@ export function Dock({
 
   // While a Card is in transit (Move Mode), the Dock collapses to just a Cancel
   // action — no Vault toggle, no other actions — so the only thing to do is tap a
-  // drop target (PageStack.tsx) or back out. Page Card/embed Move also keeps
-  // dockCardsAction in the row alongside Cancel — its own repurposed "drop onto the
-  // Dock" destination (see dockCardsAction above); a Dock Card mid-Move has nowhere
-  // to drop back onto the Dock, so dockCardMoving doesn't get it.
+  // drop target (PageStack.tsx) or back out. Page Card/embed Move also keeps its
+  // own "drop onto the Dock" destination in the row alongside Cancel (see
+  // moveToDockAction/moveEmbedToDockAction above); a Dock Card mid-Move has
+  // nowhere to drop back onto the Dock, so dockCardMoving doesn't get one.
   const actions: DockAction[] = moving
     ? [
         {
@@ -2008,7 +2155,7 @@ export function Dock({
           label: t("dock.action.cancelMove"),
           onClick: onCancelMove,
         },
-        dockCardsAction,
+        moveToDockAction,
       ]
     : dockCardMoving
       ? [
@@ -2029,7 +2176,7 @@ export function Dock({
               label: t("dock.action.cancelMove"),
               onClick: onCancelEmbedMove,
             },
-            dockCardsAction,
+            moveEmbedToDockAction,
           ]
         : embedOrPageCardSelected
           ? (vaultModeActions ?? modeActions)
@@ -2038,7 +2185,6 @@ export function Dock({
             : [
                 homeAction,
                 vaultAction,
-                dockCardsAction,
                 uploadDockFileAction,
                 undoAction,
                 redoAction,
@@ -2053,24 +2199,15 @@ export function Dock({
                 revealHiddenAction,
               ];
 
-  const rowActions: DockAction[] = actions;
-
-  const dockCardsViewContent = renderedPanel === "dockCards" && (
-    <div className="dock__extended-panel-view">
-      <DockCardsPanel
-        dockCards={dockCards}
-        editingIds={editingDockCardIds}
-        onToggleEdit={onToggleDockCardEdit}
-        selectedIds={selectedDockCardIds}
-        onToggleSelect={onToggleSelectDockCard}
-        onCreateCard={onCreateDockCard}
-        onOpenVault={() => onOpenPanel("vault")}
-        onUploadFile={onUploadDockCardFile}
-        openCardId={dockCardToOpen}
-        onOpenedCard={onOpenedDockCard}
-      />
-    </div>
-  );
+  // vaultAction only ever lives in the true idle row above — every other row
+  // (selectedCards/dock-card/quotes/moving/formatting) has its own, unrelated set
+  // of actions with no toggle to fold Vault back down. Same "always foldable, no
+  // matter what's selected" reasoning as the page-nav cluster's own fix above:
+  // whenever Vault is left open, its own close-icon toggle gets folded into
+  // whichever row is currently showing (the `.some` guard just skips this on the
+  // idle row itself, where it's already present).
+  const rowActions: DockAction[] =
+    vaultOpen && !actions.some((a) => a.key === "vault") ? [...actions, vaultAction] : actions;
 
   const pagesViewContent = renderedPanel === "pages" && (
     <div className="dock__extended-panel-view">
@@ -2119,7 +2256,6 @@ export function Dock({
       }}
     >
       {vaultViewContent}
-      {dockCardsViewContent}
       {pagesViewContent}
     </div>
   );
@@ -2144,7 +2280,67 @@ export function Dock({
         if ((e.target as Element).closest("button")) e.preventDefault();
       }}
     >
+      {/* Everything above the button row (extended Vault/Pages panel, the Dock's own
+          Card slot, notices/errors, the quick-lookup/convert panel) shares one
+          scrollable region capped at half the viewport — the whole point being
+          "the Dock never covers more than half the screen," not just whichever one
+          of these happens to be showing. Each of these already caps its own height
+          more tightly on its own (extendedPanel's 30vh/20vh, .dock__card-slot's own
+          50vh on its Card content below) — this outer cap is the backstop for when
+          more than one is open/tall at once (e.g. Vault open *and* the Dock's own
+          Card unfolded to a long PDF extraction), so their combined height still
+          can't push .dock__bottom-row's own buttons off-screen. */}
+      <div className="dock__scroll-area">
       {extendedPanel}
+      {/* The Dock's own carousel — as many Cards as have been added, but only one
+          shown at a time (DockCardRail's subtle side arrows browse between them),
+          the right arrow turning into a quiet "+" once you're at the end — creates
+          a new, blank Dock Card and lands straight on it (currentDockCardId's own
+          reconciling effect above: the newest Card is always last, since every
+          creation path appends). That blank Card's own body is a Feed Input
+          Button in *place* of its normal content (DockCardView's own isBlank
+          check) — Generate (dockCardGenerating/etc. below, App.tsx's own Dock-
+          scoped useGeneration instance) or typed Add, same as a blank Page/Stack
+          alternate gets — so the Feed Input Button only ever shows once a new
+          Dock Card has actually been opened, never as a standing extra tile. */}
+      <DockCardRail
+        index={currentDockCardIndex}
+        total={dockCards.length}
+        atStart={currentDockCardIndex <= 0}
+        atEnd={dockCardAtEnd}
+        onPrevious={() => {
+          if (currentDockCardIndex > 0) setCurrentDockCardId(dockCards[currentDockCardIndex - 1].id);
+        }}
+        onNext={() => {
+          if (currentDockCardIndex >= 0 && currentDockCardIndex < dockCards.length - 1) {
+            setCurrentDockCardId(dockCards[currentDockCardIndex + 1].id);
+          }
+        }}
+        onAdd={() => {
+          void onCreateDockCard("", "");
+        }}
+        disabled={dockCardGenerating}
+      >
+        {currentDockCard && (
+          <div className="dock__card-slot">
+            <DockCardView
+              dockCard={currentDockCard}
+              selected={selectedDockCardIds.has(currentDockCard.id)}
+              onSelect={() => onToggleSelectDockCard(currentDockCard.id)}
+              onSendToPage={() => onSendDockCardToPage(currentDockCard.id)}
+              onClose={() => onCloseDockCard(currentDockCard.id)}
+              onTurnIntoStack={() => onTurnDockCardIntoStack(currentDockCard.id)}
+              editingEmbedIds={editingDockCardIds}
+              onToggleEmbedEdit={onToggleDockCardEdit}
+              generating={dockCardGenerating}
+              generationNodes={dockCardGenerationNodes}
+              generationRootId={dockCardGenerationRootId}
+              onGenerate={(instruction) => onGenerateDockCard(currentDockCard.id, instruction)}
+              onStopGeneration={onStopDockCardGeneration}
+            />
+          </div>
+        )}
+      </DockCardRail>
       {generationNotice && (
         <div className="dock__notice-banner" role="status">
           <span className="dock__error-banner-text">{generationNotice}</span>
@@ -2395,6 +2591,7 @@ export function Dock({
           </div>
         </div>
       )}
+      </div>
       <div className="dock__bottom-row">
         <div className="dock__row">
           {rowActions.map((action, index) => {
@@ -2418,13 +2615,14 @@ export function Dock({
             <Fragment key={action.key}>
             {showDivider && <span className="dock__action-divider" aria-hidden="true" />}
             {
-            action.key === "convert" || action.key === "convertQuotes" ? (
+            action.key === "convert" || action.key === "convertQuotes" || action.key === "convertDockCard" ? (
               // "convert" opens ConvertPicker anchored to its own button, rather
               // than firing an action directly — needs its own positioned wrapper,
               // unlike every other plain-click DockAction below. One shared ref,
-              // since only one of "convert"/"convertQuotes" is ever present in a
-              // given row's actions at once (selectedCards vs. the quotes-only
-              // row), so there's no risk of two DOM nodes fighting over it.
+              // since only one of "convert"/"convertQuotes"/"convertDockCard" is
+              // ever present in a given row's actions at once (selectedCards vs.
+              // the quotes-only row vs. the selected-Dock-Card row), so there's no
+              // risk of two DOM nodes fighting over it.
               <div key={action.key} className="dock__convert-wrap" ref={convertButtonRef}>
                 <Button
                   iconOnly
@@ -2549,22 +2747,20 @@ export function Dock({
             Home, pin, and the Pages panel toggle, pinned to the bottom-right corner
             of the Dock. (The hidden-Cards reveal toggle used to live here too — it's
             its own standalone button now, revealHiddenAction above, visible on the
-            idle screen too rather than gated with this cluster.) Hidden while a
-            Page Card/embed is selected
-            and NOT mid-move (Selection Lock, Step 6 spec §4.3) — a selected *Dock*
-            Card deliberately leaves it visible, same as Vault (see
-            embedOrPageCardSelected above). Moving either kind of Card (page or Dock)
-            is the one deliberate exception to Selection Lock: reaching a destination
-            Page that isn't the one currently in view means navigating there first
-            (via Search/Home/pins), so this cluster has to stay reachable the whole
-            time a move is in progress even though the selection it carries forward
-            (handleEnterMoveMode/handleEnterDockCardMoveMode) is still technically
-            non-empty. Also hidden on the true idle screen (`openPanel === null`) —
-            the idle row's own Home stub covers that slot there; this fuller cluster
-            (back/forward/pin/Pages toggle/add) reappears once Vault/Dock Cards/
-            Pages is open, still reachable, just not part of the very first screen
-            any more. */}
-        {((!embedOrPageCardSelected && openPanel !== null) || moving || dockCardMoving) && (
+            idle screen too rather than gated with this cluster.) Hidden on the true
+            idle screen (`openPanel === null`) — the idle row's own Home stub covers
+            that slot there; this fuller cluster (back/forward/pin/Pages toggle/add)
+            reappears once Vault/Pages is open. Once a panel *is* open, though, it
+            has to stay reachable no matter what else gets selected afterward — a
+            Page Card/embed selected while Pages is open used to hide this whole
+            cluster (the old "Selection Lock," Step 6 spec §4.3), which meant the
+            Pages toggle itself — the only way to fold that panel back down — went
+            away with it, leaving the panel stuck open until the selection was
+            cleared some other way. Selection no longer gates this at all now: the
+            Pages toggle (and everything else here) stays foldable in every state,
+            same as vaultAction below now getting folded into every row (see
+            rowActions) whenever Vault is the one left open. */}
+        {(openPanel !== null || moving || dockCardMoving) && (
           <div className="dock__page-nav">
             <button
               type="button"
@@ -2651,7 +2847,12 @@ export function Dock({
       {convertPickerPos && (
         <ConvertPicker
           style={{ left: convertPickerPos.left, bottom: convertPickerPos.bottom }}
-          onPickStandardCard={handleConvertToStandardCard}
+          onPickStandardCard={
+            extractionTarget() || selectedDockCardIds.size > 0 ? null : handleConvertToStandardCard
+          }
+          onPickOcr={ocrTarget() ? () => handleConvertFileCard("ocr") : null}
+          onPickExtractText={rawExtractTarget() ? () => handleConvertFileCard("textLayer") : null}
+          onPickAiCleanup={extractionTarget() ? () => handleConvertFileCard("aiCleanup") : null}
           onPickDivide={divideTarget() ? handleConvertToDividedCards : null}
           onClose={() => setConvertPickerPos(null)}
         />

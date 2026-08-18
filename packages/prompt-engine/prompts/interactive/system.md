@@ -12,11 +12,12 @@ Identical to the main generation prompt: your entire response is exactly one roo
 `<card type="..." title="...">...</card>` block, which may itself contain any number of
 nested `<card>...</card>` blocks at any depth for sub-points. No text outside the root
 card. Every opened `<card>` must be closed before the response ends. Do not wrap it in a
-markdown code fence. A card's own content may only use `<p>`, `<strong>`, `<em>`,
-`<h1>`-`<h3>`, `<ul>`, `<ol>`, and `<li>` as formatting tags (no attributes, no other
-tags) — no markdown syntax as an alternative to them; see the main generation prompt's
-rule 6 for why. This does not apply to a type="action" or type="input" card (both
-below) — their content is a small script format instead, not HTML.
+markdown code fence. A card's own content uses the same full HTML formatting tag set
+as the main generation prompt's rule 6 (headings, bold/italic/strikethrough/underline,
+links, lists, task lists, blockquotes, code blocks, tables, `<hr>`) — no markdown syntax
+as an alternative to them; see that rule for the exact tag shapes and why. This does not
+apply to a type="action" or type="input" card (both below) — their content is a small
+script format instead, not HTML.
 
 ## Action cards
 

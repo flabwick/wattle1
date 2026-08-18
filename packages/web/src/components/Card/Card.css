@@ -55,10 +55,16 @@
    *visual* inset identical to before, whether stuck or not. Its own background +
    border-bottom read as a distinct strip from the content below (rather than
    blending into it), with enough z-index to sit above both this Card's own
-   content and the next Card's as they scroll underneath. */
+   content and the next Card's as they scroll underneath.
+   `top` is offset by --page-header-height (set on .page-stack, PageStack.css)
+   rather than plain 0 — both this and .page-stack__header are sticky to the same
+   .app__main scrollport, so at top:0 a stuck Card header would clamp to the exact
+   same position as the Page's own sticky header and disappear underneath it (that
+   header's z-index is deliberately higher). Offsetting by its height instead makes
+   the two stack, Page header above Card header, rather than overlap. */
 .card__header {
   position: sticky;
-  top: 0;
+  top: var(--page-header-height, 0px);
   z-index: var(--z-raised);
   display: flex;
   align-items: center;
@@ -330,57 +336,6 @@
   display: block;
   width: 100%;
   height: auto;
-}
-
-/* The Extract text / OCR pages trigger row (FileView.tsx), only shown for a PDF or
- * image body. */
-.card__file-actions {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-2);
-}
-
-.card__file-extract-error {
-  padding: 0 var(--space-2) var(--space-2);
-  color: var(--color-danger);
-}
-
-/* The cached extraction/OCR result (FileView.tsx) — collapsed behind its own
- * toggle by default, same "don't show options AND content at once" economy the
- * fold caret already uses elsewhere on this Card. */
-.card__file-extract {
-  border-top: var(--border-width-thin) solid var(--color-border);
-}
-
-.card__file-extract-toggle {
-  display: block;
-  width: 100%;
-  padding: var(--space-2);
-  background: none;
-  border: none;
-  text-align: left;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.card__file-extract-toggle:hover {
-  color: var(--color-text);
-}
-
-.card__file-extract-truncated {
-  padding: 0 var(--space-2) var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
-.card__file-extract-text {
-  /* No max-height here either — same "grow to full length" choice as
-   * .card__file-markdown below. */
-  margin: 0;
-  padding: var(--space-2);
-  white-space: pre-wrap;
-  overflow-x: auto;
-  font-family: inherit;
 }
 
 .card__file-markdown {

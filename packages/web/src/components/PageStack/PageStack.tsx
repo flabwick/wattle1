@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { PageCardSnapshot, PageCardWithCard, PageSummary, PageWithCards } from "@wattle/shared";
 import type { AnnotationProcess } from "../../api/client.js";
 import { CardView } from "../Card/Card.js";
@@ -77,6 +77,10 @@ interface PageCardSlotProps {
    *  Stack Card's own "+" (StackBody.tsx) just adds another alternate directly,
    *  no App.tsx round trip needed. */
   onTurnIntoStack: (pageCardId: string) => void;
+  /** The header's down-arrow — sends this Card to the Dock (App.tsx's
+   *  handleSendPageCardToDock), same unbound-then-bound-per-branch convention as
+   *  onRemove/onTurnIntoStack above. */
+  onSendToDock: (pageCardId: string) => void;
   /** The full state system's Undo/Redo — see Card.tsx's own onRecordEditHistory doc
    *  comment. Only consumed by the "note" branch below (CardView), same as
    *  onRunProcess/onActivateEditor above. */
@@ -116,6 +120,7 @@ function PageCardSlot({
   generatingPageCardId,
   pageSiblings,
   onTurnIntoStack,
+  onSendToDock,
   onRecordEditHistory,
 }: PageCardSlotProps) {
   // Excluded from normal Page rendering (Apps feature spec §2) — everything else
@@ -155,6 +160,7 @@ function PageCardSlot({
         generatingPageCardId={generatingPageCardId}
         pageSiblings={pageSiblings}
         onTurnIntoStack={() => onTurnIntoStack(pageCard.id)}
+        onSendToDock={() => onSendToDock(pageCard.id)}
         onRecordEditHistory={onRecordEditHistory}
       />
     );
@@ -182,6 +188,7 @@ function PageCardSlot({
       pageSiblings={pageSiblings}
       onRemove={onRemove}
       onTurnIntoStack={onTurnIntoStack}
+      onSendToDock={onSendToDock}
     />
   );
 }
@@ -341,6 +348,8 @@ interface PageStackProps {
   generatingPageCardId: string | null;
   /** See PageCardSlotProps.onTurnIntoStack above. */
   onTurnIntoStack: (pageCardId: string) => void;
+  /** See PageCardSlotProps.onSendToDock above. */
+  onSendToDock: (pageCardId: string) => void;
   /** See PageCardSlotProps.onRecordEditHistory above. */
   onRecordEditHistory: (before: PageCardSnapshot, after: PageCardSnapshot) => void;
   /** Move Mode (App.tsx's movingPageCardIds) — every PageCard id currently in
@@ -455,6 +464,7 @@ export function PageStack({
   onRunActionJob,
   generatingPageCardId,
   onTurnIntoStack,
+  onSendToDock,
   onRecordEditHistory,
   movingPageCardIds,
   onDropAt,
@@ -481,8 +491,34 @@ export function PageStack({
       ? onDropEmbedAt
       : (gap: number) => onDropAt(toDestIndex(gap, movingIndices));
 
+  const pageStackRef = useRef<HTMLDivElement>(null);
+  const pageHeaderObserverRef = useRef<ResizeObserver | null>(null);
+  /** Publishes .page-stack__header's own real rendered height (border-box, via
+   *  getBoundingClientRect — reflects however tall the title's actual font metrics
+   *  make it, not a hand-picked guess) as --page-header-height on the outer
+   *  .page-stack, which Card.css's own .card__header reads for its sticky `top`
+   *  offset (see that rule's own comment) — so a stuck Card header clamps exactly
+   *  below the Page's header instead of a fixed pixel value that drifts the moment
+   *  a title wraps, a locale's font metrics differ, or the title font itself
+   *  changes. A callback ref rather than a plain useEffect+ref pair because
+   *  .page-stack__header remounts on every Page navigation (its wrapper is keyed on
+   *  currentPage.id above) — this fires again on each new node automatically,
+   *  disconnecting the previous page's observer first. */
+  const pageHeaderRef = useCallback((node: HTMLDivElement | null) => {
+    pageHeaderObserverRef.current?.disconnect();
+    pageHeaderObserverRef.current = null;
+    if (!node) return;
+    const publish = () => {
+      pageStackRef.current?.style.setProperty("--page-header-height", `${node.getBoundingClientRect().height}px`);
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(node);
+    pageHeaderObserverRef.current = observer;
+  }, []);
+
   return (
-    <div className="page-stack">
+    <div className="page-stack" ref={pageStackRef}>
       {currentPage ? (
         // Keyed on the Page id so switching Pages remounts this wrapper — a fresh
         // element always replays its CSS animation on mount (unlike toggling a class
@@ -492,7 +528,7 @@ export function PageStack({
           key={currentPage.id}
           className={`page-stack__page${direction ? ` page-stack__page--${direction}` : ""}`}
         >
-          <div className="page-stack__header">
+          <div className="page-stack__header" ref={pageHeaderRef}>
             {onRenameTitle && <PageTitleHeader title={currentPage.title} onRename={onRenameTitle} />}
           </div>
           {onRenameTitle && <PageBreadcrumb ancestors={ancestors} onOpenAncestor={onOpenAncestor} />}
@@ -532,6 +568,7 @@ export function PageStack({
                   generatingPageCardId={generatingPageCardId}
                   pageSiblings={currentPage.pageCards}
                   onTurnIntoStack={onTurnIntoStack}
+                  onSendToDock={onSendToDock}
                   onRecordEditHistory={onRecordEditHistory}
                 />
                 {anyMoving && <DropZone onClick={() => onDropAtGap(index + 1)} />}

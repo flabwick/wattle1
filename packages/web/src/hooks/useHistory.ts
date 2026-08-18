@@ -75,6 +75,14 @@ export interface UseHistoryResult {
  * forward this hook calls it so the restored PageCards/Cards actually show up,
  * rather than duplicating PageWithCards serialization server-side.
  */
+/** A stable empty-array reference for useSyncExternalStore's snapshot getter below —
+ *  `getCachedHistory(pageId) ?? []` would otherwise hand back a brand-new array
+ *  every single call while a Page's history hasn't loaded yet (or has none),
+ *  which useSyncExternalStore reads as "the store changed" on every render (React
+ *  compares snapshots with Object.is) — an infinite render loop ending in "Maximum
+ *  update depth exceeded", not just a wasted re-render. */
+const EMPTY_HISTORY: HistoryEntry[] = [];
+
 export function useHistory(
   pageId: string | null,
   selectedCardIds: string[],
@@ -82,7 +90,7 @@ export function useHistory(
 ): UseHistoryResult {
   const entries = useSyncExternalStore(
     (onStoreChange) => (pageId ? subscribeToHistory(pageId, onStoreChange) : () => {}),
-    () => (pageId ? (getCachedHistory(pageId) ?? []) : []),
+    () => (pageId ? (getCachedHistory(pageId) ?? EMPTY_HISTORY) : EMPTY_HISTORY),
   );
 
   useEffect(() => {
