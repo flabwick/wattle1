@@ -662,26 +662,36 @@ export function App() {
     });
   }
 
-  /** Only ever meaningful when exactly one embed is selected (singleSelectedEmbed) —
-   *  Dock.tsx's own single-embed action row gates on that the same way. */
-  function handleRemoveEmbed() {
-    if (!singleSelectedEmbed) return;
-    singleSelectedEmbed.onRemove();
-    deselectOneEmbed(singleSelectedEmbed.cardId);
+  /** "Add to page" (Dock.tsx's own selected-embed row) — appends the embedded
+   *  Card at the bottom of the current Page as its own standalone PageCard,
+   *  alongside staying embedded right where it already is (same live Card, two
+   *  places it's now reachable from). Only ever meaningful when exactly one
+   *  embed is selected (singleSelectedEmbed) — same gating every other
+   *  single-embed action here uses. */
+  async function handleAddEmbedToPage() {
+    if (!singleSelectedEmbed || !currentPage) return;
+    await api.addExistingCardToPage(currentPage.id, singleSelectedEmbed.cardId);
+    await refresh();
   }
 
-  // Deletes the embedded Card from the vault entirely (same global delete the Vault
-  // panel uses — vault.deleteCard), then strips the now-dangling token out of this
-  // particular parent too, rather than leaving CardEmbed's "not found" fallback
-  // showing indefinitely where the user was just looking. Only ever meaningful when
-  // exactly one embed is selected (singleSelectedEmbed) — same gating as above.
-  async function handleDeleteEmbed() {
+  /** Freezes the selected embed's own underlying Card — same gating
+   *  handleFreezeSelected uses for a top-level Card (Dock.tsx's own row already
+   *  only shows this once selectedEmbedCard is savedToVault and not already
+   *  Frozen). */
+  async function handleFreezeEmbed() {
     if (!singleSelectedEmbed) return;
-    const { cardId, onRemove } = singleSelectedEmbed;
-    deselectOneEmbed(cardId);
-    onRemove();
-    await vault.deleteCard(cardId);
+    await api.freezeCard(singleSelectedEmbed.cardId);
     await refresh();
+  }
+
+  /** Flips `metadata.hidden` on the selected embed's own underlying Card — same
+   *  "writes straight through" convention handleToggleHiddenSelected uses for a
+   *  top-level Card. */
+  function handleToggleHiddenEmbed() {
+    if (!singleSelectedEmbed || !selectedEmbedCard) return;
+    editCard(selectedEmbedCard.id, {
+      metadata: { ...selectedEmbedCard.metadata, hidden: !selectedEmbedCard.metadata.hidden },
+    });
   }
 
   /** The Dock's own back-caret action (the one universal way to deselect now,
@@ -1316,37 +1326,12 @@ export function App() {
     await recordCardAdded(before, "Added card", pc);
   }
 
-  /** The Feed Input Button's type-picker "Stack" option (Step "Stacks" spec) —
-   *  creates a new Stack Card, with one blank member, at the bottom of the current
-   *  Page. Unlike every other type in that picker (still a stub — see
-   *  FeedInputButton.tsx), a Stack needs its own creation endpoint
-   *  (stackService.createStackInPage) rather than plain addNewCardToPage, since it
-   *  also has to seed a first StackMember. */
-  async function handleAddStackToCurrentPage() {
-    if (!currentPage) return;
-    const before = snapshotWholePage(currentPage);
-    const pc = await api.createStack(currentPage.id);
-    await recordCardAdded(before, "Added card", pc);
-  }
-
-  /** The Feed Input Button's type-picker "Action" option — same "select this type
-   *  = create it right away" shape as handleAddStackToCurrentPage above, just via
-   *  plain addNewCardToPage (createCardInPage) with a metadata override rather
-   *  than a dedicated creation endpoint, since there's no extra row (like a
-   *  Stack's first StackMember) to seed. */
-  async function handleAddActionToCurrentPage() {
-    if (!currentPage) return;
-    const before = snapshotWholePage(currentPage);
-    const pc = await createCardInPage(currentPage.id, "", "", {
-      version: 1,
-      typeId: "action",
-      action: { label: "", steps: [] },
-    });
-    await recordCardAdded(before, "Added card", pc);
-  }
-
-  /** The Feed Input Button's type-picker "Prompt" option — see
-   *  handleAddActionToCurrentPage above for the same reasoning. */
+  /** The Feed Input Button's type-picker "Prompt" option — plain addNewCardToPage
+   *  (createCardInPage) with a metadata override, "select this type = create it
+   *  right away". The picker's own vocabulary is deliberately restricted to
+   *  Open/blank/Upload/JS/Prompt — see FeedInputButton.tsx's own typeOptions
+   *  list ("Interactive" was dropped as redundant with JS, which can do
+   *  everything a plain input Card did plus live logic). */
   async function handleAddPromptToCurrentPage() {
     if (!currentPage) return;
     const before = snapshotWholePage(currentPage);
@@ -1358,41 +1343,15 @@ export function App() {
     await recordCardAdded(before, "Added card", pc);
   }
 
-  /** The Feed Input Button's type-picker "Page Links" option — see
-   *  handleAddActionToCurrentPage above for the same reasoning. */
-  async function handleAddPageLinksToCurrentPage() {
+  /** The Feed Input Button's type-picker "JS" option — see
+   *  handleAddPromptToCurrentPage above for the same reasoning. */
+  async function handleAddJsToCurrentPage() {
     if (!currentPage) return;
     const before = snapshotWholePage(currentPage);
     const pc = await createCardInPage(currentPage.id, "", "", {
       version: 1,
-      typeId: "pageLinks",
-      pageLinks: { targets: [] },
-    });
-    await recordCardAdded(before, "Added card", pc);
-  }
-
-  /** The Feed Input Button's type-picker "Search" option — see
-   *  handleAddActionToCurrentPage above for the same reasoning. */
-  async function handleAddSearchToCurrentPage() {
-    if (!currentPage) return;
-    const before = snapshotWholePage(currentPage);
-    const pc = await createCardInPage(currentPage.id, "", "", {
-      version: 1,
-      typeId: "search",
-      search: { mode: "vault", query: "" },
-    });
-    await recordCardAdded(before, "Added card", pc);
-  }
-
-  /** The Feed Input Button's type-picker "Input" option — see
-   *  handleAddActionToCurrentPage above for the same reasoning. */
-  async function handleAddInputToCurrentPage() {
-    if (!currentPage) return;
-    const before = snapshotWholePage(currentPage);
-    const pc = await createCardInPage(currentPage.id, "", "", {
-      version: 1,
-      typeId: "input",
-      input: { kind: "text", options: [], value: [] },
+      typeId: "js",
+      js: { source: "" },
     });
     await recordCardAdded(before, "Added card", pc);
   }
@@ -1752,12 +1711,8 @@ export function App() {
                     onOpenVault: () => setOpenPanel("vault"),
                     onCreateChildPage: handleCreateChildPage,
                     onUploadFile: handleUploadFileToCurrentPage,
-                    onAddStack: handleAddStackToCurrentPage,
-                    onAddAction: handleAddActionToCurrentPage,
                     onAddPrompt: handleAddPromptToCurrentPage,
-                    onAddPageLinks: handleAddPageLinksToCurrentPage,
-                    onAddSearch: handleAddSearchToCurrentPage,
-                    onAddInput: handleAddInputToCurrentPage,
+                    onAddJs: handleAddJsToCurrentPage,
                   }
                 : null
             }
@@ -1772,10 +1727,12 @@ export function App() {
         onRunActionJob={handleRunActionJob}
         selectedEmbedIds={selectedEmbedIdSet}
         selectedEmbedId={selectedPageCards.length === 0 ? singleSelectedEmbed?.cardId ?? null : null}
+        selectedEmbedCard={selectedPageCards.length === 0 ? selectedEmbedCard ?? null : null}
         isEditingActive={isEditingActive}
         onExitEditing={exitEditing}
-        onRemoveEmbed={handleRemoveEmbed}
-        onDeleteEmbed={handleDeleteEmbed}
+        onAddEmbedToPage={handleAddEmbedToPage}
+        onFreezeEmbed={handleFreezeEmbed}
+        onToggleHiddenEmbed={handleToggleHiddenEmbed}
         generationError={generation.error ?? agentError}
         onDismissGenerationError={() => {
           generation.dismissError();

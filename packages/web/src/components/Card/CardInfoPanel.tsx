@@ -7,9 +7,11 @@ import { CardPropertyRow } from "./CardPropertyRow.js";
 import { ActionStepFields } from "./types/action/ActionStepFields.js";
 import { actionJobRegistry } from "../../lib/actionJobRegistry.js";
 import { runGenerateSteps } from "../../lib/actionScriptJob.js";
+import { generateJsCardSource } from "../../lib/wattleJsJob.js";
 import { CARD_MATERIALS } from "../../lib/cardMaterials.js";
 import { t } from "../../i18n/index.js";
 import "./CardInfoPanel.css";
+import "./types/js/JsCard.css";
 
 interface CardInfoPanelProps {
   card: Card;
@@ -58,6 +60,7 @@ function formatDate(iso: string): string {
 export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeTitle }: CardInfoPanelProps) {
   const isFrozen = Boolean(card.frozenAt);
   const isAction = card.metadata.typeId === "action";
+  const isJs = card.metadata.typeId === "js";
   const action = card.metadata.action ?? { label: "", steps: [] };
   const properties = card.metadata.properties;
   const tags = card.metadata.tags ?? [];
@@ -70,6 +73,45 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
   const [scriptInstruction, setScriptInstruction] = useState("");
   const [generatingSteps, setGeneratingSteps] = useState(false);
   const [generateStepsError, setGenerateStepsError] = useState<string | null>(null);
+  // "js" CardType's own script section (below) — a local draft, committed only on
+  // "Apply" (not "write straight through on every keystroke" the way properties/
+  // tags do): re-running the sandbox on every character typed would be both
+  // wasteful and, mid-edit, constantly erroring on incomplete syntax. Re-synced
+  // from the Card's own live source only when it changes for a reason OTHER than
+  // this same Apply click (e.g. Generate below, or a hand-edit somewhere else) —
+  // see the effect further down.
+  const [jsSourceDraft, setJsSourceDraft] = useState(card.metadata.js?.source ?? "");
+  const [jsInstruction, setJsInstruction] = useState("");
+  const [generatingJs, setGeneratingJs] = useState(false);
+  const [generateJsError, setGenerateJsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isJs) setJsSourceDraft(card.metadata.js?.source ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync when the
+    // Card's own stored source actually changes, never on this draft's own edits.
+  }, [card.metadata.js?.source]);
+
+  function applyJsSource() {
+    if (isFrozen) return;
+    editCard(card.id, { metadata: { ...card.metadata, js: { source: jsSourceDraft } } });
+  }
+
+  async function handleGenerateJs() {
+    const trimmed = jsInstruction.trim();
+    if (!trimmed || isFrozen) return;
+    setGeneratingJs(true);
+    setGenerateJsError(null);
+    try {
+      const next = await generateJsCardSource(trimmed, card.metadata.js?.source);
+      setJsSourceDraft(next);
+      editCard(card.id, { metadata: { ...card.metadata, js: { source: next } } });
+      setJsInstruction("");
+    } catch (err) {
+      setGenerateJsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGeneratingJs(false);
+    }
+  }
 
   /** Folders' replacement as the organizing primitive (Pages + Links + Search
    *  rebuild) — free-form strings on the Card itself, found via the Vault's own
@@ -238,6 +280,60 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => onChangeTitle(e.target.value)}
             />
+          )}
+        </div>
+      )}
+
+      {isJs && (
+        <div className="card-info__section">
+          <span className="card-info__label">{t("jsCard.scriptSection")}</span>
+          {!isFrozen && (
+            <div className="card-info__generate-steps">
+              <InputField
+                className="card-info__generate-steps-input"
+                value={jsInstruction}
+                placeholder={t("jsCard.generatePlaceholder")}
+                disabled={generatingJs}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setJsInstruction(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleGenerateJs();
+                  }
+                }}
+              />
+              <Button
+                disabled={generatingJs || !jsInstruction.trim()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleGenerateJs();
+                }}
+              >
+                <Icon name="generate" spin={generatingJs} />
+                {t("jsCard.generateButton")}
+              </Button>
+            </div>
+          )}
+          {generateJsError && <p className="card-info__generate-steps-error">{generateJsError}</p>}
+          <InputField
+            multiline
+            className="js-card__editor"
+            value={jsSourceDraft}
+            placeholder={t("jsCard.sourcePlaceholder")}
+            disabled={isFrozen}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setJsSourceDraft(e.target.value)}
+          />
+          {!isFrozen && (
+            <Button
+              onClick={(e) => {
+                e.stopPropagation();
+                applyJsSource();
+              }}
+            >
+              {t("jsCard.apply")}
+            </Button>
           )}
         </div>
       )}

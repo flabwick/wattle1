@@ -330,6 +330,7 @@ actionJobRegistry.register({
         { value: "input", label: t("actionCard.createCard.typeInput") },
         { value: "pageLinks", label: t("actionCard.createCard.typePageLinks") },
         { value: "search", label: t("actionCard.createCard.typeSearch") },
+        { value: "js", label: t("actionCard.createCard.typeJs") },
       ],
     },
   ],
@@ -462,11 +463,19 @@ actionJobRegistry.register({
   label: () => t("actionCard.job.editCard"),
   fields: [
     { kind: "vaultCardPicker", key: "target", label: t("actionCard.field.target") },
+    { kind: "text", key: "title", label: t("actionCard.field.title"), placeholder: t("card.titlePlaceholder") },
     { kind: "richtext", key: "content", label: t("actionCard.field.content") },
   ],
+  // `title` is optional (omitted/blank leaves the existing title untouched) —
+  // added for the wattle-js sandbox's own `wattle.editCard(id, {title, content})`
+  // (wattleSdkHost.ts), which needs both; every existing caller of this job
+  // (script/manual step editors) that never set `title` keeps behaving exactly
+  // as before, since an empty string here is treated as "no change", not "clear
+  // the title".
   run: async (_ctx, _pageCard, jobParams) => {
     const cardId = requireStr(jobParams, "target");
-    await api.updateCard(cardId, { content: str(jobParams, "content") });
+    const title = str(jobParams, "title");
+    await api.updateCard(cardId, { content: str(jobParams, "content"), ...(title ? { title } : {}) });
     notifySaved(cardId);
   },
 });

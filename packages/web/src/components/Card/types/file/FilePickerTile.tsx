@@ -8,7 +8,7 @@ export function FilePickerTile({ onSelect }: CardTypePickerTileProps) {
   return (
     <button type="button" className="card-type-picker-tile" onClick={onSelect}>
       <Icon name="upload" />
-      <span>File</span>
+      <span>Upload</span>
     </button>
   );
 }

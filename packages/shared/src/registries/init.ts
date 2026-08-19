@@ -8,6 +8,7 @@ import { promptCardTypeDefinition } from "./definitions/promptCardType.js";
 import { pageLinksCardTypeDefinition } from "./definitions/pageLinksCardType.js";
 import { searchCardTypeDefinition } from "./definitions/searchCardType.js";
 import { inputCardTypeDefinition } from "./definitions/inputCardType.js";
+import { jsCardTypeDefinition } from "./definitions/jsCardType.js";
 
 let initialized = false;
 
@@ -27,5 +28,6 @@ export function initCardTypes(): void {
   cardTypeRegistry.register(pageLinksCardTypeDefinition);
   cardTypeRegistry.register(searchCardTypeDefinition);
   cardTypeRegistry.register(inputCardTypeDefinition);
+  cardTypeRegistry.register(jsCardTypeDefinition);
   initialized = true;
 }

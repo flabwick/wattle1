@@ -26,6 +26,9 @@ import { SearchCardPickerTile } from "../components/Card/types/search/SearchCard
 import { InputView } from "../components/Card/types/input/InputView.js";
 import { InputEditor } from "../components/Card/types/input/InputEditor.js";
 import { InputPickerTile } from "../components/Card/types/input/InputPickerTile.js";
+import { JsCardView } from "../components/Card/types/js/JsCardView.js";
+import { JsCardEditor } from "../components/Card/types/js/JsCardEditor.js";
+import { JsCardPickerTile } from "../components/Card/types/js/JsCardPickerTile.js";
 
 let initialized = false;
 
@@ -93,6 +96,12 @@ export function initCardTypeUi(): void {
     View: InputView,
     Editor: InputEditor,
     PickerTile: InputPickerTile,
+  });
+  cardTypeUiRegistry.register({
+    typeId: "js",
+    View: JsCardView,
+    Editor: JsCardEditor,
+    PickerTile: JsCardPickerTile,
   });
   initialized = true;
 }

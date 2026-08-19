@@ -3,6 +3,7 @@ import express, { type ErrorRequestHandler } from "express";
 import "express-async-errors";
 import { ZodError } from "zod";
 import { actionScriptsRouter } from "./routes/actionScripts.js";
+import { wattleJsRouter } from "./routes/wattleJs.js";
 import { agentRouter } from "./routes/agent.js";
 import { annotationsRouter } from "./routes/annotations.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -46,6 +47,7 @@ export function createApp() {
   app.use("/api/rich-text-images", richTextImagesRouter);
   app.use("/api/search", searchRouter);
   app.use("/api/action-scripts", actionScriptsRouter);
+  app.use("/api/wattle-js", wattleJsRouter);
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     if (err instanceof ZodError) {

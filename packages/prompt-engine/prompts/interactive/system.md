@@ -95,3 +95,11 @@ later turn (including a later AUTORUN action round) can read and react to what w
 picked. To change an existing input card's value yourself (rather than waiting on a
 human), use the `setInputValue` action job from the vocabulary above — it is not
 something an input card's own content can do.
+
+For a live tool that actually does something — a search box, a filtered view of
+the page's own cards, a button that generates or creates a card — this KIND/
+OPTION syntax isn't the right tool; that's a separate card type, `"js"` (a
+sandboxed live script), with its own authoring path this prompt has no way to
+write correctly. Emit a plain `<card type="input">` or `<card type="action">`
+instead — the safer choice when a live script is what's really wanted but this
+generation mode can't produce one.

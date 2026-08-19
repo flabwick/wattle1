@@ -9,7 +9,7 @@ import { useCardEditingContext } from "./CardEditingContext.js";
  *  CardEditingContext (see that file's doc comment for why); `onRemoveSelf` is just
  *  `deleteNode()` now, strictly simpler than the old content.slice/splice hack it
  *  replaces. */
-export function CardEmbedNodeView({ node, deleteNode }: NodeViewProps) {
+export function CardEmbedNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
   const ctx = useCardEditingContext();
   const cardId = node.attrs.cardId as string;
 
@@ -30,6 +30,7 @@ export function CardEmbedNodeView({ node, deleteNode }: NodeViewProps) {
         onRemoveAnnotation={ctx.onRemoveAnnotation}
         onUpdateAnnotationText={ctx.onUpdateAnnotationText}
         onRemoveSelf={() => deleteNode()}
+        onConvertedToStack={(newCardId) => updateAttributes({ cardId: newCardId })}
         hideFoldButton={ctx.hideFoldButton}
       />
     </NodeViewWrapper>

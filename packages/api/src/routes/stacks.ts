@@ -22,6 +22,16 @@ stacksRouter.post("/convert", async (req, res) => {
   res.status(201).json(await stackService.convertCardToStack(pageCardId));
 });
 
+// POST /api/stacks/wrap  { cardId } — a `[[cardId]]` embed's own "turn into stack"
+// (CardEmbed.tsx): wraps an arbitrary Card by id (no PageCard involved) as a new
+// Stack's first member, leaving the original Card itself untouched everywhere else
+// it's shown. Returns the new Stack Card — the caller repoints its own embed
+// reference at its id.
+stacksRouter.post("/wrap", async (req, res) => {
+  const { cardId } = req.body ?? {};
+  res.status(201).json(await stackService.wrapCardInStack(cardId));
+});
+
 // GET /api/stacks/:stackCardId — every member plus the currently active index.
 stacksRouter.get("/:stackCardId", async (req, res) => {
   res.json(await stackService.getStackData(req.params.stackCardId));

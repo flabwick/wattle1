@@ -1,0 +1,53 @@
+.js-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.js-card__iframe {
+  /* Borderless, transparent (the sandbox's own body background is transparent
+     too — wattleSandboxBootstrap.ts) and sized to its own reported content
+     height (JsCardView.tsx's own resize handling), not a fixed box with a
+     scrollbar — this is meant to read as part of the card's own content, not
+     a distinct panel sitting on it. */
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  overflow: hidden;
+}
+
+.js-card__error {
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  border: var(--border-width-thin) solid var(--color-danger);
+}
+
+.js-card__editor {
+  width: 100%;
+  min-height: 200px;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre;
+  resize: vertical;
+}
+
+.js-card__generate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.js-card__generate-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.js-card__generate-error {
+  margin: 0 0 var(--space-2);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}

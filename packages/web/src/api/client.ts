@@ -113,6 +113,18 @@ export const generateActionScript = (actionsDoc: string, instruction: string, cu
     body: JSON.stringify({ actionsDoc, instruction, currentScript }),
   });
 
+/** A "js"-typed Card's own "Describe what this card should do"
+ *  (lib/wattleJsJob.ts, JsCardEditor.tsx) — one blocking model call, no
+ *  streaming, against the static prompt at packages/prompt-engine/prompts/
+ *  wattle-js/system.md (no dynamic splice — see that prompt's own doc comment
+ *  in wattleJsCompiler.ts for why). `currentScript`, when regenerating an
+ *  existing card, is its own current source so the model edits in context. */
+export const generateWattleJs = (instruction: string, currentScript?: string) =>
+  request<{ text: string }>("/wattle-js/generate", {
+    method: "POST",
+    body: JSON.stringify({ instruction, currentScript }),
+  });
+
 // Vault
 export const listCards = (q?: string) =>
   request<Card[]>(`/cards${q ? `?q=${encodeURIComponent(q)}` : ""}`);
@@ -269,6 +281,12 @@ export const createStack = (pageId: string) =>
   request<PageCardWithCard>("/stacks", { method: "POST", body: JSON.stringify({ pageId }) });
 export const convertCardToStack = (pageCardId: string) =>
   request<PageCardWithCard>("/stacks/convert", { method: "POST", body: JSON.stringify({ pageCardId }) });
+/** A `[[cardId]]` embed's own "turn into stack" (CardEmbed.tsx) — no PageCard to
+ *  repoint the way convertCardToStack above does, so this wraps the Card by id
+ *  directly and hands back the new Stack Card; the caller repoints its own embed
+ *  node's `cardId` attr at it. */
+export const wrapCardInStack = (cardId: string) =>
+  request<Card>("/stacks/wrap", { method: "POST", body: JSON.stringify({ cardId }) });
 export const getStack = (stackCardId: string) => request<StackData>(`/stacks/${stackCardId}`);
 export const setStackActiveIndex = (stackCardId: string, index: number) =>
   request<{ activeIndex: number }>(`/stacks/${stackCardId}/active`, {

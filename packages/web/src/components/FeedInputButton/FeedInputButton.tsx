@@ -32,28 +32,19 @@ interface FeedInputButtonProps {
   onCreateChildPage?: () => void;
   /** Uploads a file as a new file-typed Card. Unused while showMoreOptions is false. */
   onUploadFile?: (file: File) => void;
-  /** Creates a new Stack Card (registries/definitions/stackCardType.ts) — the type
-   *  picker's "Stack" tile is wired straight to this rather than plain onAddCard,
-   *  since a Stack needs its own creation endpoint (stackService.createStackInPage).
-   *  Optional/no-op-by-omission when absent (the Dock Card panel's own creation flow,
-   *  showGenerate false, has no Page for a Stack to belong to) — the tile itself is
-   *  simply left out of the picker rather than shown disabled. */
-  onAddStack?: () => void;
-  /** Creates a new "action"-typed Card (registries/definitions/actionCardType.ts) —
-   *  same "own tile, own creator, omitted when absent" shape as onAddStack. */
-  onAddAction?: () => void;
   /** Creates a new "prompt"-typed Card (registries/definitions/promptCardType.ts) —
-   *  same shape as onAddAction above. */
+   *  the type picker's "Prompt" tile is wired straight to this rather than plain
+   *  onAddCard, since a typed Card needs a metadata override plain onAddCard
+   *  doesn't set. Optional/no-op-by-omission when absent — the tile itself is
+   *  simply left out of the picker rather than shown disabled. */
   onAddPrompt?: () => void;
-  /** Creates a new "pageLinks"-typed Card (registries/definitions/pageLinksCardType.ts)
-   *  — same shape as onAddAction above. */
-  onAddPageLinks?: () => void;
-  /** Creates a new "search"-typed Card (registries/definitions/searchCardType.ts) —
-   *  same shape as onAddAction above. */
-  onAddSearch?: () => void;
-  /** Creates a new "input"-typed Card (registries/definitions/inputCardType.ts) —
-   *  same shape as onAddAction above. */
-  onAddInput?: () => void;
+  /** Creates a new "js"-typed Card (registries/definitions/jsCardType.ts) — the
+   *  picker's "JS" tile — same shape as onAddPrompt above. Supersedes the old
+   *  "input"-typed Card as the picker's one interactive/form option (a `js` Card's
+   *  own `wattle.ui.field`/`wattle.ui.button` cover everything a plain "input"
+   *  Card did, plus live logic — "interactive" and "js" were the same thing, just
+   *  offered twice). */
+  onAddJs?: () => void;
   /** False inside the Dock Card panel's own creation flow (Step 6 spec §3.3): Dock
    *  Cards have no Page/Tab to draw generation context from, so there's no Circle —
    *  Add is the only way a Card actually gets created either way. */
@@ -84,12 +75,19 @@ interface FeedInputButtonProps {
  * Card is a reference to an existing vault Card, exactly what Open from Vault already
  * does, so the two were the same option under different names.
  *
- * The type list itself comes from cardTypeUiRegistry's PickerTile per registered type
- * (one component per CardType, e.g. StackPickerTile/ActionCardPickerTile) — a tile
- * only appears when this Feed Input Button was actually given a way to create that
- * type (see the optional onAdd* props above), so the same component naturally shows
- * fewer options inside the Dock Card panel (no onAddStack/onAddAction/onAddPrompt
- * there today) than it does on a Page.
+ * The picker's own vocabulary is deliberately fixed to exactly five options — Open
+ * (from Vault), a blank note, Upload, JS, and Prompt — the only card types a
+ * person can ever create fresh from here (or embed, since embedding a Card always
+ * goes through this same "Open from Vault" search on an existing one, never a
+ * type picker of its own — CardLinkPicker.tsx). Every other registered CardType
+ * (link, stack, action, pageLinks, search, and the old standalone "input") still
+ * renders and edits normally wherever a Card of that type already exists; this
+ * only narrows what's offered for something brand new. The type list comes from
+ * cardTypeUiRegistry's PickerTile per registered type (one component per
+ * CardType) — a tile only appears when this Feed Input Button was actually given
+ * a way to create that type (see the optional onAdd* props above), so the same
+ * component naturally shows fewer options inside the Dock Card panel (no
+ * onAddPrompt/onAddJs there today) than it does on a Page.
  */
 export function FeedInputButton({
   generating,
@@ -99,12 +97,8 @@ export function FeedInputButton({
   onOpenVault,
   onCreateChildPage,
   onUploadFile,
-  onAddStack,
-  onAddAction,
   onAddPrompt,
-  onAddPageLinks,
-  onAddSearch,
-  onAddInput,
+  onAddJs,
   showGenerate = true,
   showMoreOptions = true,
   placeholder,
@@ -157,21 +151,17 @@ export function FeedInputButton({
     fileInputRef.current?.click();
   }
 
-  // Every card type this context can actually create — a type is only listed once
-  // its own creator prop is present (see each prop's own doc comment above), so the
-  // Dock Card panel's reuse of this component (no onAddStack/onAddAction/onAddPrompt)
-  // naturally ends up with a shorter list than a Page's does. "Note" and "File" always
-  // show: a blank note is always creatable via onAddCard, and Upload is always offered
-  // wherever onUploadFile is.
+  // The fixed five-option vocabulary (see this component's own doc comment above)
+  // — a type is only listed once its own creator prop is present, so the Dock
+  // Card panel's reuse of this component (no onAddPrompt/onAddJs there today)
+  // naturally ends up with a shorter list than a Page's does. "Note" (blank) and
+  // "File" (Upload) always show: a blank note is always creatable via onAddCard,
+  // and Upload is always offered wherever onUploadFile is.
   const typeOptions: Array<{ typeId: string; onSelect: () => void }> = [
     { typeId: "note", onSelect: () => { onAddCard(""); collapse(); } },
     ...(onUploadFile ? [{ typeId: "file", onSelect: handleUploadClick }] : []),
-    ...(onAddStack ? [{ typeId: "stack", onSelect: () => { onAddStack(); collapse(); } }] : []),
-    ...(onAddAction ? [{ typeId: "action", onSelect: () => { onAddAction(); collapse(); } }] : []),
+    ...(onAddJs ? [{ typeId: "js", onSelect: () => { onAddJs(); collapse(); } }] : []),
     ...(onAddPrompt ? [{ typeId: "prompt", onSelect: () => { onAddPrompt(); collapse(); } }] : []),
-    ...(onAddPageLinks ? [{ typeId: "pageLinks", onSelect: () => { onAddPageLinks(); collapse(); } }] : []),
-    ...(onAddSearch ? [{ typeId: "search", onSelect: () => { onAddSearch(); collapse(); } }] : []),
-    ...(onAddInput ? [{ typeId: "input", onSelect: () => { onAddInput(); collapse(); } }] : []),
   ];
 
   return (

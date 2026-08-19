@@ -5,6 +5,9 @@ import { actionJobRegistry, resolveJobParams, type ActionJobContext, type StepOu
 // registrations (circular import — see actionScriptJob.ts's own doc comment), so
 // it's pulled in here instead, before ACTION_JOBS below is computed.
 import "./actionScriptJob.js";
+// Same side-effect-registration reason as actionScriptJob.ts above — see
+// wattleJsJob.ts's own doc comment on its "setJsCard" job.
+import "./wattleJsJob.js";
 
 export type {
   ActionJobContext,

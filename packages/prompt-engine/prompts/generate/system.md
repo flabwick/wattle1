@@ -78,3 +78,11 @@ Rules:
    other tag. Express structure you can't reach with this tag set — a sub-point, a
    distinct topic — as a nested `<card>` with its own `title`, not as an unsupported tag
    or markdown syntax inside the text.
+
+   If the person asked for something that actually needs to run — a live vault
+   search, a button that generates or creates a card, a filtered/computed view
+   of the page's own cards — that is a separate card type, `"js"` (a sandboxed
+   live script, not HTML content), with its own authoring path. Do not try to
+   build one here: emit a plain `<card type="note" ...>` (or whichever ordinary
+   type fits) describing what's wanted instead, since this prompt has no way to
+   write a `"js"` card's own script correctly.

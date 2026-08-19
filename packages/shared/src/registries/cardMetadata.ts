@@ -264,6 +264,18 @@ export const cardMetadataV1Schema = z.object({
         .default({ mode: "none", cardIds: [] }),
     })
     .optional(),
+  /** Set only on typeId "js" Cards — a sandboxed, DataviewJS-style live script
+   *  (registries/definitions/jsCardType.ts). `source` is the whole script;
+   *  `content` (the base Card field every type has) is unused here, same
+   *  "the real data lives in a typed metadata field, not content" convention
+   *  `search`/`input` above already use. Nothing else to persist: the script
+   *  reads/draws itself fresh on every run (JsCardView.tsx) — there's no
+   *  separate "last output" to cache the way prompt's `iterations` do. */
+  js: z
+    .object({
+      source: z.string(),
+    })
+    .optional(),
 });
 
 export type CardMetadataV1 = z.infer<typeof cardMetadataV1Schema>;

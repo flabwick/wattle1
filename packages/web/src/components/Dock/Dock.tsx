@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type {
-  ActionFieldKind,
   Card,
   CalloutKind,
   DockCardWithCard,
@@ -27,13 +26,16 @@ import { DockCardView } from "./DockCardView.js";
 import { DockCardRail } from "./DockCardRail.js";
 import { PagesPanel } from "./PagesPanel.js";
 import { ConvertPicker } from "./ConvertPicker.js";
-import { CardLinkPicker } from "../Card/CardLinkPicker.js";
-import { PageLinkPicker } from "../Card/PageLinkPicker.js";
-import { ActionFieldKindPicker } from "../Card/richtext/ActionFieldKindPicker.js";
-import { LinkUrlPicker } from "../Card/richtext/LinkUrlPicker.js";
 import { CalloutKindPicker } from "../Card/richtext/CalloutKindPicker.js";
 import { CardRichText } from "../Card/richtext/CardRichText.js";
-import { divideCardIntoSections, extractCardFileText, getCardFileUrl, uploadRichTextImage } from "../../api/client.js";
+import {
+  createCard,
+  createPage,
+  divideCardIntoSections,
+  extractCardFileText,
+  getCardFileUrl,
+  uploadRichTextImage,
+} from "../../api/client.js";
 import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { isMarkdownFile } from "../../lib/isMarkdownFile.js";
 import { convertMarkdownToWattleHtml } from "../../lib/markdownToWattleHtml.js";
@@ -41,7 +43,6 @@ import { plainTextToWattleHtml } from "../../lib/plainTextToWattleHtml.js";
 import { getCachedCard } from "../../lib/cardStore.js";
 import { useActiveEditor, useActiveEditorFocused } from "../../lib/activeEditorRegistry.js";
 import { clearQuotes, useQuotes } from "../../lib/quotesRegistry.js";
-import { defaultActionFieldAttrs } from "../../lib/actionFieldDefaults.js";
 import { useAgentLoop } from "../../hooks/useAgentLoop.js";
 import type { GhostCardNode } from "../../hooks/useGeneration.js";
 import type { StepOutput } from "../../lib/actionJobRegistry.js";
@@ -107,6 +108,13 @@ interface DockProps {
    *  the moment a second embed (or any top-level Card) joins the selection — this
    *  row disappears, but each embed's own highlight (via selectedEmbedIds) stays. */
   selectedEmbedId: string | null;
+  /** The live Card `selectedEmbedId` refers to (App.tsx's own reactive
+   *  `useSyncExternalStore(subscribeToCard(...))`, not a one-off cache read) —
+   *  the single-embed action row's own Freeze/Hide eligibility and current
+   *  hidden state need this to stay correct across a toggle, the same way
+   *  `selectedCards` below is always fresh via props rather than re-derived
+   *  from a stale snapshot. */
+  selectedEmbedCard: Card | null;
   /** True while whatever's selected (Page Card, Dock Card, or embed) is also in its
    *  own inline edit mode — swaps the row for the rich-text formatting toolbar
    *  (bold/italic/heading/lists), replacing Move/Save/Generate/etc. for as long as
@@ -120,12 +128,28 @@ interface DockProps {
    *  same way the existing click-outside-to-close gesture already does for whichever
    *  of Page Card/embed/Dock Card is currently editing (App.tsx's exitEditing). */
   onExitEditing: () => void;
-  onRemoveEmbed: () => void;
-  onDeleteEmbed: () => void;
   /** The row's own back-caret action — a plain deselect, leaving the embed exactly
-   *  where it is (distinct from Remove/Delete above, which are their own explicit
-   *  actions further along the row). */
+   *  where it is. Detaching the embed entirely is now its own header's "X"
+   *  (CardHeaderActions, CardEmbed.tsx) — same as a top-level Card's own header —
+   *  not a Dock row action any more; full vault deletion is reached from the
+   *  Vault panel, same as for a top-level Card. */
   onDeselectEmbed: () => void;
+  /** "Add to page" — the one selected-embed action with no normal-card
+   *  equivalent: appends the embedded Card at the bottom of the current Page as
+   *  its own standalone PageCard (api.addExistingCardToPage), alongside staying
+   *  embedded right where it is — same "open elsewhere, still the same live
+   *  Card" precedent Open from Vault already follows, just from inside an embed's
+   *  own selection row instead of the Feed Input Button. */
+  onAddEmbedToPage: () => void;
+  /** Freezes the selected embed's own underlying Card — same
+   *  onFreezeSelected below, just scoped to the one embedded Card
+   *  (gated the same way: savedToVault, not already Frozen, no unsaved draft —
+   *  though an embed never has one, "no page-local draft for an embed" per
+   *  CardEmbed.tsx's own doc comment). */
+  onFreezeEmbed: () => void;
+  /** Flips `metadata.hidden` on the selected embed's own underlying Card — same
+   *  onToggleHiddenSelected below, just scoped to the one embedded Card. */
+  onToggleHiddenEmbed: () => void;
   /** Move Mode for the selected embed (App.tsx's movingEmbedCard) — true while it's
    *  in transit to a Page position. Same in-transit-waiting-for-a-drop-zone shape as
    *  `moving`/`dockCardMoving`, kept as its own flag for the same reason
@@ -418,11 +442,13 @@ export function Dock({
   onRunActionJob,
   selectedEmbedIds,
   selectedEmbedId,
+  selectedEmbedCard,
   isEditingActive,
   onExitEditing,
-  onRemoveEmbed,
-  onDeleteEmbed,
   onDeselectEmbed,
+  onAddEmbedToPage,
+  onFreezeEmbed,
+  onToggleHiddenEmbed,
   embedMoving,
   onEnterEmbedMoveMode,
   onCancelEmbedMove,
@@ -706,9 +732,9 @@ export function Dock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionSignature]);
   /** "Convert" (selectedCards/quote rows) — an anchored popover positioned from its
-   *  own trigger button's rect (computed at click time, same convention every
-   *  other *PickerPos/*ButtonRef pair here uses — see linkPickerPos below), picking
-   *  which form to convert the current selection into. convertOutput/convertError
+   *  own trigger button's rect (computed at click time, same convention
+   *  calloutPickerPos/calloutButtonRef below uses), picking which form to convert
+   *  the current selection into. convertOutput/convertError
    *  hold the compiled result (or
    *  the file-Card error) once a target's actually been picked. Mostly a static
    *  panel, not a live generation — convertLoading is the one exception, true only
@@ -738,25 +764,7 @@ export function Dock({
    *  much costlier accidental double-click than the single-card convert's own
    *  unguarded Add buttons risk. */
   const [bulkAdding, setBulkAdding] = useState(false);
-  /** "Insert card link"/"insert field" (rich-text follow-up to the Apps feature) —
-   *  every rich-text insert action lives here now, not a Card's own header (see
-   *  Card.tsx/CardRichText.tsx). Same anchored-popover convention as
-   *  convertPickerPos/convertButtonRef above. */
-  const [linkPickerPos, setLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const linkButtonRef = useRef<HTMLDivElement>(null);
-  /** "Insert Page link" (Pages + Links + Search rebuild, Phase 2) — same
-   *  anchored-popover convention as linkPickerPos/linkButtonRef above, just for a
-   *  `pageLink` node (a destination) instead of a `cardEmbed` (composed content). */
-  const [pageLinkPickerPos, setPageLinkPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const pageLinkButtonRef = useRef<HTMLDivElement>(null);
-  const [fieldKindPickerPos, setFieldKindPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const fieldButtonRef = useRef<HTMLDivElement>(null);
-  /** "Insert link" (a plain `<a href>` mark, distinct from "insert card link"'s
-   *  `[[cardId]]` embed above) — same anchored-popover convention as
-   *  linkPickerPos/linkButtonRef. */
-  const [linkUrlPickerPos, setLinkUrlPickerPos] = useState<{ left: number; bottom: number } | null>(null);
-  const hyperlinkButtonRef = useRef<HTMLDivElement>(null);
-  /** "Insert callout" — same anchored-popover convention as fieldKindPickerPos
+  /** "Insert callout" — same anchored-popover convention as convertPickerPos
    *  above, picking which of the five fixed kinds (richText/calloutNode.ts) to
    *  insert. */
   const [calloutPickerPos, setCalloutPickerPos] = useState<{ left: number; bottom: number } | null>(null);
@@ -789,19 +797,11 @@ export function Dock({
     selector: ({ editor }: { editor: Editor | null }) => ({
       bold: editor?.isActive("bold") ?? false,
       italic: editor?.isActive("italic") ?? false,
-      strike: editor?.isActive("strike") ?? false,
-      underline: editor?.isActive("underline") ?? false,
       // 0 = no heading active (a plain paragraph) — drives formatHeading's cycle
       // (paragraph -> H1 -> H2 -> … -> H6 -> paragraph) below.
       headingLevel:
         ([1, 2, 3, 4, 5, 6] as const).find((level) => editor?.isActive("heading", { level }) ?? false) ?? 0,
-      bulletList: editor?.isActive("bulletList") ?? false,
-      orderedList: editor?.isActive("orderedList") ?? false,
-      blockquote: editor?.isActive("blockquote") ?? false,
       codeBlock: editor?.isActive("codeBlock") ?? false,
-      link: editor?.isActive("link") ?? false,
-      linkHref: (editor?.getAttributes("link").href as string | undefined) ?? "",
-      taskList: editor?.isActive("taskList") ?? false,
       insideTable: editor?.isActive("table") ?? false,
     }),
   });
@@ -1597,6 +1597,16 @@ export function Dock({
   let modeActions: DockAction[] = [];
 
   if (selectedEmbedId) {
+    // Same option set a selected top-level Card gets (Freeze/Move/Hide/Convert +
+    // processActions below), plus one embed-only extra: "Add to page". Remove/
+    // Delete dropped from this row — CardEmbed.tsx's own header now has a real
+    // close ("X", CardHeaderActions) covering detach the same way a top-level
+    // Card's own header X does, so a second Remove here would be redundant; full
+    // vault deletion isn't offered to a selected top-level Card either (only the
+    // Vault panel does that), so an embed doesn't get it here now either.
+    const embedCard = selectedEmbedCard;
+    const embedAvailable = embedCard ? supportedOperationIds(getCardTypeId(embedCard)) : new Set<string>();
+    const embedHidden = embedCard?.metadata.hidden ?? false;
     modeActions = [
       {
         key: "backEmbed",
@@ -1617,29 +1627,46 @@ export function Dock({
         label: t("dock.action.move"),
         onClick: onEnterEmbedMoveMode,
       },
+      {
+        key: "addEmbedToPage",
+        operationId: null,
+        icon: "pages" as const,
+        label: t("dock.action.addToPage"),
+        onClick: onAddEmbedToPage,
+      },
+      // Freeze — only offered once it's savedToVault and not already Frozen, same
+      // gating as a selected top-level Card's own Freeze (an embed never has a
+      // pending draft to also check — "no page-local draft for an embed").
+      ...(embedCard && embedCard.savedToVault && !embedCard.frozenAt
+        ? [
+            {
+              key: "freezeEmbed",
+              operationId: "card.freeze",
+              icon: "lock" as const,
+              label: t("dock.action.freeze"),
+              onClick: onFreezeEmbed,
+            },
+          ]
+        : []),
+      {
+        key: "toggleHiddenEmbed",
+        operationId: null,
+        icon: embedHidden ? ("eye" as const) : ("eyeOff" as const),
+        label: embedHidden ? t("dock.action.show") : t("dock.action.hide"),
+        onClick: onToggleHiddenEmbed,
+      },
+      {
+        key: "convertEmbed",
+        operationId: null,
+        icon: "convert" as const,
+        label: t("dock.action.convert"),
+        onClick: toggleConvertPicker,
+      },
       // No separate Move to Dock: dropping onto the Dock is now one of Move's own
       // destinations — tap the Dock Cards toggle itself while moving (see
       // dockCardsAction below).
       ...processActions,
-      {
-        key: "removeEmbed",
-        operationId: null,
-        // The "eject from container" glyph — Remove and Close are the same action
-        // now (deselecting is the row's own back-caret above instead), so there's
-        // no separate close-shaped icon competing with it any more.
-        icon: "remove" as const,
-        label: t("dock.action.remove"),
-        onClick: onRemoveEmbed,
-      },
-      {
-        key: "deleteEmbed",
-        operationId: null,
-        icon: "delete" as const,
-        label: t("dock.action.delete"),
-        onClick: onDeleteEmbed,
-        danger: true,
-      },
-    ];
+    ].filter((action) => action.operationId === null || embedAvailable.has(action.operationId));
   } else if (selectedCards.length > 0) {
     // Needs saving if ANY selected Card has a pending draft edit not yet committed,
     // or has never been saved to the Vault at all yet (still page-local scratch
@@ -1836,24 +1863,6 @@ export function Dock({
       disabled: !activeEditor,
     },
     {
-      key: "formatStrike",
-      operationId: null,
-      icon: "strikethrough" as const,
-      label: t("dock.action.strikethrough"),
-      onClick: () => activeEditor?.chain().focus().toggleStrike().run(),
-      active: formattingState?.strike ?? false,
-      disabled: !activeEditor,
-    },
-    {
-      key: "formatUnderline",
-      operationId: null,
-      icon: "underline" as const,
-      label: t("dock.action.underline"),
-      onClick: () => activeEditor?.chain().focus().toggleUnderline().run(),
-      active: formattingState?.underline ?? false,
-      disabled: !activeEditor,
-    },
-    {
       key: "formatHeading",
       operationId: null,
       icon: "heading" as const,
@@ -1879,42 +1888,11 @@ export function Dock({
       active: (formattingState?.headingLevel ?? 0) > 0,
       disabled: !activeEditor,
     },
-    {
-      key: "formatBulletList",
-      operationId: null,
-      icon: "bulletList" as const,
-      label: t("dock.action.bulletList"),
-      onClick: () => activeEditor?.chain().focus().toggleBulletList().run(),
-      active: formattingState?.bulletList ?? false,
-      disabled: !activeEditor,
-    },
-    {
-      key: "formatOrderedList",
-      operationId: null,
-      icon: "orderedList" as const,
-      label: t("dock.action.orderedList"),
-      onClick: () => activeEditor?.chain().focus().toggleOrderedList().run(),
-      active: formattingState?.orderedList ?? false,
-      disabled: !activeEditor,
-    },
-    {
-      key: "formatTaskList",
-      operationId: null,
-      icon: "taskList" as const,
-      label: t("card.insertTaskList"),
-      onClick: () => activeEditor?.chain().focus().toggleTaskList().run(),
-      active: formattingState?.taskList ?? false,
-      disabled: !activeEditor,
-    },
-    {
-      key: "formatBlockquote",
-      operationId: null,
-      icon: "blockquote" as const,
-      label: t("dock.action.blockquote"),
-      onClick: () => activeEditor?.chain().focus().toggleBlockquote().run(),
-      active: formattingState?.blockquote ?? false,
-      disabled: !activeEditor,
-    },
+    // Bullet/numbered lists, blockquote, and horizontal rule have no toolbar
+    // button any more — StarterKit's own input rules already turn "- "/"1. "/
+    // "> "/"---" typed at a line start into the real thing, and that's the only
+    // way to reach them now (this toolbar's fixed vocabulary: bold/italic/
+    // heading, table/code block/image/callout/math, new card/new page).
     {
       key: "formatCodeBlock",
       operationId: null,
@@ -1922,35 +1900,6 @@ export function Dock({
       label: t("dock.action.codeBlock"),
       onClick: () => activeEditor?.chain().focus().toggleCodeBlock().run(),
       active: formattingState?.codeBlock ?? false,
-      disabled: !activeEditor,
-    },
-    {
-      key: "formatHorizontalRule",
-      operationId: null,
-      icon: "horizontalRule" as const,
-      label: t("dock.action.horizontalRule"),
-      onClick: () => activeEditor?.chain().focus().setHorizontalRule().run(),
-      disabled: !activeEditor,
-    },
-    // "Insert link" (plain <a href>, distinct from "insert card link" below) opens
-    // its own anchored popover (LinkUrlPicker, rendered specially further down)
-    // pre-filled with the selection's existing href if the cursor already sits on
-    // a link — same "open a popover rather than fire directly" precedent
-    // insertCardLink/insertActionField already use.
-    {
-      key: "formatLink",
-      operationId: null,
-      icon: "externalLink" as const,
-      label: t("card.insertHyperlink"),
-      onClick: () => {
-        setLinkUrlPickerPos((open) => {
-          if (open) return null;
-          const rect = hyperlinkButtonRef.current?.getBoundingClientRect();
-          if (!rect) return null;
-          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
-        });
-      },
-      active: formattingState?.link ?? false,
       disabled: !activeEditor,
     },
     {
@@ -2052,70 +2001,37 @@ export function Dock({
       onClick: () => activeEditor?.chain().focus().insertContent({ type: "mathInline", attrs: { latex: "" } }).run(),
       disabled: !activeEditor,
     },
-    // The three rich-text insert actions (Apps feature follow-up) — moved here from
-    // a Card's own header (Card.tsx) so every action lives in the Dock. "Insert card
-    // link"/"insert field" open their own anchored popover (rendered specially in
-    // the row below, same as "process" above) rather than firing immediately;
-    // "insert action button" needs no configuration to be usable, so it inserts
-    // straight away, same as the formatting toggles above it.
+    // "New card"/"New page" (replacing the old "link to an existing card/page"
+    // pickers) — create-and-insert in one click, no picker: a brand-new blank
+    // vault Card embedded at the cursor, or a brand-new blank Page linked at the
+    // cursor. Linking to something that already exists is still reachable the
+    // normal way (Open from Vault — FeedInputButton.tsx/the Vault panel), just
+    // not from this toolbar any more.
     {
-      key: "insertCardLink",
+      key: "insertNewCard",
       operationId: null,
-      icon: "link" as const,
-      label: t("card.insertLink"),
-      onClick: () => {
-        setLinkPickerPos((open) => {
-          if (open) return null;
-          const rect = linkButtonRef.current?.getBoundingClientRect();
-          if (!rect) return null;
-          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
-        });
+      icon: "plus" as const,
+      label: t("dock.action.newCard"),
+      onClick: async () => {
+        if (!activeEditor) return;
+        const card = await createCard({ title: "", content: "" });
+        activeEditor.chain().focus().insertContent({ type: "cardEmbed", attrs: { cardId: card.id } }).run();
       },
       disabled: !activeEditor,
     },
     {
-      key: "insertPageLink",
+      key: "insertNewPage",
       operationId: null,
       icon: "pages" as const,
-      label: t("card.insertPageLink"),
-      onClick: () => {
-        setPageLinkPickerPos((open) => {
-          if (open) return null;
-          const rect = pageLinkButtonRef.current?.getBoundingClientRect();
-          if (!rect) return null;
-          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
-        });
-      },
-      disabled: !activeEditor,
-    },
-    {
-      key: "insertActionButton",
-      operationId: null,
-      icon: "insertButton" as const,
-      label: t("card.insertActionButton"),
-      onClick: () =>
+      label: t("dock.action.newPage"),
+      onClick: async () => {
+        if (!activeEditor) return;
+        const page = await createPage();
         activeEditor
-          ?.chain()
+          .chain()
           .focus()
-          .insertContent({
-            type: "actionButton",
-            attrs: { label: t("actionCard.defaultLabel"), jobId: null, jobParams: "{}" },
-          })
-          .run(),
-      disabled: !activeEditor,
-    },
-    {
-      key: "insertActionField",
-      operationId: null,
-      icon: "insertTextbox" as const,
-      label: t("card.insertActionField"),
-      onClick: () => {
-        setFieldKindPickerPos((open) => {
-          if (open) return null;
-          const rect = fieldButtonRef.current?.getBoundingClientRect();
-          if (!rect) return null;
-          return { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
-        });
+          .insertContent({ type: "pageLink", attrs: { pageId: page.id, title: page.title ?? "" } })
+          .run();
       },
       disabled: !activeEditor,
     },
@@ -2634,59 +2550,6 @@ export function Dock({
                   <Icon name={action.icon} spin={action.spin} />
                 </Button>
               </div>
-            ) : action.key === "insertCardLink" ? (
-              <div key="insertCardLink" className="dock__insert-wrap" ref={linkButtonRef}>
-                <Button
-                  iconOnly
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  title={action.label}
-                >
-                  <Icon name={action.icon} />
-                </Button>
-              </div>
-            ) : action.key === "insertPageLink" ? (
-              <div key="insertPageLink" className="dock__insert-wrap" ref={pageLinkButtonRef}>
-                <Button
-                  iconOnly
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  title={action.label}
-                >
-                  <Icon name={action.icon} />
-                </Button>
-              </div>
-            ) : action.key === "insertActionField" ? (
-              <div key="insertActionField" className="dock__insert-wrap" ref={fieldButtonRef}>
-                <Button
-                  iconOnly
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  title={action.label}
-                >
-                  <Icon name={action.icon} />
-                </Button>
-              </div>
-            ) : action.key === "formatLink" ? (
-              <div key="formatLink" className="dock__insert-wrap" ref={hyperlinkButtonRef}>
-                <Button
-                  iconOnly
-                  className={action.active ? "button--pressed" : undefined}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={action.onClick}
-                  disabled={action.disabled}
-                  aria-label={action.label}
-                  title={action.label}
-                >
-                  <Icon name={action.icon} />
-                </Button>
-              </div>
             ) : action.key === "insertCallout" ? (
               <div key="insertCallout" className="dock__insert-wrap" ref={calloutButtonRef}>
                 <Button
@@ -2855,80 +2718,6 @@ export function Dock({
           onPickAiCleanup={extractionTarget() ? () => handleConvertFileCard("aiCleanup") : null}
           onPickDivide={divideTarget() ? handleConvertToDividedCards : null}
           onClose={() => setConvertPickerPos(null)}
-        />
-      )}
-      {linkPickerPos && (
-        <CardLinkPicker
-          style={{
-            position: "fixed",
-            top: "auto",
-            right: "auto",
-            left: linkPickerPos.left,
-            bottom: linkPickerPos.bottom,
-          }}
-          excludeSelector=".dock__insert-wrap"
-          onSelect={(card: Card) => {
-            activeEditor?.chain().focus().insertContent({ type: "cardEmbed", attrs: { cardId: card.id } }).run();
-            setLinkPickerPos(null);
-          }}
-          onClose={() => setLinkPickerPos(null)}
-        />
-      )}
-      {pageLinkPickerPos && (
-        <PageLinkPicker
-          style={{
-            position: "fixed",
-            top: "auto",
-            right: "auto",
-            left: pageLinkPickerPos.left,
-            bottom: pageLinkPickerPos.bottom,
-          }}
-          excludeSelector=".dock__insert-wrap"
-          parentPageId={currentPage?.id}
-          onSelect={(page) => {
-            activeEditor
-              ?.chain()
-              .focus()
-              .insertContent({ type: "pageLink", attrs: { pageId: page.id, title: page.title ?? "" } })
-              .run();
-            setPageLinkPickerPos(null);
-          }}
-          onClose={() => setPageLinkPickerPos(null)}
-        />
-      )}
-      {fieldKindPickerPos && (
-        <ActionFieldKindPicker
-          style={{ left: fieldKindPickerPos.left, bottom: fieldKindPickerPos.bottom }}
-          excludeSelector=".dock__insert-wrap"
-          onSelect={(kind: ActionFieldKind) => {
-            activeEditor
-              ?.chain()
-              .focus()
-              .insertContent({ type: "actionField", attrs: defaultActionFieldAttrs(kind) })
-              .run();
-            setFieldKindPickerPos(null);
-          }}
-          onClose={() => setFieldKindPickerPos(null)}
-        />
-      )}
-      {linkUrlPickerPos && (
-        <LinkUrlPicker
-          style={{ left: linkUrlPickerPos.left, bottom: linkUrlPickerPos.bottom }}
-          excludeSelector=".dock__insert-wrap"
-          initialUrl={formattingState?.linkHref ?? ""}
-          onSubmit={(url) => {
-            activeEditor?.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-            setLinkUrlPickerPos(null);
-          }}
-          onRemove={
-            formattingState?.link
-              ? () => {
-                  activeEditor?.chain().focus().extendMarkRange("link").unsetLink().run();
-                  setLinkUrlPickerPos(null);
-                }
-              : undefined
-          }
-          onClose={() => setLinkUrlPickerPos(null)}
         />
       )}
       {calloutPickerPos && (

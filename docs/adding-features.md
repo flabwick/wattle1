@@ -102,6 +102,28 @@ section automatically, every time it's called. Concretely:
    needed — both consume the same `ActionJobRegistry` through
    `ActionStepFields.tsx`.
 
+## Checklist: adding a new `wattle.*` SDK method (the "js" CardType's sandbox)
+
+Unlike the action-job registry above, `prompts/wattle-js/system.md` is **not**
+auto-generated from anything — the whole point of the `wattle` SDK
+(`packages/web/src/lib/wattleSandboxBootstrap.ts`'s own `wattle` object,
+dispatched host-side by `wattleSdkHost.ts`) is that it stays deliberately much
+smaller than the ~30-job action registry, so it has to be documented by hand:
+
+1. Add the method to `wattleSandboxBootstrap.ts`'s `wattle` object (a read/draw
+   method calls straight into the iframe's own DOM or `rpc(...)`; a mutating
+   method calls `requireHandler(...)` first).
+2. Add the matching `case` to `wattleSdkHost.ts`'s `handleWattleRpcCall` — real
+   `api.*` calls for a read, an existing `actionJobRegistry.ts` job via
+   `onRunActionJob` for a mutation (add a new job there first if nothing
+   existing covers it, same checklist above).
+3. **Hand-edit `prompts/wattle-js/system.md`** — add the method to its own SDK
+   reference section, and a worked example if it's non-obvious. Also update the
+   condensed copy of this same reference inside `prompts/agent/system.md`'s own
+   "LIVE / INTERACTIVE (JS) CARDS" section — it's a separate hand-maintained copy
+   (the agent's own tool-calling flow never sees `wattle-js/system.md`
+   directly), not spliced from the same source.
+
 ## The prompt files, and what invalidates each one
 
 | Prompt file | Goes stale when… |
@@ -111,6 +133,7 @@ section automatically, every time it's called. Concretely:
 | `diff/system.md`, `diff/system-instructed.md`, `footnote/system.md`, `highlight/system.md` | The shape of `content` a Card can hold changes; the anchor/JSON entry format these processes emit changes (`src/annotationParser.ts`). |
 | `summary/system.md` | Rarely — it only reads plain text and produces plain text. Mostly stable across CardType/Operation changes. |
 | `action-script/system.md` | Its static prose (not the auto-generated ACTIONS section) needs updating per the Action job checklist above — new field kinds, or a job whose behavior isn't self-explanatory from its own fields. |
+| `wattle-js/system.md`, and the condensed copy inside `agent/system.md` | A `wattle.*` SDK method is added, renamed, or its behavior changes — see the wattle SDK checklist above. Neither is auto-generated; both need a hand edit, and they can drift from each other since they're separate copies. |
 
 ## Why this doc exists instead of a lint rule
 

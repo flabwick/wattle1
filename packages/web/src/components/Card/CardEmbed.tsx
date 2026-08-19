@@ -1,12 +1,16 @@
 import { useRef, useState } from "react";
 import type { TouchEvent } from "react";
 import type { AnnotationProcess } from "../../api/client.js";
-import { Icon, InputField } from "../primitives/index.js";
+import { addExistingCardToDock, wrapCardInStack } from "../../api/client.js";
 import { useCard } from "../../hooks/useCard.js";
 import { useDismiss } from "../../hooks/useDismiss.js";
 import { editCard } from "../../lib/cardStore.js";
+import { getCardTypeId } from "../../lib/getCardTypeId.js";
 import { t } from "../../i18n/index.js";
 import { CardRichText } from "./richtext/CardRichText.js";
+import { CardHeaderStart } from "./CardHeaderStart.js";
+import { CardHeaderActions } from "./CardHeaderActions.js";
+import { CardFlippableBody } from "./CardFlippableBody.js";
 import "./CardEmbed.css";
 
 /** Hard cap on nesting depth — a genuine cycle (A embeds B embeds A) is caught by
@@ -54,6 +58,13 @@ interface CardEmbedProps {
    *  content — undefined only when there's nowhere to route a removal (no onSelectEmbed
    *  wired in from above). */
   onRemoveSelf?: () => void;
+  /** "Turn into stack" (CardHeaderActions, below) succeeded — the new Stack Card's
+   *  own id, which the caller (CardEmbedNodeView.tsx) repoints this embed's own
+   *  `data-card-id` attr at, since CardEmbed itself has no ProseMirror node to
+   *  update. Omitted wherever there's nowhere to route that repoint (e.g.
+   *  DockCardView.tsx's own `hideHeader` usage, which never shows the button that
+   *  would call this in the first place). */
+  onConvertedToStack?: (newCardId: string) => void;
   /** Hides the header's collapse/expand caret entirely and always renders content in
    *  full. */
   hideFoldButton?: boolean;
@@ -96,6 +107,7 @@ export function CardEmbed({
   onRemoveAnnotation,
   onUpdateAnnotationText,
   onRemoveSelf,
+  onConvertedToStack,
   hideFoldButton,
   hideHeader,
 }: CardEmbedProps) {
@@ -104,7 +116,24 @@ export function CardEmbed({
 
   const { card, state } = useCard(cardId);
   const [folded, setFolded] = useState(false);
+  const [showingInfo, setShowingInfo] = useState(false);
   const editing = editingEmbedIds.has(cardId);
+
+  // Header actions (CardHeaderActions, below) — real parity with a top-level
+  // Card's own header (Card.tsx), not this component's old bespoke fold+title
+  // bar. "Turn into stack" has no PageCard to repoint the way a top-level Card's
+  // own conversion does (stackService.convertCardToStack) — wrapCardInStack
+  // wraps the Card by id directly and hands back a new Stack Card id, which
+  // `onConvertedToStack` repoints this embed's own reference at (the original
+  // Card is left untouched everywhere else it's shown or embedded).
+  async function handleTurnIntoStack() {
+    const newCard = await wrapCardInStack(cardId);
+    onConvertedToStack?.(newCard.id);
+  }
+
+  async function handleSendToDock() {
+    await addExistingCardToDock(cardId);
+  }
 
   // Click-outside-to-close, same convention as Card.tsx's own inline editor: closes
   // just this embed's edit mode, leaving its ancestor(s) and any sibling embeds'
@@ -214,64 +243,81 @@ export function CardEmbed({
       onTouchMove={handleTouchMove}
       onTouchCancel={handleTouchCancel}
     >
-      {!hideHeader && (
-        <div className="card__header">
-          <div className="card__header-start">
-            {!hideFoldButton && (
-              <button
-                type="button"
-                className="card__caret-btn"
-                aria-label={folded ? t("card.expand") : t("card.collapse")}
-                title={folded ? t("card.expand") : t("card.collapse")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFolded((f) => !f);
-                }}
-                onDoubleClick={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-              >
-                <Icon name="down" className={`card__caret${folded ? " card__caret--collapsed" : ""}`} />
-              </button>
-            )}
-            {editing ? (
-              <InputField
-                className="card__title-input"
-                value={card.title}
-                placeholder={t("card.titlePlaceholder")}
-                onChange={(e) => editCard(cardId, { title: e.target.value })}
-                // Clicking into the title to place the cursor shouldn't also toggle
-                // this embed's Dock selection on/off via the container's own onClick —
-                // "click" is a separate native event from "mousedown"/"pointerdown", so
-                // this needs its own stopPropagation independent of the container's.
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              card.title && <span className="card__title">{card.title}</span>
-            )}
+      {hideHeader ? (
+        // DockCardView.tsx's own usage — it supplies its own header (identical
+        // CardHeaderStart + CardHeaderActions, wired to the Dock Card's own
+        // actions) around this component, so this one stays fold-only, exactly
+        // as before.
+        (hideFoldButton || !folded) && (
+          <CardRichText
+            key={cardId}
+            content={card.content}
+            onChangeContent={(next) => editCard(cardId, { content: next })}
+            editable={editing}
+            cardId={cardId}
+            annotations={card.metadata.annotations}
+            ancestorIds={childAncestorIds}
+            depth={depth + 1}
+            selectedEmbedIds={selectedEmbedIds}
+            onSelectEmbed={onSelectEmbed}
+            onRequestEditEmbed={onRequestEditEmbed}
+            editingEmbedIds={editingEmbedIds}
+            onToggleEmbedEdit={onToggleEmbedEdit}
+            onRunProcess={onRunProcess}
+            onCreateManualHighlight={onCreateManualHighlight}
+            onAcceptDiff={onAcceptDiff}
+            onRemoveAnnotation={onRemoveAnnotation}
+            onUpdateAnnotationText={onUpdateAnnotationText}
+          />
+        )
+      ) : (
+        // Real parity with a top-level Card's own header (Card.tsx): fold-caret
+        // plus folded-only title (CardHeaderStart), turn-into-stack/send-to-
+        // Dock/info-flip/close (CardHeaderActions) — same components, same
+        // actions, not a smaller bespoke set. Title editing lives on the info
+        // face now too (CardFlippableBody/CardInfoPanel), same as every other
+        // CardType — this embed's own `editing` state (double-click/long-press)
+        // now only ever governs whether the CONTENT itself is editable.
+        <>
+          <div className="card__header">
+            <CardHeaderStart title={card.title} collapsed={folded} onToggleCollapsed={() => setFolded((f) => !f)} />
+            <CardHeaderActions
+              onTurnIntoStack={getCardTypeId(card) === "stack" ? undefined : handleTurnIntoStack}
+              onSendToDock={handleSendToDock}
+              showingInfo={showingInfo}
+              onToggleInfo={() => setShowingInfo((v) => !v)}
+              onRemove={() => onRemoveSelf?.()}
+            />
           </div>
-        </div>
-      )}
-      {(hideFoldButton || hideHeader || !folded) && (
-        <CardRichText
-          key={cardId}
-          content={card.content}
-          onChangeContent={(next) => editCard(cardId, { content: next })}
-          editable={editing}
-          cardId={cardId}
-          annotations={card.metadata.annotations}
-          ancestorIds={childAncestorIds}
-          depth={depth + 1}
-          selectedEmbedIds={selectedEmbedIds}
-          onSelectEmbed={onSelectEmbed}
-          onRequestEditEmbed={onRequestEditEmbed}
-          editingEmbedIds={editingEmbedIds}
-          onToggleEmbedEdit={onToggleEmbedEdit}
-          onRunProcess={onRunProcess}
-          onCreateManualHighlight={onCreateManualHighlight}
-          onAcceptDiff={onAcceptDiff}
-          onRemoveAnnotation={onRemoveAnnotation}
-          onUpdateAnnotationText={onUpdateAnnotationText}
-        />
+          {!folded && (
+            <CardFlippableBody
+              card={card}
+              showingInfo={showingInfo}
+              onChangeTitle={(title) => editCard(cardId, { title })}
+            >
+              <CardRichText
+                key={cardId}
+                content={card.content}
+                onChangeContent={(next) => editCard(cardId, { content: next })}
+                editable={editing}
+                cardId={cardId}
+                annotations={card.metadata.annotations}
+                ancestorIds={childAncestorIds}
+                depth={depth + 1}
+                selectedEmbedIds={selectedEmbedIds}
+                onSelectEmbed={onSelectEmbed}
+                onRequestEditEmbed={onRequestEditEmbed}
+                editingEmbedIds={editingEmbedIds}
+                onToggleEmbedEdit={onToggleEmbedEdit}
+                onRunProcess={onRunProcess}
+                onCreateManualHighlight={onCreateManualHighlight}
+                onAcceptDiff={onAcceptDiff}
+                onRemoveAnnotation={onRemoveAnnotation}
+                onUpdateAnnotationText={onUpdateAnnotationText}
+              />
+            </CardFlippableBody>
+          )}
+        </>
       )}
     </div>
   );

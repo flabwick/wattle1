@@ -392,12 +392,8 @@ interface PageStackProps {
     onOpenVault: () => void;
     onCreateChildPage: () => void;
     onUploadFile: (file: File) => void;
-    onAddStack: () => void;
-    onAddAction: () => void;
     onAddPrompt: () => void;
-    onAddPageLinks: () => void;
-    onAddSearch: () => void;
-    onAddInput: () => void;
+    onAddJs: () => void;
   } | null;
 }
 
@@ -601,12 +597,8 @@ export function PageStack({
               onOpenVault={feedInput.onOpenVault}
               onCreateChildPage={feedInput.onCreateChildPage}
               onUploadFile={feedInput.onUploadFile}
-              onAddStack={feedInput.onAddStack}
-              onAddAction={feedInput.onAddAction}
               onAddPrompt={feedInput.onAddPrompt}
-              onAddPageLinks={feedInput.onAddPageLinks}
-              onAddSearch={feedInput.onAddSearch}
-              onAddInput={feedInput.onAddInput}
+              onAddJs={feedInput.onAddJs}
             />
           )}
         </div>

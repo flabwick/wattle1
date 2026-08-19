@@ -1,4 +1,4 @@
-import type { PageCardWithCard, StackData, StackMember, StackMemberWithCard } from "@wattle/shared";
+import type { Card, PageCardWithCard, StackData, StackMember, StackMemberWithCard } from "@wattle/shared";
 import { cardMetadataV1Schema, defaultMetadata, migrateMetadata } from "@wattle/shared";
 import { prisma } from "../db.js";
 import { serializeCard } from "./cardService.js";
@@ -146,6 +146,36 @@ export async function convertCardToStack(pageCardId: string): Promise<PageCardWi
     updatedAt: updated.updatedAt.toISOString(),
     card: serializeCard(updated.card),
   };
+}
+
+/** Wraps an arbitrary Card (by id, no PageCard row required) into a brand-new Stack
+ *  as its first member — a `[[cardId]]` embed's own "turn into stack" header
+ *  action (CardEmbed.tsx), which has no PageCard slot to repoint the way
+ *  convertCardToStack above does for a top-level Card. The original Card itself
+ *  is left completely unchanged (still the same id, same content, still whatever
+ *  it always was) — only wrapped as a member — so every OTHER place that same
+ *  Card is embedded or placed keeps showing it exactly as before; the caller is
+ *  responsible for repointing just *this one* embed's own `data-card-id` at the
+ *  returned Stack's id (there's nothing here to do that on its behalf, since this
+ *  service has no idea which Card's content, if any, references `cardId`). */
+export async function wrapCardInStack(cardId: string): Promise<Card> {
+  await prisma.card.findUniqueOrThrow({ where: { id: cardId } });
+  const stackCard = await prisma.card.create({
+    data: {
+      title: "",
+      content: "",
+      metadata: JSON.stringify({ ...defaultMetadata(), typeId: "stack", stack: { activeIndex: 0 } }),
+      savedToVault: false,
+    },
+  });
+  await prisma.stackMember.create({
+    data: {
+      stackCard: { connect: { id: stackCard.id } },
+      order: 0,
+      card: { connect: { id: cardId } },
+    },
+  });
+  return serializeCard(stackCard);
 }
 
 /** Appends a new blank member (always a plain "note" — see cardService's default
