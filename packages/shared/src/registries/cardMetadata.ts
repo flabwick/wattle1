@@ -268,12 +268,17 @@ export const cardMetadataV1Schema = z.object({
    *  (registries/definitions/jsCardType.ts). `source` is the whole script;
    *  `content` (the base Card field every type has) is unused here, same
    *  "the real data lives in a typed metadata field, not content" convention
-   *  `search`/`input` above already use. Nothing else to persist: the script
-   *  reads/draws itself fresh on every run (JsCardView.tsx) — there's no
-   *  separate "last output" to cache the way prompt's `iterations` do. */
+   *  `search`/`input` above already use. `state` is the ONE thing a script
+   *  can explicitly ask to survive a reload (`wattle.state.get`/`set`,
+   *  wattleSandboxBootstrap.ts) — everything else (the script's own local
+   *  variables) is deliberately NOT persisted here: top-level code re-running
+   *  fresh on every load/rerun is the whole DataviewJS-style live-query model
+   *  (JsCardView.tsx), and silently keeping local state around would fight
+   *  that rather than support it. A script opts in per key, explicitly. */
   js: z
     .object({
       source: z.string(),
+      state: z.record(z.unknown()).optional(),
     })
     .optional(),
 });

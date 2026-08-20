@@ -8,6 +8,7 @@ import { ActionStepFields } from "./types/action/ActionStepFields.js";
 import { actionJobRegistry } from "../../lib/actionJobRegistry.js";
 import { runGenerateSteps } from "../../lib/actionScriptJob.js";
 import { generateJsCardSource } from "../../lib/wattleJsJob.js";
+import { validateWattleJsSource } from "../../lib/wattleJsValidate.js";
 import { CARD_MATERIALS } from "../../lib/cardMaterials.js";
 import { t } from "../../i18n/index.js";
 import "./CardInfoPanel.css";
@@ -93,6 +94,16 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
 
   function applyJsSource() {
     if (isFrozen) return;
+    const invalidReason = validateWattleJsSource(jsSourceDraft);
+    if (invalidReason) {
+      // Same "never save something that can't parse" rule as Generate below —
+      // a hand-edit left mid-syntax (an unclosed bracket, a stray paste)
+      // shouldn't silently land in the Card either; Apply is the one point a
+      // hand-edited draft actually commits, so this is where to catch it.
+      setGenerateJsError(`Script isn't valid JavaScript: ${invalidReason}`);
+      return;
+    }
+    setGenerateJsError(null);
     editCard(card.id, { metadata: { ...card.metadata, js: { source: jsSourceDraft } } });
   }
 
@@ -103,6 +114,10 @@ export function CardInfoPanel({ card, pageSiblings, excludePageCardId, onChangeT
     setGenerateJsError(null);
     try {
       const next = await generateJsCardSource(trimmed, card.metadata.js?.source);
+      const invalidReason = validateWattleJsSource(next);
+      if (invalidReason) {
+        throw new Error(`Generated script isn't valid JavaScript: ${invalidReason}`);
+      }
       setJsSourceDraft(next);
       editCard(card.id, { metadata: { ...card.metadata, js: { source: next } } });
       setJsInstruction("");

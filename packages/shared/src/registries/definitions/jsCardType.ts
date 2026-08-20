@@ -15,6 +15,11 @@ import type { CardTypeDefinition } from "../cardType.js";
  */
 export const jsCardDataSchema = z.object({
   source: z.string(),
+  /** Set only via `wattle.state.set` (wattleSandboxBootstrap.ts) — a script's
+   *  explicit opt-in for a specific value to survive a reload, since its own
+   *  local variables never do (see cardMetadata.ts's own doc comment on this
+   *  same field for why that's deliberate). */
+  state: z.record(z.unknown()).optional(),
 });
 
 export type JsCardData = z.infer<typeof jsCardDataSchema>;

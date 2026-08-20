@@ -28,3 +28,30 @@ export async function generateWattleJs(instruction: string, currentScript?: stri
   }
   return text;
 }
+
+/**
+ * The sandbox's own `wattle.ai(prompt, opts)` — a raw, one-shot model call with
+ * no vault-context injection, no fixed system prompt, and no card side effects,
+ * unlike `wattle.generate` above (which always goes through the app's own
+ * "promptCard" action job and therefore always touches a real Card, if only
+ * briefly, even in its "here" mode). This is the deliberately silent
+ * primitive: nothing is created, saved, or shown anywhere unless the calling
+ * script itself draws the returned text with `wattle.ui.*`.
+ */
+export async function runWattleAi(prompt: string, system?: string): Promise<string> {
+  const providerId = activeProviderId();
+  const provider = modelProviderRegistry.get(providerId);
+  const settings = configuredProviderSettings(providerId);
+
+  let text = "";
+  for await (const chunk of provider.generate(prompt, {
+    systemPrompt: system,
+    model: settings?.model,
+    temperature: settings?.temperature,
+    maxTokens: settings?.maxTokens,
+  })) {
+    text += chunk.text;
+    if (chunk.done) break;
+  }
+  return text;
+}

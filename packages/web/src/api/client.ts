@@ -125,6 +125,16 @@ export const generateWattleJs = (instruction: string, currentScript?: string) =>
     body: JSON.stringify({ instruction, currentScript }),
   });
 
+/** The sandbox's own `wattle.ai(prompt, opts)` — a raw, one-shot, silent model
+ *  call (no vault context, no card side effects) — see wattleJsService's own
+ *  runWattleAi doc comment (packages/api/src/services/wattleJsService.ts) for
+ *  why this is kept distinct from generateWattleJs above. */
+export const runWattleAi = (prompt: string, system?: string) =>
+  request<{ text: string }>("/wattle-js/ai", {
+    method: "POST",
+    body: JSON.stringify({ prompt, system }),
+  });
+
 // Vault
 export const listCards = (q?: string) =>
   request<Card[]>(`/cards${q ? `?q=${encodeURIComponent(q)}` : ""}`);

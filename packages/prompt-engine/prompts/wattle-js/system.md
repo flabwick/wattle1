@@ -36,12 +36,24 @@ Draw (this card's own content — safe anywhere):
 - `wattle.ui.list(items)` — `items` is an array of strings, OR `{ label, onClick }` objects for a clickable row (onClick runs as a handler, same rule as a button)
 - `wattle.ui.table(rows, columns?)` — `rows` is an array of plain objects; `columns` defaults to the first row's own keys
 
+Also pure/always safe (not a draw, not an RPC — just a helper):
+- `wattle.diffText(oldText, newText)` → `{ type: "same"|"add"|"remove", value }[]`, one entry per line. Pair with `wattle.ui.diff` (below) to show the same hunks, and a button to actually apply the change — this is how you build a "propose, then require a click to apply" flow instead of writing a model's output straight into a card unreviewed.
+
+Draw (this card's own content — safe anywhere), one more:
+- `wattle.ui.diff(oldText, newText)` — renders a line-by-line diff (additions/removals tinted, same convention as the app's own AI-suggested-edit review), computed the same way as `wattle.diffText`
+
 Mutate (handler only — throws otherwise):
 - `wattle.createCard({ title, content, typeId?, pageId? })` → `{ cardId, pageCardId }`
-- `wattle.editCard(id, { title?, content? })`
+- `wattle.editCard(id, { title?, content?, script? })` — `script` rewrites ANY js card's own source (not just this one — `id` can be a different card entirely), complete replacement not a diff; throws if `id` isn't actually a js-typed card
 - `wattle.removeCard(pageCardId)`
-- `wattle.generate(instructions, { context?: "page"|"own", present?: "card"|"here" })` — `"card"` (default) adds a new sibling card below, same as the app's own Prompt card; `"here"` returns `{ html, title }` for YOU to draw with `wattle.ui.html(html)` instead of adding a card
+- `wattle.moveCard(pageCardId, destPageTitle)` — moves a card (by its pageCardId, same id shape as removeCard) to the end of another Page, found by title (created if it doesn't exist yet)
+- `wattle.generate(instructions, { context?: "page"|"own", present?: "card"|"here" })` — `"card"` (default) adds a new sibling card below, same as the app's own Prompt card; `"here"` returns `{ html, title }` for YOU to draw with `wattle.ui.html(html)` instead of adding a card. Always touches a real Card under the hood (briefly, even in `"here"` mode) and uses the app's own vault-aware prompt — prefer this when you want a "real" generation with page/vault context.
+- `wattle.ai(prompt, { system? })` → plain text back, nothing else. A raw one-shot model call with NO vault-context injection and NO card ever created, saved, or shown anywhere — the silent/headless option. Use this when you want a generation step to run invisibly (a calculation, a classification, a draft to review before showing) rather than the app's own vault-aware `wattle.generate`. Nothing appears on screen from this call alone — only what you go on to draw with `wattle.ui.*` or apply with `wattle.editCard`/`wattle.createCard`.
 - `wattle.navigate.toPage(title)` — a Page title (found, or created if it doesn't exist yet), not an id
+
+Persist (this card's own explicit opt-in storage — everything else, including every plain local variable, resets on reload; nothing survives automatically):
+- `wattle.state.get(key, defaultValue?)` — safe anywhere, returns whatever was last saved under `key` on THIS card, or `defaultValue`
+- `wattle.state.set(key, value)` — handler only; saves one key. Merges into whatever else is already saved — other keys aren't touched
 
 There is no `fetch`, no other network access, and no way to reach the rest of the page's DOM — this card's own script is fully sandboxed. `content`/`html` values are plain HTML strings (the same restricted-ish tag set the rest of the app already writes) — write real tags, not markdown.
 
@@ -82,4 +94,45 @@ A button that generates a sibling card:
 wattle.ui.button("Summarize this page", async () => {
   await wattle.generate("Summarize everything on this page in a short paragraph.")
 })
+```
+
+Propose a silent AI edit to another card, show it as a diff, and only apply it on a second, explicit click — the review-before-apply pattern. `wattle.ai` here means nothing is generated or shown until "Propose edit" is clicked, and nothing is written to the card until "Apply" is clicked afterward:
+```js
+const targetId = "abc123" // a card id you were actually given, never invent one
+let original = null
+let proposed = null
+
+function render() {
+  wattle.ui.clear()
+  wattle.ui.button("Propose edit", async () => {
+    const card = await wattle.card(targetId)
+    original = card.text
+    proposed = await wattle.ai(`Rewrite this to be more concise:\n\n${original}`)
+    render()
+  })
+  if (proposed !== null) {
+    wattle.ui.diff(original, proposed)
+    wattle.ui.button("Apply", async () => {
+      await wattle.editCard(targetId, { content: `<p>${proposed}</p>` })
+      proposed = null
+      render()
+    })
+  }
+}
+render()
+```
+
+A counter that survives a reload — `wattle.state` is the only thing that does; the plain `let count = 0` pattern above would reset every time:
+```js
+let count = await wattle.state.get("count", 0)
+function render() {
+  wattle.ui.clear()
+  wattle.ui.text(`Count: ${count}`)
+  wattle.ui.button("+1", async () => {
+    count += 1
+    await wattle.state.set("count", count)
+    render()
+  })
+}
+render()
 ```

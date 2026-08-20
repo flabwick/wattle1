@@ -4,6 +4,7 @@ import type { CardTypeEditorProps } from "../../../../registries/cardTypeUi.js";
 import { useCard } from "../../../../hooks/useCard.js";
 import { editCard } from "../../../../lib/cardStore.js";
 import { generateJsCardSource } from "../../../../lib/wattleJsJob.js";
+import { validateWattleJsSource } from "../../../../lib/wattleJsValidate.js";
 import { t } from "../../../../i18n/index.js";
 import "../../Card.css";
 import "./JsCard.css";
@@ -33,6 +34,16 @@ export function JsCardEditor({ pageCard }: CardTypeEditorProps) {
     setGenerateError(null);
     try {
       const next = await generateJsCardSource(trimmed, source);
+      const invalidReason = validateWattleJsSource(next);
+      if (invalidReason) {
+        // Never silently save something that can't even parse — the model's
+        // response wasn't actually a runnable script (a refusal, stray
+        // markdown, truncated output). Report it here, right where it was
+        // generated, instead of letting it land in the Card and only
+        // surfacing later inside the live sandbox with no clue where it came
+        // from.
+        throw new Error(`Generated script isn't valid JavaScript: ${invalidReason}`);
+      }
       setSource(next);
       setInstruction("");
     } catch (err) {

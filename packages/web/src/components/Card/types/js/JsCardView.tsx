@@ -5,7 +5,7 @@ import { useCard } from "../../../../hooks/useCard.js";
 import { editCard } from "../../../../lib/cardStore.js";
 import { buildSandboxHtml } from "../../../../lib/wattleSandboxBootstrap.js";
 import { readSandboxThemeTokens } from "../../../../lib/wattleSandboxTheme.js";
-import { handleWattleRpcCall, type WattleSdkHostContext } from "../../../../lib/wattleSdkHost.js";
+import { handleWattleRpcCall, wattleCallMayChangeOwnPage, type WattleSdkHostContext } from "../../../../lib/wattleSdkHost.js";
 import { CardHeaderStart } from "../../CardHeaderStart.js";
 import { CardHeaderActions } from "../../CardHeaderActions.js";
 import { CardFlippableBody } from "../../CardFlippableBody.js";
@@ -70,6 +70,11 @@ export function JsCardView({
   const [iframeHeight, setIframeHeight] = useState(INITIAL_IFRAME_HEIGHT);
   const shellRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Consumed by the pageCardsKey effect further down; set from inside the
+  // message-listener effect above it (a call that may change this page's own
+  // card list sets it before the mutation even resolves) — declared up here,
+  // ahead of both, so neither effect closure is stale about it.
+  const skipNextPageCardsRerun = useRef(true);
 
   const hostCtx: WattleSdkHostContext = {
     pageCard,
@@ -105,6 +110,9 @@ export function JsCardView({
       }
       if (data.type === "call" && data.id && data.method) {
         const callId = data.id;
+        if (wattleCallMayChangeOwnPage(hostCtx, data.method, data.args ?? [])) {
+          skipNextPageCardsRerun.current = true;
+        }
         handleWattleRpcCall(hostCtx, data.method, data.args ?? [])
           .then((result) => {
             iframe.contentWindow?.postMessage({ wattleJs: true, type: "result", id: callId, ok: true, result }, "*");
@@ -133,9 +141,10 @@ export function JsCardView({
   // The lightweight rerun path: posts straight into the already-loaded iframe
   // rather than touching `srcdoc`. Skips its own first invocation (the mount
   // above already covers the very first load) so this never double-fires a
-  // run at startup.
+  // run at startup — and skips one more whenever the message-listener effect
+  // above just flagged that this exact change was self-caused (see
+  // wattleCallMayChangeOwnPage's own doc comment).
   const pageCardsKey = (pageSiblings ?? []).map((pc) => pc.id).join(",");
-  const skipNextPageCardsRerun = useRef(true);
   useEffect(() => {
     if (skipNextPageCardsRerun.current) {
       skipNextPageCardsRerun.current = false;
@@ -144,7 +153,7 @@ export function JsCardView({
     iframeRef.current?.contentWindow?.postMessage({ wattleJs: true, type: "rerun" }, "*");
   }, [pageCardsKey]);
 
-  const srcDoc = buildSandboxHtml(source, readSandboxThemeTokens(shellRef.current));
+  const srcDoc = buildSandboxHtml(source, readSandboxThemeTokens(shellRef.current), canonicalCard.id);
   const isHidden = Boolean(pageCard.card.metadata.hidden);
 
   return (

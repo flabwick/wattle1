@@ -53,11 +53,16 @@ function toBase64Utf8(text: string): string {
  *  looking like `Button`/`InputField` (packages/web/src/components/primitives/)
  *  automatically, including matching light/dark and reduced-motion, without
  *  this file hand-encoding any of that itself. */
-export function buildSandboxHtml(source: string, theme: SandboxThemeTokens): string {
+export function buildSandboxHtml(source: string, theme: SandboxThemeTokens, cardId?: string): string {
   const encodedSource = toBase64Utf8(source);
   const rootVars = Object.entries(theme)
     .map(([name, value]) => `    ${name}: ${value};`)
     .join("\n");
+  // A devtools sourceURL — see runMain's own doc comment further down for why
+  // this exists at all. Not a JS string literal (it's raw text after a
+  // "//# sourceURL=" comment, which must stay on one line with no spaces), so
+  // strip everything outside a conservative safe set rather than escaping it.
+  const scriptSourceUrl = `wattle-js-card-${(cardId ?? "unsaved").replace(/[^a-zA-Z0-9_-]/g, "")}.js`;
   return `<!doctype html>
 <html>
 <head>
@@ -84,11 +89,19 @@ ${rootVars}
     background: transparent;
     padding: var(--space-2) 0;
   }
-  #root > :first-child { margin-top: 0; }
-  #root > :last-child { margin-bottom: 0; }
-  p { margin: 0 0 var(--space-2); }
-  ul, ol { margin: 0 0 var(--space-2); padding-left: var(--space-4); }
-  table { border-collapse: collapse; width: 100%; margin-bottom: var(--space-2); }
+  /* Every wattle.ui.* draw call appends one more element straight into #root
+     as a plain sibling, with no idea what came before or after it — a flex
+     column with a fixed gap is what keeps a run of them (several buttons in a
+     row, a field followed by a button) stacking predictably one per line
+     instead of the old bare block flow, where an inline-flex button had no
+     defined spacing from its neighbors and would crowd or wrap against them.
+     Each child stretches to the full width by default (right for fields,
+     tables, lists, diffs, paragraphs) — .wattle-button overrides this to stay
+     a natural, compact size instead of stretching edge to edge. */
+  #root { display: flex; flex-direction: column; gap: var(--space-2); }
+  p { margin: 0; }
+  ul, ol { margin: 0; padding-left: var(--space-4); }
+  table { border-collapse: collapse; width: 100%; }
   th, td { border: var(--border-width-thin) solid var(--color-border); padding: var(--space-1) var(--space-2); text-align: left; font-size: var(--font-size-sm); }
   th { background: var(--color-surface-raised); }
 
@@ -112,7 +125,7 @@ ${rootVars}
     border-color: var(--color-accent);
     box-shadow: 0 0 0 var(--border-width-thin) var(--color-accent);
   }
-  label.wattle-field { display: block; margin-bottom: var(--space-2); }
+  label.wattle-field { display: block; }
   label.wattle-field > span { display: block; font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-1); }
   label.wattle-field.wattle-field--toggle { display: flex; align-items: center; gap: var(--space-2); }
 
@@ -136,12 +149,12 @@ ${rootVars}
     cursor: pointer;
     box-shadow: var(--shadow-button);
     transform: translate(0, 0);
-    margin: 0 0 var(--space-2);
+    align-self: flex-start;
     transition: transform var(--duration-strike) var(--ease-strike), box-shadow var(--duration-strike) var(--ease-strike);
   }
   button.wattle-button:active:not(:disabled) { box-shadow: var(--shadow-button-pressed); transform: translate(2px, 2px); }
   button.wattle-button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: var(--shadow-button-pressed); transform: translate(2px, 2px); }
-  ul.wattle-list { list-style: none; padding: 0; margin: 0 0 var(--space-2); }
+  ul.wattle-list { list-style: none; padding: 0; margin: 0; }
   ul.wattle-list li { padding: var(--space-1) 0; border-bottom: var(--border-width-thin) solid var(--color-border); }
   ul.wattle-list li:last-child { border-bottom: none; }
   button.wattle-list-item {
@@ -156,6 +169,25 @@ ${rootVars}
     padding: 0;
   }
   button.wattle-list-item:hover { text-decoration: underline; }
+  /* wattle.ui.diff — the same red/green-by-tint convention as the app's own
+     annotateCard diff review, built from the accent/danger tokens rather than
+     hardcoded colors so it still tracks light/dark automatically. */
+  .wattle-diff {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+    white-space: pre-wrap;
+    border: var(--border-width-thin) solid var(--color-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .wattle-diff-line { padding: 0 var(--space-2); }
+  .wattle-diff-line--add { background: color-mix(in srgb, var(--color-accent) 15%, transparent); }
+  .wattle-diff-line--remove {
+    background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+    text-decoration: line-through;
+    opacity: 0.75;
+  }
+  .wattle-diff-line--same { color: var(--color-text-muted); }
   @media (prefers-reduced-motion: reduce) {
     button.wattle-button { transition: none; }
   }
@@ -175,6 +207,21 @@ ${rootVars}
   function post(type, payload) {
     parent.postMessage(Object.assign({ wattleJs: true, type: type }, payload), "*");
   }
+
+  // A safety net for anything that ISN'T already inside runMain's own
+  // try/catch (below) or a handler's own runHandler wrapper — a raw uncaught
+  // exception from browser-native code, a rejected promise nobody awaited.
+  // Without this, that whole class of failure would only ever show up in
+  // devtools, invisible from the card itself — this makes sure it always also
+  // surfaces as the same red error banner every other failure here does.
+  window.addEventListener("error", function (event) {
+    reportError(event.error || event.message || "Unknown script error");
+    event.preventDefault();
+  });
+  window.addEventListener("unhandledrejection", function (event) {
+    reportError(event.reason || "Unhandled promise rejection");
+    event.preventDefault();
+  });
 
   // Auto-sizing: the host can't read this document's own scrollHeight directly
   // (a sandboxed iframe without allow-same-origin is cross-origin from the
@@ -234,7 +281,27 @@ ${rootVars}
   }
 
   function reportError(err) {
-    var message = err && err.message ? err.message : String(err);
+    var message;
+    if (err instanceof Error) {
+      message = (err.name || "Error") + ": " + err.message;
+    } else if (err && typeof err === "object" && typeof err.message === "string") {
+      message = err.message;
+    } else {
+      message = String(err);
+    }
+    // The one syntax-error class this sandbox sees over and over in practice
+    // (from real use this session) is a script that isn't actually valid JS on
+    // its own — usually a leftover markdown code fence or explanatory text
+    // pasted in alongside the code. The bare "Unexpected token" browsers give
+    // for this is accurate but not actionable on its own, so name the likely
+    // cause explicitly rather than leaving it as a guessing game.
+    if (/unexpected (token|identifier|end of input)|invalid or unexpected token/i.test(message)) {
+      message +=
+        "\\n\\nThis is a JavaScript syntax error — the script text itself doesn't parse as-is. " +
+        "The most common cause is extra content alongside the actual code (a markdown code " +
+        "fence line, explanatory text before/after it, a stray closing bracket). Check the " +
+        "very start and end of the script for anything that isn't real JavaScript.";
+    }
     post("error", { message: message });
   }
 
@@ -242,6 +309,42 @@ ${rootVars}
     var e = document.createElement(tag);
     if (className) e.className = className;
     return e;
+  }
+
+  // Line-level LCS diff — a plain O(n*m) table, not a full Myers diff: good
+  // enough for card-sized text (a note, a script), which is all this ever runs
+  // against. The size guard below falls back to a blunt whole-text replacement
+  // rather than allocating an unreasonable table for two genuinely huge inputs.
+  function diffLines(oldText, newText) {
+    var a = String(oldText == null ? "" : oldText).split("\\n");
+    var b = String(newText == null ? "" : newText).split("\\n");
+    var n = a.length;
+    var m = b.length;
+    if (n * m > 250000) {
+      var bluntHunks = [];
+      a.forEach(function (line) { bluntHunks.push({ type: "remove", value: line }); });
+      b.forEach(function (line) { bluntHunks.push({ type: "add", value: line }); });
+      return bluntHunks;
+    }
+    var dp = [];
+    var i, j;
+    for (i = 0; i <= n; i++) dp.push(new Array(m + 1).fill(0));
+    for (i = n - 1; i >= 0; i--) {
+      for (j = m - 1; j >= 0; j--) {
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    var hunks = [];
+    i = 0;
+    j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) { hunks.push({ type: "same", value: a[i] }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { hunks.push({ type: "remove", value: a[i] }); i++; }
+      else { hunks.push({ type: "add", value: b[j] }); j++; }
+    }
+    while (i < n) { hunks.push({ type: "remove", value: a[i] }); i++; }
+    while (j < m) { hunks.push({ type: "add", value: b[j] }); j++; }
+    return hunks;
   }
 
   // --- wattle.ui.* — draws directly into this document, no RPC ---------------
@@ -394,12 +497,29 @@ ${rootVars}
       t.appendChild(tbody);
       root.appendChild(t);
     },
+    diff: function (oldText, newText) {
+      var hunks = diffLines(oldText, newText);
+      var wrap = el("div", "wattle-diff");
+      hunks.forEach(function (hunk) {
+        var line = el("div", "wattle-diff-line wattle-diff-line--" + hunk.type);
+        line.textContent = hunk.value === "" ? " " : hunk.value;
+        wrap.appendChild(line);
+      });
+      root.appendChild(wrap);
+    },
   };
 
   // --- wattle.* — read (unrestricted) and mutate (handler-only, via RPC) -----
 
   var wattle = {
     ui: ui,
+    // Pure, always-safe compute — not a draw, not an RPC, just a helper for
+    // building your own review-before-apply flow: pair it with wattle.ui.diff
+    // (renders the same hunks) and a wattle.ui.button that only THEN calls
+    // wattle.editCard/wattle.ai's result into place.
+    diffText: function (oldText, newText) {
+      return diffLines(oldText, newText);
+    },
     on: function (_eventName, _handler) {
       // Reserved for a future event source beyond a button click (e.g. "this
       // block's own field changed without a submit") — v1 only wires
@@ -433,6 +553,12 @@ ${rootVars}
       requireHandler("createCard");
       return rpc("createCard", [input]);
     },
+    // patch.script rewrites ANY js card's own source (not just this one) —
+    // the same "complete replacement, not a diff" rule as everywhere else in
+    // this SDK; throws if id isn't actually a js-typed card. Pair with
+    // wattle.diffText/wattle.ui.diff and a confirm button to show the change
+    // and require a click before it actually lands, rather than applying a
+    // model's proposed edit unreviewed.
     editCard: function (id, patch) {
       requireHandler("editCard");
       return rpc("editCard", [id, patch]);
@@ -441,14 +567,43 @@ ${rootVars}
       requireHandler("removeCard");
       return rpc("removeCard", [pageCardId]);
     },
+    moveCard: function (pageCardId, destPageTitle) {
+      requireHandler("moveCard");
+      return rpc("moveCard", [pageCardId, destPageTitle]);
+    },
     generate: function (instructions, opts) {
       requireHandler("generate");
       return rpc("generate", [instructions, opts]);
+    },
+    // A raw, silent, one-shot model call: no vault-context injection, no
+    // system prompt of its own beyond what you pass in opts.system, and no
+    // card is ever created or shown — just text back into the script. This is
+    // what lets a script run a generation step WITHOUT it becoming visible:
+    // nothing appears anywhere unless you go on to call wattle.ui.* (or
+    // wattle.editCard/createCard) with the result yourself.
+    ai: function (prompt, opts) {
+      requireHandler("ai");
+      return rpc("ai", [prompt, opts]);
     },
     navigate: {
       toPage: function (pageIdOrTitle) {
         requireHandler("navigate.toPage");
         return rpc("navigate.toPage", [pageIdOrTitle]);
+      },
+    },
+    // This card's own explicit, opt-in persistence — the ONE thing that
+    // survives a reload. Local variables never do (top-level code re-running
+    // fresh on every load/rerun is the whole point of this being a live
+    // query), so a script that wants something to stick around across a
+    // reload has to say so explicitly, one key at a time, rather than getting
+    // it automatically for everything.
+    state: {
+      get: function (key, defaultValue) {
+        return rpc("state.get", [key, defaultValue]);
+      },
+      set: function (key, value) {
+        requireHandler("state.set");
+        return rpc("state.set", [key, value]);
       },
     },
   };
@@ -474,7 +629,11 @@ ${rootVars}
     try {
       var encoded = "${encodedSource}";
       var source = decodeURIComponent(escape(atob(encoded)));
-      var fn = new Function("wattle", "return (async () => {\\n" + source + "\\n})()");
+      // sourceURL labels this specific card's compiled script in devtools —
+      // without it, every js card's own errors show up under the same
+      // anonymous "VM##" label, making it impossible to tell which card an
+      // error in the console even belongs to once more than one is open.
+      var fn = new Function("wattle", "return (async () => {\\n" + source + "\\n})()\\n//# sourceURL=${scriptSourceUrl}\\n");
       await fn(wattle);
       post("done", {});
     } catch (err) {
@@ -496,6 +655,7 @@ ${rootVars}
 
   runMain();
 })();
+//# sourceURL=wattle-js-bootstrap.js
 </script>
 </body>
 </html>`;
