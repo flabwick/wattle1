@@ -19,18 +19,66 @@ const EXCLUDED_JOB_IDS: ReadonlySet<string> = new Set([
   "generateSteps",
 ]);
 
+/**
+ * Job ids left out of the tool set entirely for scope: "cards" (the Dock's
+ * per-card "ask AI to edit" flow) — that flow promises the person their
+ * selected cards get mutated in place and nothing else changes, so every job
+ * that would add a new Card or Page to the workspace (rather than editing one
+ * already in scope) is off the table here, even though it's still a fine tool
+ * for the page-wide agent (scope: "page", App.tsx's own separate flow).
+ * - createCard, promptCard: the two direct ways to add a new Card. promptCard
+ *   in particular routes through the older streamed-generation pipeline
+ *   (prompts/interactive/system.md), which can itself emit further `<card>`
+ *   tags (including an "input" card asking a question) — a second, older
+ *   card-creation path this exclusion list has to name separately from
+ *   createCard, since it doesn't go through this agent's own tool-call loop
+ *   at all once triggered.
+ * - createPage, createChildPage: add a whole new Page.
+ * - linkExistingCard, copyExistingCard: bring a different, unrelated Card
+ *   onto the page (or a copy of one) — not an edit to what's selected.
+ * - createStack, convertToStack, addStackMember: each creates a new stack
+ *   container Card (or a new blank alternate) under the hood.
+ * - runCard: replays a saved Action card's own step list, which may itself
+ *   contain any of the jobs above — same loophole, closed the same way.
+ */
+const CARDS_SCOPE_EXCLUDED_JOB_IDS: ReadonlySet<string> = new Set([
+  "createCard",
+  "promptCard",
+  "createPage",
+  "createChildPage",
+  "linkExistingCard",
+  "copyExistingCard",
+  "createStack",
+  "convertToStack",
+  "addStackMember",
+  "runCard",
+]);
+
+/**
+ * Job id + field key pairs whose "select" options get trimmed for scope: "cards"
+ * — annotateCard/process drops "diff", the one process that does NOT apply
+ * itself (system.md: "a deliberate human-approval step you cannot skip"),
+ * which is the exact "not actually done yet" gap this flow shouldn't leave the
+ * person with. footnote/highlight both apply immediately and stay available.
+ */
+const CARDS_SCOPE_OPTION_EXCLUSIONS: Readonly<Record<string, ReadonlySet<string>>> = {
+  "annotateCard.process": new Set(["diff"]),
+};
+
 /** One field's JSON-Schema property, plus the description text for it — split out
  *  so buildAgentToolDefinitions can merge it into `properties[field.key]` below. */
-function fieldSchema(field: ActionFieldSpec): { schema: Record<string, unknown>; description: string } {
+function fieldSchema(field: ActionFieldSpec, excluded?: ReadonlySet<string>): { schema: Record<string, unknown>; description: string } {
   switch (field.kind) {
     case "text":
     case "richtext":
       return { schema: { type: "string" }, description: field.label };
-    case "select":
+    case "select": {
+      const options = excluded ? field.options.filter((o) => !excluded.has(o.value)) : field.options;
       return {
-        schema: { type: "string", enum: field.options.map((o) => o.value) },
-        description: `${field.label} (${field.options.map((o) => `${o.value} = ${o.label}`).join(", ")})`,
+        schema: { type: "string", enum: options.map((o) => o.value) },
+        description: `${field.label} (${options.map((o) => `${o.value} = ${o.label}`).join(", ")})`,
       };
+    }
     case "cardPicker":
       // Unlike the action-script text form (card:<id>/step:N), the agent always has
       // real ids already — the page context it was given lists every pageCardId
@@ -58,14 +106,16 @@ function fieldSchema(field: ActionFieldSpec): { schema: Record<string, unknown>;
  * job's own label, and `input_schema` is a flat `{ field.key: <JSON Schema> }`
  * object built from each field's own kind (see fieldSchema above).
  */
-export function buildAgentToolDefinitions(): ToolDefinition[] {
+export function buildAgentToolDefinitions(scope: "page" | "cards" = "page"): ToolDefinition[] {
   return actionJobRegistry
     .list()
     .filter((job) => !EXCLUDED_JOB_IDS.has(job.id))
+    .filter((job) => scope !== "cards" || !CARDS_SCOPE_EXCLUDED_JOB_IDS.has(job.id))
     .map((job) => {
       const properties: Record<string, unknown> = {};
       for (const field of job.fields) {
-        const { schema, description } = fieldSchema(field);
+        const excluded = scope === "cards" ? CARDS_SCOPE_OPTION_EXCLUSIONS[`${job.id}.${field.key}`] : undefined;
+        const { schema, description } = fieldSchema(field, excluded);
         properties[field.key] = { ...schema, description };
       }
       return {

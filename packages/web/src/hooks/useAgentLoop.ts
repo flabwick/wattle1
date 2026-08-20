@@ -202,7 +202,7 @@ export function useAgentLoop(): UseAgentLoopResult {
         scope === "cards" && selectedCards
           ? await buildCardsContextText(page, selectedCards)
           : await buildPageContextText(page);
-      const tools = buildAgentToolDefinitions();
+      const tools = buildAgentToolDefinitions(scope);
       const pageCards = buildPageCardLookup(page);
       const anchor = resolveAnchorPageCard(page, selectedCards);
 

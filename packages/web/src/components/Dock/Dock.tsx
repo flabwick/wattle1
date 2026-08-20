@@ -2380,24 +2380,33 @@ export function Dock({
                   flips back to the front face to ask another question. No prev/
                   next any more (unlike the old read-only lookup): each ask is a
                   fresh round of real mutations, not one more answer to browse
-                  back to. */}
-              <div className="dock__lookup-rail">
-                <Button
-                  iconOnly
-                  onClick={handleAskAgain}
-                  aria-label={t("quickLookup.askAgain")}
-                  title={t("quickLookup.askAgain")}
-                >
-                  <Icon name="edit" />
-                </Button>
-              </div>
+                  back to. Hidden while running — the compact generating row
+                  below already has its own stop control, and showing "ask
+                  again" mid-run just adds a second row for no reason. */}
+              {!agentLoop.running && (
+                <div className="dock__lookup-rail">
+                  <Button
+                    iconOnly
+                    onClick={handleAskAgain}
+                    aria-label={t("quickLookup.askAgain")}
+                    title={t("quickLookup.askAgain")}
+                  >
+                    <Icon name="edit" />
+                  </Button>
+                </div>
+              )}
               {agentLoop.running ? (
                 <div className="dock__lookup-generating">
                   <Icon name="generate" spin />
                   <span>{agentAskStatus ?? t("promptCard.sending")}</span>
-                  <Button onClick={() => agentAskAbortRef.current?.abort()}>
+                  <Button
+                    iconOnly
+                    className="dock__lookup-stop"
+                    onClick={() => agentAskAbortRef.current?.abort()}
+                    aria-label={t("promptCard.stop")}
+                    title={t("promptCard.stop")}
+                  >
                     <Icon name="stop" />
-                    {t("promptCard.stop")}
                   </Button>
                 </div>
               ) : agentAskResultText !== null || agentAskNotice !== null ? (
